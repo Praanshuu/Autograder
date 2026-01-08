@@ -101,8 +101,8 @@ export default function CreateAssignment() {
                                         <div className="flex-1">
                                             <h3 className="font-medium text-gray-900">{q.title}</h3>
                                             <span className={`text-xs px-2 py-1 rounded-full ${q.difficulty === "Easy" ? "bg-green-100 text-green-700" :
-                                                    q.difficulty === "Medium" ? "bg-yellow-100 text-yellow-700" :
-                                                        "bg-red-100 text-red-700"
+                                                q.difficulty === "Medium" ? "bg-yellow-100 text-yellow-700" :
+                                                    "bg-red-100 text-red-700"
                                                 }`}>
                                                 {q.difficulty}
                                             </span>
