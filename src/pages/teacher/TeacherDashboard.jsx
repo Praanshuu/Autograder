@@ -1,4 +1,4 @@
-import { Plus, MoreVertical, Users } from "lucide-react";
+import { MoreVertical, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 
@@ -6,6 +6,7 @@ import TeacherLayout from "../../components/layout/TeacherLayout";
 import { MOCK_CLASSES } from "../../mocks/classes";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../../components/ui/card";
+import CreateClassDialog from "../../components/features/teacher/CreateClassDialog";
 
 // Motion Variants
 const containerVariants = {
@@ -81,10 +82,7 @@ export default function TeacherDashboard() {
                     <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
                     <p className="text-muted-foreground mt-1 text-lg">Overview of your active classes</p>
                 </div>
-                <Button className="gap-2 shadow-lg hover:shadow-xl transition-all">
-                    <Plus className="w-5 h-5" />
-                    Create Class
-                </Button>
+                <CreateClassDialog />
             </motion.div>
 
             <motion.div

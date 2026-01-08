@@ -3,6 +3,10 @@ import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import ClassPage from "./pages/teacher/ClassPage";
 import CreateAssignment from "./pages/teacher/CreateAssignment";
 import ArchivedClasses from "./pages/teacher/ArchivedClasses";
+import AssignmentDashboard from "./pages/teacher/AssignmentDashboard";
+import GradingInterface from "./pages/teacher/GradingInterface";
+import Settings from "./pages/teacher/Settings";
+import AllAssignments from "./pages/teacher/AllAssignments";
 
 // Placeholder Components
 const Landing = () => (
@@ -31,6 +35,10 @@ function App() {
         <Route path="/teacher/archived" element={<ArchivedClasses />} />
         <Route path="/teacher/class/:classId" element={<ClassPage />} />
         <Route path="/teacher/assignment/create" element={<CreateAssignment />} />
+        <Route path="/teacher/assignment/:id" element={<AssignmentDashboard />} />
+        <Route path="/teacher/grading/submission/:id" element={<GradingInterface />} />
+        <Route path="/teacher/settings" element={<Settings />} />
+        <Route path="/teacher/assignments" element={<AllAssignments />} />
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />

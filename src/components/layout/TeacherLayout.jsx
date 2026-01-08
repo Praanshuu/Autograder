@@ -58,14 +58,14 @@ export default function TeacherLayout({ children }) {
             <aside className="w-64 bg-white border-r border-gray-200 fixed h-full z-30 hidden md:flex flex-col">
                 <div className="h-16 flex items-center px-6 border-b border-gray-100">
                     <GraduationCap className="w-7 h-7 text-indigo-600 mr-2" />
-                    <span className="text-xl font-bold text-gray-900 tracking-tight">Autograder</span>
+                    <span className="text-xl font-bold text-gray-900 tracking-tight">Autograder +</span>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4">
                     <SidebarSection title="Main">
                         <SidebarItem
                             icon={LayoutDashboard}
-                            label="Home"
+                            label="Dashboard"
                             href="/teacher/dashboard"
                             active={location.pathname === "/teacher/dashboard"}
                         />
@@ -79,14 +79,14 @@ export default function TeacherLayout({ children }) {
 
                     <SidebarSection title="Teaching">
                         <SidebarItem
-                            icon={BookOpen}
-                            label="Active Classes"
-                            href="/teacher/dashboard"
-                            count={3}
+                            icon={BookOpen} // Was Assignments or Classes, let's make it distinct if we had a global list
+                            label="All Assignments"
+                            href="/teacher/assignments" // Placeholder for a global assignment view
+                            active={location.pathname === "/teacher/assignments"}
                         />
                         <SidebarItem
                             icon={Archive}
-                            label="Archived"
+                            label="Archived Classes"
                             href="/teacher/archived"
                             active={location.pathname === "/teacher/archived"}
                         />

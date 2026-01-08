@@ -31,7 +31,7 @@ export default function ClassPage() {
                     </div>
 
                     <div>
-                        <h1 className="text-4xl font-bold tracking-tight mb-2">Autograder</h1>
+                        <h1 className="text-4xl font-bold tracking-tight mb-2">Autograder +</h1>
                         <p className="text-xl opacity-90 font-medium">CSE (AI) • Section 2024</p>
                     </div>
                 </div>
