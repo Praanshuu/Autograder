@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
 import ClassPage from "./pages/teacher/ClassPage";
 import CreateAssignment from "./pages/teacher/CreateAssignment";
+import ArchivedClasses from "./pages/teacher/ArchivedClasses";
 
 // Placeholder Components
 const Landing = () => (
@@ -27,6 +28,7 @@ function App() {
 
         {/* Teacher Routes */}
         <Route path="/teacher/dashboard" element={<TeacherDashboard />} />
+        <Route path="/teacher/archived" element={<ArchivedClasses />} />
         <Route path="/teacher/class/:classId" element={<ClassPage />} />
         <Route path="/teacher/assignment/create" element={<CreateAssignment />} />
 

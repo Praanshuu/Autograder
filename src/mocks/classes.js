@@ -27,3 +27,15 @@ export const MOCK_CLASSES = [
         bgPattern: "bg-indigo-600"
     }
 ];
+
+export const ARCHIVED_CLASSES = [
+    {
+        id: "ac1",
+        name: "Software Engineering",
+        section: "CS401 - Fall 2023",
+        students: 38,
+        assignments: 8,
+        pendingGrading: false,
+        bgPattern: "bg-purple-600"
+    }
+];

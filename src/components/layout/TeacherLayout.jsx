@@ -88,6 +88,7 @@ export default function TeacherLayout({ children }) {
                             icon={Archive}
                             label="Archived"
                             href="/teacher/archived"
+                            active={location.pathname === "/teacher/archived"}
                         />
                     </SidebarSection>
 
