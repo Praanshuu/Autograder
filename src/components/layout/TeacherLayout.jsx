@@ -10,10 +10,14 @@ import {
     Bell,
     Search,
     ChevronDown,
-    Menu
+    Menu,
+    Clock,
+    CheckCircle2,
+    MessageSquare
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
+import { Input } from "../ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "../ui/dropdown-menu";
 
 const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
@@ -37,6 +41,34 @@ const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
         )}
     </Link>
 );
+
+// Mock Notifications
+const NOTIFICATIONS = [
+    {
+        id: 1,
+        title: "New Submission: Introduction to React",
+        desc: "Alice Johnson submitted ahead of schedule.",
+        time: "Just now",
+        unread: true,
+        type: "submission"
+    },
+    {
+        id: 2,
+        title: "Question from Bob Smith",
+        desc: "Bob commented on 'Advanced Typescript': 'Can I use any...'",
+        time: "25 min ago",
+        unread: true,
+        type: "comment"
+    },
+    {
+        id: 3,
+        title: "Assignment Due Soon",
+        desc: "Data Structures & Algorithms - Assignment 3 is due in 1 hour.",
+        time: "1 hour ago",
+        unread: false,
+        type: "alert"
+    }
+];
 
 const SidebarSection = ({ title, children }) => (
     <div className="mb-6">
@@ -113,35 +145,98 @@ export default function TeacherLayout({ children }) {
             {/* Main Content Wrapper */}
             <div className="flex-1 md:ml-64 flex flex-col min-h-screen">
                 {/* Topbar */}
+                {/* Topbar */}
                 <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-8 sticky top-0 z-20">
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 flex-1">
                         {/* Mobile Overlay Toggle */}
                         <Button variant="ghost" size="icon" className="md:hidden">
                             <Menu className="w-5 h-5" />
                         </Button>
 
-                        {/* Breadcrumbs Placeholder - Dynamic in real app */}
-                        <nav className="hidden sm:flex items-center text-sm font-medium text-gray-500">
-                            <span className="hover:text-gray-900 cursor-pointer">Classroom</span>
-                            <span className="mx-2">/</span>
-                            <span className="text-gray-900">Dashboard</span>
+                        {/* Dynamic Breadcrumbs */}
+                        <nav className="hidden sm:flex items-center text-sm font-medium text-gray-500 capitalize">
+                            <Link to="/teacher/dashboard" className="hover:text-gray-900 transition-colors">
+                                Classroom
+                            </Link>
+                            {location.pathname.split('/').filter(p => p !== 'teacher').map((segment, index) => (
+                                <div key={segment} className="flex items-center">
+                                    <span className="mx-2 text-gray-300">/</span>
+                                    <span className={cn(
+                                        "truncate max-w-[150px]",
+                                        index === location.pathname.split('/').filter(p => p !== 'teacher').length - 1
+                                            ? "text-gray-900 font-semibold"
+                                            : "hover:text-gray-900 cursor-pointer transition-colors"
+                                    )}>
+                                        {segment.replace(/-/g, ' ')}
+                                    </span>
+                                </div>
+                            ))}
                         </nav>
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900">
+                        {/* Search Bar */}
+                        <div className="hidden md:block relative w-64 lg:w-80 transition-all focus-within:w-96">
+                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                            <Input
+                                placeholder="Search students, classes, or assignments..."
+                                className="pl-9 bg-gray-50 border-gray-200 focus:bg-white transition-colors"
+                            />
+                        </div>
+                        <Button variant="ghost" size="icon" className="md:hidden text-gray-500">
                             <Search className="w-5 h-5" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 relative">
-                            <Bell className="w-5 h-5" />
-                            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-                        </Button>
 
-                        <div className="h-6 w-px bg-gray-200 mx-1" />
+                        <div className="relative">
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="text-gray-500 hover:text-gray-900 relative">
+                                        <Bell className="w-5 h-5" />
+                                        <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-80 p-0 bg-white">
+                                    <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                                        <h4 className="font-semibold text-gray-900">Notifications</h4>
+                                        <span className="text-xs text-indigo-600 hover:text-indigo-700 cursor-pointer">Mark all read</span>
+                                    </div>
+                                    <div className="max-h-[350px] overflow-y-auto">
+                                        {NOTIFICATIONS.map((notif) => (
+                                            <DropdownMenuItem key={notif.id} className="p-4 cursor-pointer focus:bg-gray-50 border-b border-gray-50 last:border-0 items-start gap-3">
+                                                <div className={`mt-1 p-1.5 rounded-full shrink-0 ${notif.type === 'submission' ? 'bg-green-100 text-green-600' :
+                                                    notif.type === 'comment' ? 'bg-blue-100 text-blue-600' :
+                                                        'bg-orange-100 text-orange-600'
+                                                    }`}>
+                                                    {notif.type === 'submission' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                                                        notif.type === 'comment' ? <MessageSquare className="w-3.5 h-3.5" /> :
+                                                            <Clock className="w-3.5 h-3.5" />
+                                                    }
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <div className="flex justify-between items-start gap-2">
+                                                        <p className={`text-sm ${notif.unread ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                                                            {notif.title}
+                                                        </p>
+                                                        {notif.unread && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full mt-1.5" />}
+                                                    </div>
+                                                    <p className="text-xs text-gray-500 line-clamp-2">{notif.desc}</p>
+                                                    <p className="text-xs text-gray-400 pt-1">{notif.time}</p>
+                                                </div>
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </div>
+                                    <div className="p-3 border-t border-gray-100 bg-gray-50 text-center">
+                                        <Button variant="link" className="text-xs h-auto p-0 text-gray-500">View all notifications</Button>
+                                    </div>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </div>
+
+                        <div className="h-6 w-px bg-gray-200 mx-1 hidden sm:block" />
 
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 rounded-full hover:bg-gray-100">
+                                <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 rounded-full hover:bg-gray-100 ring-offset-2 focus-visible:ring-2">
                                     <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
                                         JD
                                     </div>
@@ -152,10 +247,14 @@ export default function TeacherLayout({ children }) {
                             <DropdownMenuContent align="end" className="w-56">
                                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem>Profile</DropdownMenuItem>
-                                <DropdownMenuItem>Settings</DropdownMenuItem>
+                                <DropdownMenuItem className="cursor-pointer">
+                                    Profile
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild className="cursor-pointer">
+                                    <Link to="/teacher/settings">Settings</Link>
+                                </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-red-600 focus:text-red-700 focus:bg-red-50">
+                                <DropdownMenuItem className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
                                     Logout
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
