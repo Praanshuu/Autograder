@@ -8,7 +8,8 @@ import {
     Save,
     ChevronRight,
     ChevronLeft,
-    TerminalSquare
+    TerminalSquare,
+    History
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -20,6 +21,7 @@ import { Textarea } from "../../components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { MOCK_SUBMISSIONS } from "../../mocks/assignments";
+import LearningTrajectory from "../../components/features/analytics/LearningTrajectory";
 
 export default function GradingInterface() {
     const { id } = useParams();
@@ -81,15 +83,19 @@ export default function GradingInterface() {
                 </div>
 
                 {/* Right Pane: Grading Tools */}
-                <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-10">
+                <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-20">
                     <Tabs defaultValue="autograder" className="flex-1 flex flex-col">
                         <div className="border-b px-4">
-                            <TabsList className="w-full justify-start h-12 bg-transparent p-0">
-                                <TabsTrigger value="autograder" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-4">
+                            <TabsList className="w-full justify-start h-12 bg-transparent p-0 gap-4">
+                                <TabsTrigger value="autograder" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
                                     Autograder
                                 </TabsTrigger>
-                                <TabsTrigger value="manual" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-4">
-                                    Rubric & Feedback
+                                <TabsTrigger value="manual" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
+                                    Rubric
+                                </TabsTrigger>
+                                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0 flex items-center gap-2">
+                                    <History className="w-3.5 h-3.5" />
+                                    History
                                 </TabsTrigger>
                             </TabsList>
                         </div>
@@ -178,6 +184,35 @@ export default function GradingInterface() {
                                         />
                                     </div>
                                 </div>
+                            </TabsContent>
+
+                            <TabsContent value="history" className="mt-0 space-y-4">
+                                {submission.history ? (
+                                    <LearningTrajectory
+                                        data={submission.history}
+                                        studentName={submission.studentName}
+                                    />
+                                ) : (
+                                    <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-lg border border-dashed">
+                                        <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                        <p>No history data available for this student.</p>
+                                    </div>
+                                )}
+
+                                <Card>
+                                    <CardHeader className="pb-3">
+                                        <CardTitle className="text-sm font-medium">Teacher Notes</CardTitle>
+                                    </CardHeader>
+                                    <CardContent>
+                                        <p className="text-sm text-gray-600 hidden">
+                                            Private notes about this student's progress...
+                                        </p>
+                                        <Textarea
+                                            placeholder="Private notes (only visible to teachers)..."
+                                            className="min-h-[100px] text-sm"
+                                        />
+                                    </CardContent>
+                                </Card>
                             </TabsContent>
                         </div>
                     </Tabs>

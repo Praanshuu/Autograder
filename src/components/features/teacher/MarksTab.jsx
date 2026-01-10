@@ -11,7 +11,8 @@ import {
     TrendingUp,
     Trophy,
     TrendingDown,
-    Eye
+    Eye,
+    LineChart
 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -26,10 +27,13 @@ import {
     TableRow,
 } from "../../ui/table";
 import { Card, CardContent } from "../../ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../../ui/dialog";
 import { GRADEBOOK_DATA } from "../../../mocks/gradebook";
+import LearningTrajectory from "../../features/analytics/LearningTrajectory";
 
 export default function MarksTab() {
     const [heatmapMode, setHeatmapMode] = useState(false);
+    const [selectedStudent, setSelectedStudent] = useState(null);
 
     // Calculate Class Averages per Assignment
     const assignmentAverages = GRADEBOOK_DATA.assignments.map(assign => {
@@ -166,20 +170,27 @@ export default function MarksTab() {
                             {GRADEBOOK_DATA.students.map((student, idx) => (
                                 <TableRow key={student.id} className="group hover:bg-muted/30 transition-colors">
                                     <TableCell className="font-medium sticky left-0 bg-white group-hover:bg-gray-50 transition-colors z-10 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] py-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 text-xs font-bold border border-indigo-200 shadow-sm">
+                                        <div
+                                            className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                                            onClick={() => setSelectedStudent(student)}
+                                        >
+                                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 text-xs font-bold border border-indigo-200 shadow-sm relative">
                                                 {student.avatar}
+                                                {/* Hint indicator that this is clickable */}
+                                                <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border shadow-sm">
+                                                    <LineChart className="w-2.5 h-2.5 text-indigo-600" />
+                                                </div>
                                             </div>
                                             <div>
-                                                <div className="text-sm font-semibold text-gray-900">{student.name}</div>
+                                                <div className="text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{student.name}</div>
                                                 <div className="text-xs text-gray-500">ID: {student.id.toUpperCase()}</div>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-center bg-gray-50/30">
                                         <span className={`inline-flex items-center justify-center w-12 h-8 rounded-md font-bold text-sm border ${studentAverages[idx] >= 90 ? "bg-green-100 text-green-700 border-green-200" :
-                                                studentAverages[idx] < 60 ? "bg-red-100 text-red-700 border-red-200" :
-                                                    "bg-white text-gray-900 border-gray-200"
+                                            studentAverages[idx] < 60 ? "bg-red-100 text-red-700 border-red-200" :
+                                                "bg-white text-gray-900 border-gray-200"
                                             }`}>
                                             {studentAverages[idx]}%
                                         </span>
@@ -247,6 +258,32 @@ export default function MarksTab() {
                     </Table>
                 </div>
             </div>
+
+            {/* Student Trajectory Modal */}
+            <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
+                <DialogContent className="sm:max-w-[600px]">
+                    <DialogHeader>
+                        <DialogTitle>{selectedStudent?.name}</DialogTitle>
+                        <DialogDescription>
+                            Review the learning performance trend.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {selectedStudent?.history ? (
+                        <div className="py-4">
+                            <LearningTrajectory
+                                data={selectedStudent.history}
+                                studentName={selectedStudent.name}
+                            />
+                        </div>
+                    ) : (
+                        <div className="py-8 text-center text-gray-500">
+                            <LineChart className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                            <p>No history data available for this student.</p>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

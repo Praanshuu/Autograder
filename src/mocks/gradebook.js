@@ -6,9 +6,36 @@ export const GRADEBOOK_DATA = {
         { id: "a4", title: "Functions", totalPoints: 100 },
     ],
     students: [
-        { id: "s1", name: "Alice Freeman", avatar: "AF" },
-        { id: "s2", name: "Bob Smith", avatar: "BS" },
-        { id: "s3", name: "Charlie Brown", avatar: "CB" },
+        {
+            id: "s1", name: "Alice Freeman", avatar: "AF",
+            history: [
+                { title: "Variables", score: 75, date: "2024-02-01", average: 70 },
+                { title: "Loops", score: 82, date: "2024-02-08", average: 72 },
+                { title: "Conditionals", score: 90, date: "2024-02-15", average: 75 },
+                { title: "Functions", score: 95, date: "2024-02-22", average: 74 },
+                { title: "Arrays", score: 92, date: "2024-03-01", average: 76 },
+            ]
+        },
+        {
+            id: "s2", name: "Bob Smith", avatar: "BS",
+            history: [
+                { title: "Variables", score: 65, date: "2024-02-01", average: 70 },
+                { title: "Loops", score: 60, date: "2024-02-08", average: 72 },
+                { title: "Conditionals", score: 55, date: "2024-02-15", average: 75 },
+                { title: "Functions", score: 50, date: "2024-02-22", average: 74 },
+                { title: "Arrays", score: 45, date: "2024-03-01", average: 76 },
+            ]
+        },
+        {
+            id: "s3", name: "Charlie Brown", avatar: "CB",
+            history: [
+                { title: "Variables", score: 85, date: "2024-02-01", average: 70 },
+                { title: "Loops", score: 88, date: "2024-02-08", average: 72 },
+                { title: "Conditionals", score: 85, date: "2024-02-15", average: 75 },
+                { title: "Functions", score: 86, date: "2024-02-22", average: 74 },
+                { title: "Arrays", score: 88, date: "2024-03-01", average: 76 },
+            ]
+        },
         { id: "s4", name: "Diana Prince", avatar: "DP" },
         { id: "s5", name: "Evan Wright", avatar: "EW" },
     ],

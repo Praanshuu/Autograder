@@ -1,0 +1,58 @@
+# Autograder UI Project Tasks
+
+- [x] Review and refine project plan (info.md) <!-- id: 0 -->
+- [x] Initialize project structure <!-- id: 1 -->
+    - [x] Setup frontend (React/Next.js/Vite?) <!-- id: 2 -->
+    - [ ] Setup backend (Flask/Node?) <!-- id: 3 -->
+- [x] Develop UI Components <!-- id: 4 -->
+    - [x] Dashboard <!-- id: 5 -->
+    - [x] UI Refinement (ShadCN + Framer) <!-- id: 5b -->
+    - [x] Assignment Creation <!-- id: 6a -->
+    - [x] Assignment Creation <!-- id: 6a -->
+    - [x] Class Page <!-- id: 6 -->
+        - [x] Global Layout & Header <!-- id: 6b -->
+        - [x] Stream Tab <!-- id: 6c -->
+    - [x] Marks Tab <!-- id: 6f -->
+    - [x] Archived Classes UI Refinement <!-- id: 6g -->
+    - [x] Project Structure Review <!-- id: 6h -->
+    - [x] Create Class Page (Dialog) <!-- id: 6i -->
+    - [x] Debugging Assignment Creation <!-- id: 6j -->
+    - [x] Question Editor (Modal) <!-- id: 7 -->
+    - [x] Question Editor (Modal) <!-- id: 7 -->
+    - [x] Assignment Dashboard & Analytics <!-- id: 8 -->
+        - [x] Mock Data (Assignments & Submissions) <!-- id: 8a -->
+        - [x] Assignment Details & Stats <!-- id: 8b -->
+        - [x] Submissions Table <!-- id: 8c -->
+    - [x] Grading Interface <!-- id: 9 -->
+        - [x] Fix Route Access (Classwork -> Assignment) <!-- id: 9a -->
+        - [x] Layout (Code + Grading Panel) <!-- id: 9b -->
+        - [x] Autograder Results View <!-- id: 9c -->
+        - [x] Manual Rubric & Feedback <!-- id: 9d -->
+    - [x] Marks Tab Integration (Gradebook) <!-- id: 10 -->
+        - [x] Mock Gradebook Data <!-- id: 10a -->
+        - [x] Spreadsheet UI Implementation <!-- id: 10b -->
+        - [x] Cell Navigation & Color Coding <!-- id: 10c -->
+    - [x] UI Refinement & Navigation Restructure <!-- id: 11 -->
+        - [x] Sidebar Cleanup (Remove Redundancy) <!-- id: 11a -->
+        - [x] Marks Tab Polish (Visuals + Heatmap) <!-- id: 11b -->
+    - [x] Refine Stream & People Tabs <!-- id: 12 -->
+        - [x] Stream Tab (Announcements, Upcoming, Comments) <!-- id: 12a -->
+    - [x] Refine Stream & People Tabs <!-- id: 12 -->
+        - [x] Stream Tab (Announcements, Upcoming, Comments) <!-- id: 12a -->
+        - [x] People Tab (Teacher/Student Lists, Invite) <!-- id: 12b -->
+    - [x] Stream Tab Advanced Features <!-- id: 13 -->
+        - [x] Attachment UI & Actions <!-- id: 13a -->
+        - [x] Upcoming Work Modal <!-- id: 13b -->
+        - [x] Edit/Delete Logic <!-- id: 13c -->
+    - [x] People Tab Advanced Features <!-- id: 14 -->
+        - [x] Invite Modal (Email Input) <!-- id: 14a -->
+
+- [x] Global Pages Implementation <!-- id: 15 -->
+    - [x] Settings Page (Profile, Notifications) <!-- id: 15a -->
+    - [x] All Assignments Page (To-Do / Review Center) <!-- id: 15b -->
+    - [x] Notification Modal (Bell Icon) <!-- id: 15c -->
+
+- [ ] Integrate Frontend with Backend <!-- id: 8 -->
+    - [ ] API Client Setup (Axios/Fetch) <!-- id: 8a -->
+    - [ ] Auth Integration <!-- id: 8b -->
+- [ ] Verification and Testing <!-- id: 9 -->

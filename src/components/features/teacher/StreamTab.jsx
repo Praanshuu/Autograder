@@ -208,10 +208,7 @@ export default function StreamTab() {
                                             <MoreVertical className="w-4 h-4" />
                                         </Button>
                                     </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                        <DropdownMenuItem onClick={() => startEdit(post)}>Edit</DropdownMenuItem>
-                                        <DropdownMenuItem className="text-red-600" onClick={() => handleDelete(post.id)}>Delete</DropdownMenuItem>
-                                    </DropdownMenuContent>
+
                                 </DropdownMenu>
                             </div>
 
