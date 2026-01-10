@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useParams } from "react-router-dom";
 import { Info, StickyNote, Users, Send, MoreVertical, MessageSquare, Paperclip, X, Calendar } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Card } from "../../ui/card";
@@ -14,20 +15,31 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "../../ui/dialog";
+import { MOCK_EVENTS } from "../../../mocks/calendar";
 
 export default function StreamTab() {
+    const { classId } = useParams();
     const [isAnnouncing, setIsAnnouncing] = useState(false);
     const [announcementText, setAnnouncementText] = useState("");
     const [editingPostId, setEditingPostId] = useState(null);
     const [editText, setEditText] = useState("");
 
-    // Mock Upcoming Data
-    const upcomingWork = [
-        { id: 1, title: "Dynamic Programming", due: "Friday at 11:59 PM", type: "Assignment" },
-        { id: 2, title: "Graph Theory Quiz", due: "Monday at 10:00 AM", type: "Quiz" },
-        { id: 3, title: "System Design Project", due: "Next Wednesday", type: "Project" },
-        { id: 4, title: "Midterm Exam", due: "Oct 15", type: "Exam" }
-    ];
+    // Filter events for this class
+    // Note: In a real app, you might fetch this based on the ID.
+    // For now, we show all events if no specific filtering logic matches, or strict filter.
+    // Let's assume classId matches the 'classId' string in MOCK_EVENTS.
+    // If classId is undefined (e.g. testing), we might fallback.
+    const upcomingWork = MOCK_EVENTS.filter(event =>
+        // Strict equality if IDs are strings, or loose if mixed. 
+        // MOCK_EVENTS has IDs as strings "1". Routes use "1".
+        event.classId === classId
+    ).map(event => ({
+        id: event.id,
+        title: event.title,
+        // Format date simply for the UI "Due ..."
+        due: event.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        type: event.type
+    }));
 
     const [posts, setPosts] = useState([
         {
@@ -106,12 +118,16 @@ export default function StreamTab() {
                     <div className="p-4 space-y-4">
                         <h3 className="font-semibold text-gray-600 text-sm">Upcoming</h3>
                         <div className="space-y-3">
-                            {upcomingWork.slice(0, 2).map(work => (
-                                <div key={work.id} className="text-sm">
-                                    <p className="text-gray-900 font-medium">{work.title}</p>
-                                    <p className="text-xs text-gray-500">Due {work.due}</p>
-                                </div>
-                            ))}
+                            {upcomingWork.length > 0 ? (
+                                upcomingWork.slice(0, 2).map(work => (
+                                    <div key={work.id} className="text-sm">
+                                        <p className="text-gray-900 font-medium">{work.title}</p>
+                                        <p className="text-xs text-gray-500">Due {work.due}</p>
+                                    </div>
+                                ))
+                            ) : (
+                                <p className="text-xs text-gray-400 italic">No upcoming work due soon.</p>
+                            )}
                         </div>
 
                         <Dialog>

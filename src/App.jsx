@@ -7,6 +7,7 @@ import AssignmentDashboard from "./pages/teacher/AssignmentDashboard";
 import GradingInterface from "./pages/teacher/GradingInterface";
 import Settings from "./pages/teacher/Settings";
 import AllAssignments from "./pages/teacher/AllAssignments";
+import TeacherCalendar from "./pages/teacher/TeacherCalendar";
 
 // Placeholder Components
 const Landing = () => (
@@ -39,6 +40,7 @@ function App() {
         <Route path="/teacher/grading/submission/:id" element={<GradingInterface />} />
         <Route path="/teacher/settings" element={<Settings />} />
         <Route path="/teacher/assignments" element={<AllAssignments />} />
+        <Route path="/teacher/calendar" element={<TeacherCalendar />} />
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />

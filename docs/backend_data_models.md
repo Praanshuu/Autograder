@@ -148,6 +148,19 @@ interface Notification {
 }
 ```
 
+## 7. Calendar Event Value Object
+**Context**: Global Calendar & Stream Sync.
+```typescript
+interface CalendarEvent {
+  id: string;
+  title: string;
+  date: timestamp; // ISO8601
+  type: "Assignment" | "Quiz" | "Exam" | "Project";
+  classId: string; // Foreign Key to Class.id
+  className: string; // Denormalized for display
+}
+```
+
 ## Critical API Endpoints Needed
 
 ### Teacher Operations

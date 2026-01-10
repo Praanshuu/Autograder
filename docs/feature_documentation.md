@@ -117,7 +117,22 @@ Fine-grained control over the application experience.
 
 ---
 
-## 6. UI/UX Refinements
+## 6. Advanced Analytics
+**Context**: Deep insights for teachers.
+*   **Performance Matrix**: Scatter plot (Time Spent vs. Score) to identify "Strugglers" vs "High Performers".
+*   **Error Heatmap**: Grid view of test case failures. Red/Yellow/Green tiering helps spot common misconceptions.
+*   **Code Similarity (UMAP)**: AI-driven clustering to group students by solution strategy (e.g., "Recursive" vs "Iterative").
+*   **Learning Trajectory**:
+    *   **Micro-View**: Line chart showing an individual student's performance trend across assignments.
+    *   **Access**: Available in `GradingInterface` (History Tab) and `ClassPage` (Marks Tab -> Click Student).
+
+## 7. Global Calendar
+**Location**: `/teacher/calendar`
+*   **Monthly View**: Visualizes all assignments, quizzes, and exams across **all** classes.
+*   **Sync Logic**: Acts as the "Single Source of Truth". Events created here are automatically filtered and displayed in the appropriate **Class Stream**.
+*   **Upcoming Events**: Sidebar list for quick scanning of immediate deadlines.
+
+## 8. UI/UX Refinements
 *   **Consistent Design System**: Usage of `ShadCN/UI` components (Cards, Badges, Dialogs, Switches) for a professional look.
 *   **Visual Feedback**:
     *   **Hover Effects**: On cards and list items.

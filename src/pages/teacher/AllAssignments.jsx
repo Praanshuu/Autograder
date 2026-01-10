@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { CheckCircle2, Circle, Clock, MoreVertical, Filter } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -71,40 +72,42 @@ export default function AllAssignments() {
                 {/* Assignments List */}
                 <div className="space-y-4">
                     {filteredAssignments.map((assignment) => (
-                        <Card key={assignment.id} className="hover:shadow-md transition-shadow cursor-pointer group">
-                            <CardContent className="p-6">
-                                <div className="flex items-start justify-between">
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2">
-                                            <h3 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
-                                                {assignment.title}
-                                            </h3>
+                        <Link to={`/teacher/assignment/${assignment.id}`} key={assignment.id} className="block group">
+                            <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-transparent hover:border-l-indigo-500">
+                                <CardContent className="p-6">
+                                    <div className="flex items-start justify-between">
+                                        <div className="space-y-1">
+                                            <div className="flex items-center gap-2">
+                                                <h3 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
+                                                    {assignment.title}
+                                                </h3>
+                                            </div>
+                                            <p className="text-sm text-gray-500 font-medium">{assignment.class}</p>
+                                            <div className="flex items-center gap-2 text-xs text-gray-400 mt-2">
+                                                <Clock className="w-3.5 h-3.5" />
+                                                <span>{assignment.due}</span>
+                                            </div>
                                         </div>
-                                        <p className="text-sm text-gray-500 font-medium">{assignment.class}</p>
-                                        <div className="flex items-center gap-2 text-xs text-gray-400 mt-2">
-                                            <Clock className="w-3.5 h-3.5" />
-                                            <span>{assignment.due}</span>
-                                        </div>
-                                    </div>
 
-                                    <div className="flex items-center gap-8">
-                                        {/* Stats for Teacher */}
-                                        <div className="text-center">
-                                            <p className="text-2xl font-light text-gray-900">{assignment.turnedIn - assignment.graded}</p>
-                                            <p className="text-xs text-gray-500 uppercase tracking-wide">To Grade</p>
-                                        </div>
-                                        <div className="text-center border-l pl-8">
-                                            <p className="text-2xl font-light text-gray-900">{assignment.graded}</p>
-                                            <p className="text-xs text-gray-500 uppercase tracking-wide">Graded</p>
-                                        </div>
-                                        <div className="text-center border-l pl-8 pr-4">
-                                            <p className="text-2xl font-light text-gray-900">{assignment.turnedIn}</p>
-                                            <p className="text-xs text-gray-500 uppercase tracking-wide">Turned In</p>
+                                        <div className="flex items-center gap-8">
+                                            {/* Stats for Teacher */}
+                                            <div className="text-center">
+                                                <p className="text-2xl font-light text-gray-900">{assignment.turnedIn - assignment.graded}</p>
+                                                <p className="text-xs text-gray-500 uppercase tracking-wide">To Grade</p>
+                                            </div>
+                                            <div className="text-center border-l pl-8">
+                                                <p className="text-2xl font-light text-gray-900">{assignment.graded}</p>
+                                                <p className="text-xs text-gray-500 uppercase tracking-wide">Graded</p>
+                                            </div>
+                                            <div className="text-center border-l pl-8 pr-4">
+                                                <p className="text-2xl font-light text-gray-900">{assignment.turnedIn}</p>
+                                                <p className="text-xs text-gray-500 uppercase tracking-wide">Turned In</p>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            </CardContent>
-                        </Card>
+                                </CardContent>
+                            </Card>
+                        </Link>
                     ))}
 
                     {filteredAssignments.length === 0 && (
