@@ -1,0 +1,61 @@
+import { api } from './apiClient.js';
+import { API_CONFIG } from '../config/api.js';
+import { tokenManager } from '../utils/tokenManager.js';
+
+export const authService = {
+  // User registration
+  register: async (userData) => {
+    const response = await api.post(API_CONFIG.ENDPOINTS.AUTH.REGISTER, userData);
+    
+    if (response.success && response.data.tokens) {
+      const { access, refresh } = response.data.tokens;
+      tokenManager.setTokens(access, refresh);
+    }
+    
+    return response;
+  },
+
+  // User login
+  login: async (credentials) => {
+    const response = await api.post(API_CONFIG.ENDPOINTS.AUTH.LOGIN, credentials);
+    
+    if (response.success && response.data.tokens) {
+      const { access, refresh } = response.data.tokens;
+      tokenManager.setTokens(access, refresh);
+    }
+    
+    return response;
+  },
+
+  // User logout
+  logout: () => {
+    tokenManager.clearTokens();
+    // Optionally, you could call a logout endpoint here
+    return Promise.resolve({ success: true });
+  },
+
+  // Get current user
+  getCurrentUser: async () => {
+    return await api.get(API_CONFIG.ENDPOINTS.AUTH.ME);
+  },
+
+  // Update current user
+  updateCurrentUser: async (userData) => {
+    return await api.put(API_CONFIG.ENDPOINTS.AUTH.UPDATE_ME, userData);
+  },
+
+  // Update user settings
+  updateSettings: async (settings) => {
+    return await api.put(API_CONFIG.ENDPOINTS.AUTH.SETTINGS, { settings });
+  },
+
+  // Check if user is authenticated
+  isAuthenticated: () => {
+    return tokenManager.isAuthenticated();
+  },
+
+  // Get user info from stored token
+  getUserFromToken: () => {
+    return tokenManager.getUserFromToken();
+  },
+};
