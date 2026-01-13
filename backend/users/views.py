@@ -78,8 +78,8 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response({'success': True, 'user': serializer.data})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated])
-    def settings(self, request):
+    @action(detail=False, methods=['put', 'patch'], permission_classes=[IsAuthenticated], url_path='settings')
+    def user_settings(self, request):
         """Update user settings"""
         serializer = UserSettingsSerializer(request.user, data=request.data, partial=True)
         if serializer.is_valid():
