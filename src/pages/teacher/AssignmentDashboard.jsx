@@ -13,7 +13,8 @@ import {
     ListChecks,
     ChevronRight,
     AlertTriangle,
-    Target
+    Target,
+    XCircle // NEW
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -39,6 +40,14 @@ import PerformanceMatrix from "../../components/features/analytics/PerformanceMa
 import ErrorHeatmap from "../../components/features/analytics/ErrorHeatmap";
 import CodeSimilarityMap from "../../components/features/analytics/CodeSimilarityMap";
 
+import BoxPlotChart from "../../components/features/analytics/BoxPlotChart";
+import ErrorWordCloud from "../../components/features/analytics/ErrorWordCloud";
+
+// Mock Data for Box Plot
+const MOCK_BOX_DATA = [
+    { name: "Class", min: 45, q1: 68, median: 78, q3: 88, max: 98 }
+];
+
 export default function AssignmentDashboard() {
     const { id } = useParams();
     const [searchTerm, setSearchTerm] = useState("");
@@ -46,11 +55,14 @@ export default function AssignmentDashboard() {
 
     // Analytics Navigation State
     const [selectedQuestion, setSelectedQuestion] = useState(null);
+    const [selectedAnalyticsTag, setSelectedAnalyticsTag] = useState(null); // NEW: Filter from Word Cloud
 
-    const filteredSubmissions = MOCK_SUBMISSIONS.filter(sub =>
-        sub.studentName.toLowerCase().includes(searchTerm.toLowerCase()) &&
-        (filterStatus === "All" || sub.status === filterStatus)
-    );
+    const filteredSubmissions = MOCK_SUBMISSIONS.filter(sub => {
+        const matchesSearch = sub.studentName.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesStatus = filterStatus === "All" || sub.status === filterStatus;
+        const matchesTag = !selectedAnalyticsTag || (sub.feedbackTags && sub.feedbackTags.includes(selectedAnalyticsTag));
+        return matchesSearch && matchesStatus && matchesTag;
+    });
 
     // Filter submissions/data based on selected question (Mocking this logic)
     // In a real app, you'd fetch specific question analytics here
@@ -152,7 +164,17 @@ export default function AssignmentDashboard() {
                                         <CardTitle>All Submissions</CardTitle>
                                         <CardDescription>Manage individual student grades</CardDescription>
                                     </div>
-                                    <div className="flex gap-2">
+                                    <div className="flex gap-2 items-center">
+                                        {selectedAnalyticsTag && (
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                onClick={() => setSelectedAnalyticsTag(null)}
+                                                className="bg-orange-100 text-orange-700 hover:bg-orange-200 border border-orange-200"
+                                            >
+                                                Filtered by: {selectedAnalyticsTag} <XCircle className="w-4 h-4 ml-2" />
+                                            </Button>
+                                        )}
                                         <div className="relative w-64">
                                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
                                             <Input
@@ -193,8 +215,8 @@ export default function AssignmentDashboard() {
                                                 </TableCell>
                                                 <TableCell>
                                                     <span className={`px-2 py-1 rounded-full text-xs font-medium border ${sub.status === "Graded" ? "bg-green-50 text-green-700 border-green-200" :
-                                                            sub.status === "To Grade" ? "bg-amber-50 text-amber-700 border-amber-200" :
-                                                                "bg-gray-100 text-gray-700 border-gray-200"
+                                                        sub.status === "To Grade" ? "bg-amber-50 text-amber-700 border-amber-200" :
+                                                            "bg-gray-100 text-gray-700 border-gray-200"
                                                         }`}>
                                                         {sub.status}
                                                     </span>
@@ -303,6 +325,15 @@ export default function AssignmentDashboard() {
                                         <ErrorHeatmap questions={[currentQuestion]} />
                                     </div>
 
+                                    {/* New Advanced Analytics Row */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        <BoxPlotChart data={MOCK_BOX_DATA} />
+                                        <ErrorWordCloud
+                                            selectedTag={selectedAnalyticsTag}
+                                            onSelectTag={setSelectedAnalyticsTag}
+                                        />
+                                    </div>
+
                                     {/* Row 2: UMAP full width */}
                                     <CodeSimilarityMap submissions={MOCK_SUBMISSIONS} />
                                 </motion.div>
@@ -314,3 +345,5 @@ export default function AssignmentDashboard() {
         </TeacherLayout>
     );
 }
+
+

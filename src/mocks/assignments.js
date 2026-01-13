@@ -57,6 +57,7 @@ export const MOCK_SUBMISSIONS = [
         autoGradeScore: 100,
         finalScore: 98,
         feedback: "Excellent work.",
+        feedbackTags: ["Optimized Solution"], // NEW
         code: "def solve(x):\n    return x * 2",
         // Analytics Data
         timeSpent: 45, // minutes
@@ -82,6 +83,7 @@ export const MOCK_SUBMISSIONS = [
         autoGradeScore: 80,
         finalScore: null,
         feedback: null,
+        feedbackTags: ["Infinite Loop", "Test Case 3 Failed"], // NEW
         code: "def solve(x):\n    # ...",
         timeSpent: 45, // minutes (High effort, lower score = Struggling)
         attempts: 5,
@@ -98,6 +100,7 @@ export const MOCK_SUBMISSIONS = [
         autoGradeScore: 90,
         finalScore: 85,
         feedback: "Good logic.",
+        feedbackTags: ["Variable Not Initialized"], // NEW
         code: "def solve(x): return x*2",
         timeSpent: 5, // minutes (Super fast)
         attempts: 1,
@@ -111,6 +114,7 @@ export const MOCK_SUBMISSIONS = [
             { title: "Arrays", score: 88, date: "2024-03-01", average: 76 },
         ]
     },
+    // ... (Keep intermediate students as is or update if needed)
     {
         id: "s4",
         studentName: "Diana Prince",
@@ -120,6 +124,7 @@ export const MOCK_SUBMISSIONS = [
         submittedAt: "2024-03-18T10:00:00",
         autoGradeScore: 100,
         finalScore: 100,
+        feedbackTags: ["Optimized Solution"], // NEW
         code: "def recursive_solve(x)...",
         timeSpent: 25,
         attempts: 2,
@@ -142,6 +147,7 @@ export const MOCK_SUBMISSIONS = [
         submittedAt: "2024-03-18T16:45:00",
         autoGradeScore: 40,
         finalScore: 40,
+        feedbackTags: ["Output Mismatch", "Test Case 3 Failed"], // NEW
         code: "print('hello')",
         timeSpent: 5, // Low effort, low score = Disengaged
         attempts: 1,
@@ -158,6 +164,7 @@ export const MOCK_SUBMISSIONS = [
         submittedAt: "2024-03-19T10:00:00",
         autoGradeScore: 60 + Math.floor(Math.random() * 40),
         finalScore: null,
+        feedbackTags: i % 2 === 0 ? ["Output Mismatch"] : ["Test Case 3 Failed"], // NEW: Random tags for generated users
         timeSpent: 10 + Math.floor(Math.random() * 50), // Random time 10-60m
         attempts: 1 + Math.floor(Math.random() * 5),
         approach: "Standard Iterative",

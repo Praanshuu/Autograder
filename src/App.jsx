@@ -8,6 +8,7 @@ import GradingInterface from "./pages/teacher/GradingInterface";
 import Settings from "./pages/teacher/Settings";
 import AllAssignments from "./pages/teacher/AllAssignments";
 import TeacherCalendar from "./pages/teacher/TeacherCalendar";
+import StudentDashboard from "./pages/student/StudentDashboard";
 
 // Placeholder Components
 const Landing = () => (
@@ -21,7 +22,7 @@ const Landing = () => (
   </div>
 );
 
-const StudentDashboard = () => <div className="p-8"><h1>Student Dashboard</h1></div>;
+
 const Login = () => <div className="p-8"><h1>Login</h1></div>;
 
 function App() {
