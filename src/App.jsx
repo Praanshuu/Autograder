@@ -24,6 +24,7 @@ import TeacherCalendar from "./pages/teacher/TeacherCalendar";
 
 // Student Pages
 import StudentDashboard from "./pages/student/StudentDashboard";
+import StudentWorkspace from "./pages/student/StudentWorkspace";
 
 /* -----------------------------
    Landing Page
@@ -173,6 +174,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole="student">
                 <StudentDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/workspace/:assignmentId"
+            element={
+              <ProtectedRoute requiredRole="student">
+                <StudentWorkspace />
               </ProtectedRoute>
             }
           />
