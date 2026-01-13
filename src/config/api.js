@@ -25,15 +25,17 @@ export const API_CONFIG = {
       DETAIL: (id) => `/assignments/${id}/`,
       PUBLISH: (id) => `/assignments/${id}/publish/`,
       CLOSE: (id) => `/assignments/${id}/close/`,
+      QUESTIONS: '/assignments/questions/',
+      TEST_CASES: '/assignments/test-cases/',
     },
     // Submissions
     SUBMISSIONS: {
       LIST: '/submissions/submissions/',
       DETAIL: (id) => `/submissions/submissions/${id}/`,
-      RUN_CODE: '/code/run/',
+      RUN_CODE: '/submissions/run/',
       GRADE: (id) => `/submissions/submissions/${id}/grade/`,
       PUBLISH: (id) => `/submissions/submissions/${id}/publish/`,
-      RUN_AUTOGRADER: '/grading/run-autograder/',
+      RUN_AUTOGRADER: '/submissions/grading/run-autograder/',
     },
     // Notifications
     NOTIFICATIONS: {

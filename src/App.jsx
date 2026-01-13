@@ -9,7 +9,7 @@ import RegisterForm from "./components/auth/RegisterForm";
 
 
 // Pages
-import AuthTestPage from "./pages/AuthTestPage";
+
 
 // Teacher Pages
 import TeacherDashboard from "./pages/teacher/TeacherDashboard";
@@ -92,7 +92,7 @@ function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<LoginForm />} />
           <Route path="/register" element={<RegisterForm />} />
-          <Route path="/auth-test" element={<AuthTestPage />} />
+
 
           {/* Teacher Routes */}
           <Route

@@ -46,4 +46,14 @@ export const assignmentService = {
   closeAssignment: async (assignmentId) => {
     return await api.post(API_CONFIG.ENDPOINTS.ASSIGNMENTS.CLOSE(assignmentId));
   },
+
+  // Create Question
+  createQuestion: async (questionData) => {
+    return await api.post(API_CONFIG.ENDPOINTS.ASSIGNMENTS.QUESTIONS, questionData);
+  },
+
+  // Create Test Case
+  createTestCase: async (testCaseData) => {
+    return await api.post(API_CONFIG.ENDPOINTS.ASSIGNMENTS.TEST_CASES, testCaseData);
+  },
 };

@@ -34,9 +34,14 @@ export const classService = {
     return await api.delete(API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId));
   },
 
-  // Join class with join code
+  // Join class with join code (via ID)
   joinClass: async (classId, joinCode) => {
     return await api.post(API_CONFIG.ENDPOINTS.CLASSES.JOIN(classId), { join_code: joinCode });
+  },
+
+  // Join class by code only (no ID needed)
+  joinClassByCode: async (joinCode) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.CLASSES.LIST}join-by-code/`, { join_code: joinCode });
   },
 
   // Archive/unarchive class

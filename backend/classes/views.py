@@ -46,16 +46,23 @@ class ClassViewSet(viewsets.ModelViewSet):
             role='teacher'
         )
     
-    @action(detail=True, methods=['post'])
-    def join(self, request, pk=None):
-        """Join a class using join code"""
-        class_obj = self.get_object()
-        join_code = request.data.get('join_code', '')
+    @action(detail=False, methods=['post'], url_path='join-by-code')
+    def join_by_code(self, request):
+        """Join a class using join code (no class ID needed)"""
+        join_code = request.data.get('join_code', '').strip()
         
-        if class_obj.join_code != join_code:
+        if not join_code:
             return Response(
-                {'message': 'Invalid join code'},
+                {'message': 'Join code is required'},
                 status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        try:
+            class_obj = Class.objects.get(join_code=join_code, is_archived=False)
+        except Class.DoesNotExist:
+             return Response(
+                {'message': 'Invalid join code or class is archived'},
+                status=status.HTTP_404_NOT_FOUND
             )
         
         # Check if already enrolled
@@ -81,8 +88,15 @@ class ClassViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'message': 'Joined class successfully',
+            'class': ClassSerializer(class_obj).data,
             'enrollment': EnrollmentSerializer(enrollment).data
         })
+
+    @action(detail=True, methods=['post'])
+    def join(self, request, pk=None):
+        """Join a class using join code (legacy, requires ID)"""
+        # ... logic if needed, or deprecate
+        return self.join_by_code(request)
     
     @action(detail=True, methods=['post'])
     def archive(self, request, pk=None):

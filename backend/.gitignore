@@ -1,7 +1,33 @@
-node_modules/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
 .env
-*.log
-.DS_Store
+db.sqlite3
+*.sqlite3
+
+# Distribution / packaging
 dist/
-coverage/
-.nyc_output/
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+test-results/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo

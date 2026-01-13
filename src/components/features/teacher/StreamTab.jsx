@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { Info, StickyNote, Users, Send, MoreVertical, MessageSquare, Paperclip, X, Calendar } from "lucide-react";
 import { Button } from "../../ui/button";
@@ -16,13 +16,30 @@ import {
     DialogTrigger,
 } from "../../ui/dialog";
 import { MOCK_EVENTS } from "../../../mocks/calendar";
+import { classService } from "../../../services/classService";
 
 export default function StreamTab() {
     const { classId } = useParams();
+    const [classData, setClassData] = useState(null);
     const [isAnnouncing, setIsAnnouncing] = useState(false);
     const [announcementText, setAnnouncementText] = useState("");
     const [editingPostId, setEditingPostId] = useState(null);
     const [editText, setEditText] = useState("");
+
+    // Fetch class details
+    // Fetch class details
+    useEffect(() => {
+        const fetchClassDetails = async () => {
+            if (!classId) return;
+            try {
+                const response = await classService.getClass(classId);
+                setClassData(response.data);
+            } catch (error) {
+                console.error("Failed to fetch class details", error);
+            }
+        };
+        fetchClassDetails();
+    }, [classId]);
 
     // Filter events for this class
     // Note: In a real app, you might fetch this based on the ID.
@@ -110,7 +127,9 @@ export default function StreamTab() {
                 <Card>
                     <div className="p-4 space-y-3">
                         <h3 className="font-semibold text-gray-600 text-sm">Class Code</h3>
-                        <div className="text-2xl font-bold tracking-widest text-indigo-600">X7J2-9K</div>
+                        <div className="text-2xl font-bold tracking-widest text-indigo-600">
+                            {classData?.join_code || "..."}
+                        </div>
                         <p className="text-xs text-gray-400">Share this code with students</p>
                     </div>
                 </Card>

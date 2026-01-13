@@ -25,9 +25,17 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
         
-        # Students can only see published assignments
+        # Students can only see published assignments from classes they are enrolled in
         if user.role == 'student':
-            queryset = queryset.filter(status='published')
+            enrolled_classes = Enrollment.objects.filter(
+                user=user,
+                status='active'
+            ).values_list('class_obj_id', flat=True)
+            
+            queryset = queryset.filter(
+                status='published',
+                class_obj_id__in=enrolled_classes
+            )
         else:
             # Teachers/TAs can see all assignments in their classes
             enrolled_classes = Enrollment.objects.filter(

@@ -23,20 +23,20 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
     const [title, setTitle] = useState("");
     const [difficulty, setDifficulty] = useState("Easy");
     const [description, setDescription] = useState("");
-    const [testCases, setTestCases] = useState([{ input: "", output: "" }]);
+    const [testCases, setTestCases] = useState([{ input: "", output: "", explanation: "" }]);
 
     useEffect(() => {
         if (questionToEdit) {
             setTitle(questionToEdit.title || "");
             setDifficulty(questionToEdit.difficulty || "Easy");
             setDescription(questionToEdit.description || "");
-            setTestCases(questionToEdit.testCases || [{ input: "", output: "" }]);
+            setTestCases(questionToEdit.testCases || [{ input: "", output: "", explanation: "" }]);
         } else {
             // Reset for new question
             setTitle("");
             setDifficulty("Easy");
             setDescription("");
-            setTestCases([{ input: "", output: "" }]);
+            setTestCases([{ input: "", output: "", explanation: "" }]);
         }
     }, [questionToEdit, open]);
 
@@ -52,7 +52,7 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
     };
 
     const addTestCase = () => {
-        setTestCases([...testCases, { input: "", output: "" }]);
+        setTestCases([...testCases, { input: "", output: "", explanation: "" }]);
     };
 
     const removeTestCase = (index) => {
@@ -67,7 +67,7 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle>{questionToEdit ? "Edit Question" : "Add New Question"}</DialogTitle>
                     <DialogDescription>
@@ -122,29 +122,42 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
                         </div>
 
                         {testCases.map((tc, i) => (
-                            <div key={i} className="flex gap-2 items-start">
-                                <div className="grid gap-1 flex-1">
-                                    <Label className="text-xs text-gray-500">Input</Label>
-                                    <Textarea
-                                        value={tc.input}
-                                        onChange={(e) => updateTestCase(i, 'input', e.target.value)}
-                                        className="h-20 font-mono text-xs"
-                                        placeholder="Input data"
-                                    />
-                                </div>
-                                <div className="grid gap-1 flex-1">
-                                    <Label className="text-xs text-gray-500">Output</Label>
-                                    <Textarea
-                                        value={tc.output}
-                                        onChange={(e) => updateTestCase(i, 'output', e.target.value)}
-                                        className="h-20 font-mono text-xs"
-                                        placeholder="Expected output"
-                                    />
+                            <div key={i} className="flex gap-4 items-start bg-gray-50 p-4 rounded-md border border-gray-100">
+                                <div className="grid gap-3 flex-1">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs text-gray-500">Input</Label>
+                                            <Textarea
+                                                value={tc.input}
+                                                onChange={(e) => updateTestCase(i, 'input', e.target.value)}
+                                                className="h-20 font-mono text-xs"
+                                                placeholder="Input data"
+                                            />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs text-gray-500">Output</Label>
+                                            <Textarea
+                                                value={tc.output}
+                                                onChange={(e) => updateTestCase(i, 'output', e.target.value)}
+                                                className="h-20 font-mono text-xs"
+                                                placeholder="Expected output"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="grid gap-1">
+                                        <Label className="text-xs text-gray-500">Explanation (Optional)</Label>
+                                        <Input
+                                            value={tc.explanation || ""}
+                                            onChange={(e) => updateTestCase(i, 'explanation', e.target.value)}
+                                            className="text-sm"
+                                            placeholder="Why is this the output?"
+                                        />
+                                    </div>
                                 </div>
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="mt-6 text-red-500 hover:text-red-700"
+                                    className="text-red-500 hover:text-red-700 mt-2"
                                     onClick={() => removeTestCase(i)}
                                 >
                                     <Trash2 className="w-4 h-4" />
