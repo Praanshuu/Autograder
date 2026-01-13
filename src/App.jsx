@@ -9,6 +9,7 @@ import Settings from "./pages/teacher/Settings";
 import AllAssignments from "./pages/teacher/AllAssignments";
 import TeacherCalendar from "./pages/teacher/TeacherCalendar";
 import StudentDashboard from "./pages/student/StudentDashboard";
+import StudentWorkspace from "./pages/student/StudentWorkspace";
 
 // Placeholder Components
 const Landing = () => (
@@ -45,6 +46,7 @@ function App() {
 
         {/* Student Routes */}
         <Route path="/student/dashboard" element={<StudentDashboard />} />
+        <Route path="/student/workspace/:id" element={<StudentWorkspace />} />
       </Routes>
     </Router>
   );
