@@ -126,4 +126,4 @@ dist
 *.sln
 *.sw?
 
-# public/data
+public/data
