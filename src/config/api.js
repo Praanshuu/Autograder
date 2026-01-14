@@ -6,8 +6,8 @@ export const API_CONFIG = {
     // Authentication
     AUTH: {
       REGISTER: '/auth/register/',
-      LOGIN: '/auth/login/',
-      ME: '/users/me/',
+      LOGIN: '/auth/simple-login/',  // Use working function-based view
+      ME: '/users/current/',  // Use working function-based view
       UPDATE_ME: '/users/update_me/',
       SETTINGS: '/users/settings/',
     },
