@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     Clock,
     CheckCircle2,
@@ -8,69 +8,17 @@ import {
     Flame,
     FileCode,
     ArrowUpRight,
-    TrendingDown
+    TrendingDown,
+    Loader2,
+    Plus
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
-// --- Mock Data ---
-
-const HERO_TASK = {
-    id: 101,
-    course: "CSL100: Introduction to Computer Science",
-    title: "Assignment 2: Text Processing",
-    timeLeft: "2 Days",
-    progress: 15, // Just started
-    questionsSolved: 1,
-    totalQuestions: 4,
-    testsPassed: 3,
-    totalTests: 12
-};
-
-const UP_NEXT = [
-    {
-        id: 1,
-        title: "Assignment 4: List Manipulation",
-        due: "Tomorrow, 11:59 PM",
-        status: "Not Started",
-        difficulty: "Medium"
-    },
-    {
-        id: 2,
-        title: "Practice: Negative Indexing",
-        due: "Optional",
-        status: "Recommended",
-        difficulty: "Easy"
-    }
-];
-
-// Replaced Radar Chart with Skill Map
-const SKILL_MAP = [
-    { topic: 'Python Syntax', mastery: 92, trend: 'up' },
-    { topic: 'Control Flow', mastery: 85, trend: 'stable' },
-    { topic: 'String Manipulation', mastery: 65, trend: 'up' },
-    { topic: 'Edge Cases', mastery: 30, trend: 'down' }, // Major weakness from Assign 1
-];
-
-const RECENT_FEEDBACK = [
-    {
-        id: 301,
-        assignment: "Assignment 1: Data Types",
-        feedback: "Your logic works for positive numbers, but fails for negative inputs. Check your conditions.",
-        type: "constructive"
-    },
-    {
-        id: 302,
-        assignment: "Warmup: Hello World",
-        feedback: "Perfect submission. Good use of print formatting.",
-        type: "positive"
-    }
-];
-
-const MOMENTUM_STATS = [
-    { label: "Active Days", value: "12", icon: Flame, color: "text-orange-500" },
-    { label: "Problems Solved", value: "45", icon: CheckCircle2, color: "text-green-500" },
-    { label: "Tests Passed", value: "128", icon: FileCode, color: "text-blue-500" },
-];
+import StudentLayout from '../../components/layout/StudentLayout';
+import { assignmentService } from '../../services/assignmentService';
+import { Button } from '../../components/ui/button';
+import JoinClassDialog from '../../components/features/student/JoinClassDialog';
 
 // --- Components ---
 
@@ -83,13 +31,60 @@ const ProgressBar = ({ progress, className = "" }) => (
     </div>
 );
 
-import StudentLayout from '../../components/layout/StudentLayout';
-import { useNavigate } from 'react-router-dom';
-
 const StudentDashboard = () => {
     const navigate = useNavigate();
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
+    const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+
+    const fetchAssignments = async () => {
+        try {
+            setLoading(true);
+            const response = await assignmentService.getAssignments();
+            const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+            setAssignments(data);
+        } catch (err) {
+            console.error("Failed to load assignments", err);
+            setError("Could not load your assignments.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleJoinSuccess = () => {
+        fetchAssignments();
+        setSidebarRefreshKey(prev => prev + 1);
+    };
+
+    useEffect(() => {
+        fetchAssignments();
+    }, []);
+
+    // Derived State
+    const activeAssignment = assignments.find(a => !a.completed) || assignments[0];
+    const upNext = assignments.filter(a => a.id !== activeAssignment?.id).slice(0, 3);
+
+    // Placeholder stats until we have a real submission history API
+    const MOMENTUM_STATS = [
+        { label: "Active Days", value: "1", icon: Flame, color: "text-orange-500" },
+        { label: "Problems Solved", value: "0", icon: CheckCircle2, color: "text-green-500" },
+        { label: "Tests Passed", value: "0", icon: FileCode, color: "text-blue-500" },
+    ];
+
+    if (loading) {
+        return (
+            <StudentLayout>
+                <div className="flex justify-center items-center h-[60vh]">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                </div>
+            </StudentLayout>
+        );
+    }
+
     return (
-        <StudentLayout>
+        <StudentLayout refreshTrigger={sidebarRefreshKey}>
             <div className="space-y-6">
 
                 {/* 1. Header & Momentum Indicators */}
@@ -99,7 +94,12 @@ const StudentDashboard = () => {
                         <p className="text-gray-500 mt-1">Focus on progress, not perfection.</p>
                     </div>
 
-                    <div className="flex gap-6">
+                    <div className="flex items-center gap-6">
+                        <Button onClick={() => setIsJoinDialogOpen(true)} variant="outline" className="gap-2">
+                            <Plus className="w-4 h-4" />
+                            Join Class
+                        </Button>
+
                         {MOMENTUM_STATS.map((stat, idx) => (
                             <div key={idx} className="flex flex-col items-center md:items-end">
                                 <div className="flex items-center gap-1.5 mb-1">
@@ -111,6 +111,12 @@ const StudentDashboard = () => {
                         ))}
                     </div>
                 </header>
+
+                <JoinClassDialog
+                    open={isJoinDialogOpen}
+                    onOpenChange={setIsJoinDialogOpen}
+                    onJoinSuccess={handleJoinSuccess}
+                />
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
@@ -127,103 +133,97 @@ const StudentDashboard = () => {
                             {/* Subtle Gradient Accent */}
                             <div className="absolute top-0 left-0 w-1 bg-gray-900 h-full" />
 
-                            <div className="flex justify-between items-start mb-6">
-                                <div>
-                                    <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Current Focus</span>
-                                    <h2 className="text-2xl font-bold text-gray-900 mb-2">{HERO_TASK.title}</h2>
-                                    <p className="text-gray-500">{HERO_TASK.course}</p>
-                                </div>
-                                <div className="flex flex-col items-end">
-                                    <div className="flex items-center gap-2 text-red-500 font-medium bg-red-50 px-3 py-1 rounded-full">
-                                        <Clock className="w-4 h-4" />
-                                        {HERO_TASK.timeLeft} left
+                            {activeAssignment ? (
+                                <>
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div>
+                                            <span className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-2 block">Current Focus</span>
+                                            <h2 className="text-2xl font-bold text-gray-900 mb-2">{activeAssignment.title}</h2>
+                                            <p className="text-gray-500">{activeAssignment.class_name || "Assignments"}</p>
+                                        </div>
+                                        <div className="flex flex-col items-end">
+                                            {activeAssignment.due_date && (
+                                                <div className="flex items-center gap-2 text-red-500 font-medium bg-red-50 px-3 py-1 rounded-full">
+                                                    <Clock className="w-4 h-4" />
+                                                    {new Date(activeAssignment.due_date).toLocaleDateString()}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                                <div>
-                                    <div className="flex justify-between text-sm mb-2">
-                                        <span className="text-gray-500">Progress</span>
-                                        <span className="font-medium">{HERO_TASK.progress}%</span>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                                        <div>
+                                            <div className="flex justify-between text-sm mb-2">
+                                                <span className="text-gray-500">Progress</span>
+                                                <span className="font-medium">0%</span>
+                                            </div>
+                                            <ProgressBar progress={0} />
+                                        </div>
+                                        <div className="flex gap-4 text-sm">
+                                            <div>
+                                                <span className="block text-gray-400 mb-1">Points</span>
+                                                <span className="font-semibold text-lg">{activeAssignment.points || 100}</span>
+                                            </div>
+                                            <div>
+                                                <span className="block text-gray-400 mb-1">Difficulty</span>
+                                                <span className={`font-semibold text-lg ${activeAssignment.difficulty === 'Easy' ? 'text-green-600' :
+                                                    activeAssignment.difficulty === 'Medium' ? 'text-yellow-600' :
+                                                        'text-red-600'
+                                                    }`}>{activeAssignment.difficulty || 'Medium'}</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <ProgressBar progress={HERO_TASK.progress} />
-                                </div>
-                                <div className="flex gap-4 text-sm">
-                                    <div>
-                                        <span className="block text-gray-400 mb-1">Tasks</span>
-                                        <span className="font-semibold text-lg">{HERO_TASK.questionsSolved}<span className="text-gray-300">/</span>{HERO_TASK.totalQuestions}</span>
-                                    </div>
-                                    <div>
-                                        <span className="block text-gray-400 mb-1">Tests</span>
-                                        <span className="font-semibold text-lg text-green-600">{HERO_TASK.testsPassed}<span className="text-gray-300">/</span>{HERO_TASK.totalTests}</span>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <button
-                                onClick={() => navigate('/student/workspace/a2')}
-                                className="w-full md:w-auto px-8 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200"
-                            >
-                                Continue Work <ArrowRight className="w-4 h-4" />
-                            </button>
+                                    <button
+                                        onClick={() => navigate(`/student/workspace/${activeAssignment.id}`)}
+                                        className="w-full md:w-auto px-8 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-800 transition-all flex items-center justify-center gap-2 shadow-lg shadow-gray-200"
+                                    >
+                                        Start Assignment <ArrowRight className="w-4 h-4" />
+                                    </button>
+                                </>
+                            ) : (
+                                <div className="text-center py-10">
+                                    <h3 className="text-lg font-semibold text-gray-900">No Active Assignments</h3>
+                                    <p className="text-gray-500 mt-2">You are all caught up! check back later.</p>
+                                </div>
+                            )}
                         </motion.div>
 
                         {/* 3. Up Next Queue */}
-                        <motion.section
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5, delay: 0.1 }}
-                        >
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <Clock className="w-5 h-5 text-gray-400" /> Up Next
-                            </h3>
-                            <div className="space-y-3">
-                                {UP_NEXT.map(task => (
-                                    <div key={task.id} className="bg-white p-4 rounded-xl border border-gray-100 flex items-center justify-between hover:border-gray-200 transition-colors">
-                                        <div>
-                                            <h4 className="font-semibold text-gray-900">{task.title}</h4>
-                                            <p className="text-sm text-gray-500 mt-1">Due {task.due} • <span className="font-medium text-gray-600">{task.difficulty}</span></p>
+                        {upNext.length > 0 && (
+                            <motion.section
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.5, delay: 0.1 }}
+                            >
+                                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                    <Clock className="w-5 h-5 text-gray-400" /> Up Next
+                                </h3>
+                                <div className="space-y-3">
+                                    {upNext.map(task => (
+                                        <div key={task.id} className="bg-white p-4 rounded-xl border border-gray-100 flex items-center justify-between hover:border-gray-200 transition-colors">
+                                            <div>
+                                                <h4 className="font-semibold text-gray-900">{task.title}</h4>
+                                                <p className="text-sm text-gray-500 mt-1">
+                                                    {task.due_date ? `Due ${new Date(task.due_date).toLocaleDateString()}` : "No due date"}
+                                                    • <span className="font-medium text-gray-600">{task.difficulty}</span>
+                                                </p>
+                                            </div>
+                                            <button
+                                                onClick={() => navigate(`/student/workspace/${task.id}`)}
+                                                className="text-sm font-medium text-gray-900 hover:text-blue-600 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                                            >
+                                                Start
+                                            </button>
                                         </div>
-                                        <button className="text-sm font-medium text-gray-900 hover:text-blue-600 px-4 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors">
-                                            Start
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.section>
-
-                        {/* 4. Recent Feedback */}
-                        <motion.section
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.5, delay: 0.2 }}
-                        >
-                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                                <CheckCircle2 className="w-5 h-5 text-gray-400" /> Recent Feedback
-                            </h3>
-                            <div className="grid gap-4">
-                                {RECENT_FEEDBACK.map(item => (
-                                    <div key={item.id} className="bg-white p-5 rounded-xl border border-gray-100">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <h4 className="font-medium text-gray-900">{item.assignment}</h4>
-                                            {item.type === 'positive' ? (
-                                                <span className="text-xs font-bold bg-green-50 text-green-700 px-2 py-1 rounded">Great Job</span>
-                                            ) : (
-                                                <span className="text-xs font-bold bg-yellow-50 text-yellow-700 px-2 py-1 rounded">Review</span>
-                                            )}
-                                        </div>
-                                        <p className="text-gray-600 text-sm italic">"{item.feedback}"</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </motion.section>
-
+                                    ))}
+                                </div>
+                            </motion.section>
+                        )}
                     </div>
 
-                    {/* RIGHT COLUMN: Skills & Coaching */}
+                    {/* RIGHT COLUMN: Skills & Coaching (Placeholder for now) */}
                     <div className="space-y-8">
-
                         {/* 5. AI Coach / Next Skill */}
                         <motion.div
                             initial={{ opacity: 0, x: 20 }}
@@ -232,56 +232,11 @@ const StudentDashboard = () => {
                             className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 relative overflow-hidden"
                         >
                             <Target className="w-8 h-8 text-indigo-600 mb-4" />
-                            <h3 className="text-lg font-bold text-indigo-900 mb-2">Next Best Step</h3>
+                            <h3 className="text-lg font-bold text-indigo-900 mb-2">Welcome!</h3>
                             <p className="text-indigo-800 text-sm mb-4 leading-relaxed">
-                                You're mastering basic syntax, but recent tests show you struggled with **Negative Edge Cases** in strings.
+                                This is your personal dashboard. As you complete assignments, your skills and progress will appear here.
                             </p>
-                            <button className="w-full py-2.5 bg-white text-indigo-700 text-sm font-semibold rounded-lg shadow-sm hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2">
-                                Practice Edge Cases <ArrowUpRight className="w-4 h-4" />
-                            </button>
                         </motion.div>
-
-                        {/* 6. Skill Map */}
-                        <motion.section
-                            initial={{ opacity: 0, x: 20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ duration: 0.5, delay: 0.4 }}
-                            className="bg-white p-6 rounded-2xl border border-gray-100"
-                        >
-                            <div className="flex items-center gap-2 mb-6">
-                                <TrendingUp className="w-5 h-5 text-gray-900" />
-                                <h2 className="text-lg font-bold text-gray-900">Skill Map</h2>
-                            </div>
-
-                            <div className="space-y-6">
-                                {SKILL_MAP.map((skill, idx) => (
-                                    <div key={idx}>
-                                        <div className="flex justify-between items-center mb-2">
-                                            <span className="text-sm font-medium text-gray-700">{skill.topic}</span>
-                                            <div className="flex items-center gap-2">
-                                                {skill.trend === 'up' && <TrendingUp className="w-3 h-3 text-green-500" />}
-                                                {skill.trend === 'down' && <TrendingDown className="w-3 h-3 text-red-500" />}
-                                                <span className="text-xs text-gray-400 font-mono">{skill.mastery}%</span>
-                                            </div>
-                                        </div>
-                                        <div className="h-1.5 bg-gray-50 rounded-full overflow-hidden">
-                                            <div
-                                                className={`h-full rounded-full ${skill.mastery >= 80 ? 'bg-green-500' :
-                                                    skill.mastery >= 60 ? 'bg-indigo-500' :
-                                                        'bg-orange-500'
-                                                    }`}
-                                                style={{ width: `${skill.mastery}%` }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            <button className="w-full mt-6 text-sm text-gray-500 hover:text-gray-900 font-medium">
-                                View Detailed Analytics
-                            </button>
-                        </motion.section>
-
                     </div>
                 </div>
             </div>

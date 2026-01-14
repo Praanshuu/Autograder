@@ -13,11 +13,12 @@ import {
     History,
     ChevronDown,
     Terminal,
-    GripVertical
+    GripVertical,
+    Loader2
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 // --- PRO DEPENDENCIES ---
 import Editor from 'react-simple-code-editor';
@@ -25,118 +26,172 @@ import { highlight, languages } from 'prismjs/components/prism-core';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-python';
 import 'prismjs/themes/prism-tomorrow.css'; // Dark theme for code
-// ADAPTING TO INSTALLED VERSION: Using Group and Separator instead of PanelGroup/PanelResizeHandle
 import { Panel, Group, Separator } from "react-resizable-panels";
 
-// --- MOCK DATA FOR ASSIGNMENT 2 ---
-const PROBLEM_DATA = {
-    id: "a2",
-    title: "Assignment 2: Text Processing",
-    points: 100,
-    difficulty: "Medium",
-    description: `
-    <h3>Palindrome Checker with Edge Cases</h3>
-    <p>Write a function <code>isStrictModePalindrome(text)</code> that checks if a string is a palindrome.</p>
-    
-    <h4>Rules:</h4>
-    <ul class="list-disc pl-5 space-y-1">
-      <li>The check should be <strong>case-insensitive</strong>.</li>
-      <li>You must <strong>ignore all non-alphanumeric characters</strong> (spaces, punctuation, symbols).</li>
-      <li><strong>Important:</strong> If the input is a negative number (e.g., <code>-121</code>), it is <strong>NOT</strong> a palindrome.</li>
-      <li>If the input is an empty string, return <code>true</code>.</li>
-    </ul>
-
-    <h4>Examples</h4>
-    <pre class="bg-gray-100 p-3 rounded-md text-sm font-mono mt-2">
-isStrictModePalindrome("A man, a plan, a canal: Panama") 
-// Returns: True (reads "amanaplanacanalpanama")
-
-isStrictModePalindrome("race a car") 
-// Returns: False ("raceacar" != "racaecar")
-
-isStrictModePalindrome("-121") 
-// Returns: False (Negative numbers are strictly not palindromes)</pre>
-  `,
-    starterCode: `def isStrictModePalindrome(text):
-    """
-    Checks if the input text is a palindrome according to strict rules.
-    """
-    # TODO: Implement your logic here
-    pass`,
-    testCases: [
-        { id: 1, label: "Case 1", input: 'text = "aba"', expected: "True", hidden: false },
-        { id: 2, label: "Case 2", input: 'text = "RaceCar"', expected: "True", hidden: false },
-        { id: 3, label: "Case 3", input: 'text = "hello"', expected: "False", hidden: false },
-        { id: 4, label: "Case 4", input: 'text = "-121"', expected: "False", hidden: true } // The trap
-    ]
-};
+// Services
+import { assignmentService } from "../../services/assignmentService";
+import { submissionService } from "../../services/submissionService";
 
 const StudentWorkspace = () => {
-    const { id } = useParams();
+    const { assignmentId } = useParams();
     const navigate = useNavigate();
 
-    const [code, setCode] = useState(PROBLEM_DATA.starterCode);
+    // State
+    const [assignment, setAssignment] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const [code, setCode] = useState("");
     const [activeTab, setActiveTab] = useState("description");
     const [selectedTestCase, setSelectedTestCase] = useState(0);
-    const [output, setOutput] = useState(null); // null, 'running', or result object
+    const [output, setOutput] = useState(null);
+    const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
 
-    const [isConsoleOpen, setIsConsoleOpen] = useState(true);
+    // Fetch Assignment Data
+    useEffect(() => {
+        const fetchAssignment = async () => {
+            if (!assignmentId) return;
+            try {
+                setLoading(true);
+                // Note: backend should return 'questions' with test cases included
+                // or we might need a separate call for questions if not nested
+                const response = await assignmentService.getAssignment(assignmentId);
+                const data = response.data;
+                setAssignment(data);
 
-    // Simulate Code Execution
-    const handleRunCode = () => {
-        setIsConsoleOpen(true); // Ensure console is visible
-        setOutput('running');
-        setTimeout(() => {
-            // Mocking a result where they fail the Negative Number case
+                // Set initial code from starter code if available
+                if (data.questions && data.questions.length > 0) {
+                    // Currently checking single question per assignment for MVP
+                    setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                }
+            } catch (err) {
+                console.error("Failed to load assignment:", err);
+                setError("Could not load assignment. Please try again.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAssignment();
+    }, [assignmentId]);
+
+    // Handler: Run Code (Sandbox)
+    const handleRunCode = async () => {
+        if (!assignment || !assignment.questions?.[0]) return;
+
+        setIsRunning(true);
+        setOutput({ status: 'running' }); // UI State for "Running..."
+
+        try {
+            const question = assignment.questions[0];
+            const testCases = question.test_cases || [];
+
+            // Call Backend Sandbox
+            const response = await submissionService.runCode(code, "python", testCases);
+
+            // Format result for UI
+            // Backend returns: { success: true, data: { results: [...], summary: ... } }
+            const resultData = response.data.data;
+
+            setOutput({
+                status: resultData.summary.all_passed ? 'success' : 'error',
+                message: resultData.summary.all_passed ? 'All Test Cases Passed!' : 'Some tests failed.',
+                results: resultData.results.map((r, index) => ({
+                    id: index,
+                    status: r.passed ? 'pass' : 'fail',
+                    output: r.actual_output,
+                    expected: r.test_case.expected_output,
+                    error: r.error,
+                    input: r.test_case.input
+                }))
+            });
+
+        } catch (err) {
+            console.error("Run failed:", err);
             setOutput({
                 status: 'error',
-                message: 'Runtime Error',
-                results: [
-                    { id: 1, status: 'pass', output: 'True' },
-                    { id: 2, status: 'pass', output: 'True' },
-                    { id: 3, status: 'pass', output: 'False' },
-                    { id: 4, status: 'fail', output: 'True', expected: 'False', error: 'AssertionError: Expected False' },
-                ]
+                message: 'Execution failed: ' + (err.response?.data?.message || err.message),
+                results: []
             });
-        }, 800);
+        } finally {
+            setIsRunning(false);
+        }
     };
 
-    const handleSubmit = () => {
+    // Handler: Submit Code (Final)
+    const handleSubmit = async () => {
+        if (!assignment || !assignment.questions?.[0]) return;
+
         setIsSubmitting(true);
-        setTimeout(() => {
-            setIsSubmitting(false);
-            setOutput({
-                status: 'success',
-                message: 'All Test Cases Passed!',
-                results: [
-                    { id: 1, status: 'pass' },
-                    { id: 2, status: 'pass', output: 'True' },
-                    { id: 3, status: 'pass', output: 'False' },
-                    { id: 4, status: 'pass', output: 'False' },
-                ]
+        try {
+            const question = assignment.questions[0];
+            const response = await submissionService.submitCode({
+                assignment: assignment.id,
+                question: question.id,
+                code_content: code,
+                language: "python"
             });
+
+            // Backend grades it immediately for now (or queues it)
+            // Assuming immediate grading response similar to runCode
             setShowConfetti(true);
-        }, 1500);
+
+            // Optionally fetch the new "Submission" object to show history
+
+        } catch (err) {
+            console.error("Submission failed:", err);
+            alert("Submission failed: " + (err.response?.data?.message || err.message));
+        } finally {
+            setIsSubmitting(false);
+        }
     };
+
+    if (loading) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <Loader2 className="w-10 h-10 animate-spin text-indigo-600 mx-auto mb-4" />
+                    <p className="text-gray-500 font-medium">Loading workspace...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error || !assignment) {
+        return (
+            <div className="flex h-screen items-center justify-center bg-gray-50">
+                <div className="text-center">
+                    <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                    <h2 className="text-xl font-bold text-gray-900 mb-2">Error Loading Assignment</h2>
+                    <p className="text-gray-500 mb-6">{error || "Assignment not found."}</p>
+                    <Button onClick={() => navigate('/student/dashboard')}>Back to Dashboard</Button>
+                </div>
+            </div>
+        );
+    }
+
+    const currentQuestion = assignment.questions?.[0] || {};
+    const testCases = currentQuestion.test_cases || [];
 
     return (
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
-
-            {/* 1. COMPACT NAVBAR */}
+            {/* 1. HEADER */}
             <header className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 py-1 pr-2 rounded transition-colors" onClick={() => navigate('/student/dashboard')}>
                         <div className="bg-gray-100 p-1 rounded">
                             <ChevronLeft className="w-4 h-4 text-gray-600" />
                         </div>
-                        <span className="font-semibold text-sm text-gray-700">All Problems</span>
+                        <span className="font-semibold text-sm text-gray-700">Back</span>
                     </div>
                     <div className="h-4 w-px bg-gray-200" />
                     <h1 className="font-bold text-sm text-gray-900 flex items-center gap-2">
-                        {PROBLEM_DATA.title}
-                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded uppercase tracking-wider">{PROBLEM_DATA.difficulty}</span>
+                        {assignment.title}
+                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                            {assignment.difficulty || "Medium"}
+                        </span>
                     </h1>
                 </div>
 
@@ -149,82 +204,68 @@ const StudentWorkspace = () => {
                         variant="secondary"
                         size="sm"
                         onClick={handleRunCode}
-                        disabled={isSubmitting || output === 'running'}
+                        disabled={isRunning || isSubmitting}
                         className="h-8 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 border-0 font-medium text-xs gap-2"
                     >
-                        <Play className="w-3.5 h-3.5 fill-current" /> Run
+                        {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
+                        Run Code
                     </Button>
                     <Button
                         size="sm"
                         onClick={handleSubmit}
-                        disabled={isSubmitting}
+                        disabled={isRunning || isSubmitting}
                         className="h-8 px-5 bg-green-600 hover:bg-green-700 text-white font-medium text-xs gap-2 shadow-sm"
                     >
-                        {isSubmitting ? <div className="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                        {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                         Submit
                     </Button>
                 </div>
             </header>
 
-            {/* 2. MAIN WORKSPACE (Resizable Split View) */}
-            <div className="flex-1 flex overflow-hidden relative">
-                <Group direction="horizontal">
+            {/* 2. MAIN WORKSPACE */}
+            <div className="h-[calc(100vh-3rem)] w-full overflow-hidden relative">
+                <Group direction="horizontal" className="h-full w-full flex">
 
-                    {/* LEFT PANEL: Problem Description */}
-                    <Panel defaultSize={40} minSize={20} className="bg-white flex flex-col">
+                    {/* LEFT PANEL: Description */}
+                    <Panel defaultSize={30} minSize={20} className="bg-white flex flex-col h-full">
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full">
                             <div className="bg-gray-50 border-b border-gray-200 px-1 flex-shrink-0">
                                 <TabsList className="bg-transparent h-9 p-0 w-full justify-start gap-1">
                                     <TabsTrigger value="description" className="data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-indigo-600 text-xs font-medium px-4 h-7 rounded-t-md border-t border-x border-transparent data-[state=active]:border-gray-200 mb-[-1px]">
                                         <FileText className="w-3.5 h-3.5 mr-1.5" /> Description
                                     </TabsTrigger>
-                                    <TabsTrigger value="hints" className="data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-indigo-600 text-xs font-medium px-4 h-7 rounded-t-md border-t border-x border-transparent data-[state=active]:border-gray-200 mb-[-1px]">
-                                        <Lightbulb className="w-3.5 h-3.5 mr-1.5" /> Hints
-                                    </TabsTrigger>
                                 </TabsList>
                             </div>
 
                             <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-200 hover:scrollbar-thumb-gray-300">
                                 <TabsContent value="description" className="mt-0 animate-in fade-in duration-300">
-                                    <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-600 prose-code:text-indigo-600 prose-code:bg-indigo-50 prose-code:px-1 prose-code:rounded prose-pre:bg-gray-900 prose-pre:text-gray-50">
-                                        <div dangerouslySetInnerHTML={{ __html: PROBLEM_DATA.description }} />
-                                    </div>
-                                </TabsContent>
-                                <TabsContent value="hints" className="mt-0 space-y-3">
-                                    <div className="p-3 bg-blue-50 border border-blue-100 rounded text-blue-800 text-sm">
-                                        <strong>Hint 1:</strong> Negative signs are characters. <code>-121</code> reversed is <code>121-</code>.
-                                    </div>
-                                    <div className="p-3 bg-purple-50 border border-purple-100 rounded text-purple-800 text-sm">
-                                        <strong>Hint 2:</strong> Python slicing <code>[::-1]</code> reverses strings efficiently.
+                                    <h2 className="text-lg font-bold text-gray-900 mb-2">{currentQuestion.title}</h2>
+                                    <div className="prose prose-sm max-w-none text-gray-600">
+                                        <p>{currentQuestion.description || assignment.description}</p>
                                     </div>
                                 </TabsContent>
                             </div>
                         </Tabs>
                     </Panel>
 
-                    <Separator className="w-1.5 bg-gray-100 hover:bg-indigo-400 transition-colors flex items-center justify-center group z-10">
-                        <GripVertical className="h-4 w-4 text-gray-300 group-hover:text-white" />
-                    </Separator>
+                    <Separator className="w-1.5 bg-gray-100 hover:bg-indigo-400 transition-colors flex items-center justify-center groupzf-10" />
 
                     {/* RIGHT PANEL: Editor & Output */}
-                    <Panel minSize={30} className="flex flex-col min-w-0 bg-white md:w-[60%] relative">
-                        <Group direction="vertical">
+                    <Panel minSize={30} className="bg-white flex flex-col h-full">
+                        <Group direction="vertical" className="h-full w-full flex flex-col">
 
-                            {/* Editor Area */}
+                            {/* EDITOR */}
                             <Panel defaultSize={60} minSize={20} className="flex flex-col relative bg-[#2d2d2d]">
                                 <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
                                     <div className="flex items-center gap-2">
                                         <span className="text-blue-400 font-medium">Python 3</span>
-                                        <ChevronDown className="w-3 h-3" />
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <span
-                                            className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                            onClick={() => setCode(PROBLEM_DATA.starterCode)}
-                                        >
-                                            <RotateCcw className="w-3 h-3" /> Reset
-                                        </span>
-                                    </div>
+                                    <span
+                                        className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
+                                        onClick={() => setCode(currentQuestion.starter_code || "")}
+                                    >
+                                        <RotateCcw className="w-3 h-3" /> Reset
+                                    </span>
                                 </div>
 
                                 <div className="flex-1 relative overflow-hidden bg-[#2d2d2d]">
@@ -237,7 +278,7 @@ const StudentWorkspace = () => {
                                             style={{
                                                 fontFamily: '"Fira Code", "Fira Mono", monospace',
                                                 fontSize: 14,
-                                                backgroundColor: '#2d2d2d', // Match Tomorrow Night background
+                                                backgroundColor: '#2d2d2d',
                                                 color: '#f8f8f2',
                                                 minHeight: '100%'
                                             }}
@@ -247,11 +288,9 @@ const StudentWorkspace = () => {
                                 </div>
                             </Panel>
 
-                            <Separator className="h-1.5 bg-gray-800 hover:bg-indigo-500 transition-colors flex items-center justify-center group z-10 border-t border-b border-gray-900/50">
-                                <div className="w-8 h-1 rounded-full bg-gray-600 group-hover:bg-white/50" />
-                            </Separator>
+                            <Separator className="h-1.5 bg-gray-800 hover:bg-indigo-500 transition-colors flex-shrink-0 z-10 border-t border-b border-gray-900/50" />
 
-                            {/* Console Area */}
+                            {/* CONSOLE */}
                             <Panel defaultSize={40} minSize={10} className="bg-white flex flex-col">
                                 <div className="h-9 min-h-[36px] bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
                                     <div className="flex items-center gap-2">
@@ -259,79 +298,58 @@ const StudentWorkspace = () => {
                                             <Terminal className="w-3.5 h-3.5" />
                                             Test Results
                                         </div>
-                                        {output === 'running' && <span className="text-xs text-indigo-600 animate-pulse">Running...</span>}
-                                        {output && output.status === 'error' && output !== 'running' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                        {output && output.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                        {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
+                                        {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                        {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
                                     </div>
                                 </div>
 
-                                {/* Console Content */}
                                 <div className="flex-1 overflow-hidden flex flex-col relative w-full h-full">
-                                    {/* Empty State */}
-                                    {!output && (
+                                    {!output && !isRunning && (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-4">
                                             <span className="text-sm">Run your code to check test cases.</span>
                                         </div>
                                     )}
 
-                                    {/* Results View */}
-                                    {output && output !== 'running' && (
+                                    {output && (
                                         <div className="flex h-full w-full">
-                                            {/* Test Case Navigation */}
+                                            {/* Test Case List */}
                                             <div className="w-36 bg-gray-50 border-r border-gray-200 overflow-y-auto py-2 flex-shrink-0">
-                                                <div className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Test Cases</div>
-                                                {PROBLEM_DATA.testCases.map((tc, idx) => {
-                                                    const result = output.results && output.results[idx];
-                                                    const statusColor = !result ? 'gray' : result.status === 'pass' ? 'green' : 'red';
-                                                    return (
-                                                        <button
-                                                            key={tc.id}
-                                                            onClick={() => setSelectedTestCase(idx)}
-                                                            className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 border-l-2 transition-all ${selectedTestCase === idx ? 'bg-white border-indigo-600 text-indigo-700 shadow-sm' : 'border-transparent text-gray-600 hover:bg-gray-100'
-                                                                }`}
-                                                        >
-                                                            <span className={`w-1.5 h-1.5 rounded-full bg-${statusColor}-500 flex-shrink-0`} />
-                                                            {tc.label}
-                                                        </button>
-                                                    )
-                                                })}
+                                                <div className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cases</div>
+                                                {output.results.map((result, idx) => (
+                                                    <button
+                                                        key={idx}
+                                                        onClick={() => setSelectedTestCase(idx)}
+                                                        className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 border-l-2 transition-all ${selectedTestCase === idx ? 'bg-white border-indigo-600 text-indigo-700' : 'border-transparent text-gray-600 hover:bg-gray-100'}`}
+                                                    >
+                                                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${result.status === 'pass' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                                        Test Case {idx + 1}
+                                                    </button>
+                                                ))}
                                             </div>
 
-                                            {/* Test Case Details */}
+                                            {/* Result Details */}
                                             <div className="flex-1 p-4 overflow-y-auto min-w-0">
-                                                {PROBLEM_DATA.testCases[selectedTestCase] && (
-                                                    <div className="space-y-4 animate-in fade-in duration-200">
+                                                {output.results[selectedTestCase] && (
+                                                    <div className="space-y-4">
                                                         <div>
                                                             <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Input</h4>
-                                                            <div className="bg-gray-50 p-3 rounded-md border border-gray-200 font-mono text-xs text-gray-800 break-all">
-                                                                {PROBLEM_DATA.testCases[selectedTestCase].input}
-                                                            </div>
+                                                            <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].input}</div>
                                                         </div>
-
                                                         <div className="grid grid-cols-2 gap-4">
-                                                            <div className="min-w-0">
-                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Expected Output</h4>
-                                                                <div className="bg-gray-50 p-3 rounded-md border border-gray-200 font-mono text-xs text-gray-800 break-all">
-                                                                    {PROBLEM_DATA.testCases[selectedTestCase].expected}
+                                                            <div>
+                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Expected</h4>
+                                                                <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].expected}</div>
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Your Output</h4>
+                                                                <div className={`p-2 rounded border font-mono text-xs ${output.results[selectedTestCase].status === 'pass' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                                                                    {output.results[selectedTestCase].output}
                                                                 </div>
                                                             </div>
-                                                            <div className="min-w-0">
-                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Your Output</h4>
-                                                                {output.results && output.results[selectedTestCase] ? (
-                                                                    <div className={`p-3 rounded-md border font-mono text-xs break-all ${output.results[selectedTestCase].status === 'pass'
-                                                                            ? 'bg-green-50 border-green-200 text-green-800'
-                                                                            : 'bg-red-50 border-red-200 text-red-800'
-                                                                        }`}>
-                                                                        {output.results[selectedTestCase].output}
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="text-gray-400 italic text-xs">Not run yet</div>
-                                                                )}
-                                                            </div>
                                                         </div>
-
-                                                        {output.results && output.results[selectedTestCase]?.error && (
-                                                            <div className="mt-2 text-red-600 bg-red-50 p-2 rounded text-xs font-mono border border-red-100 overflow-x-auto">
+                                                        {output.results[selectedTestCase].error && (
+                                                            <div className="text-red-600 bg-red-50 p-2 rounded text-xs font-mono border border-red-100 mt-2">
                                                                 {output.results[selectedTestCase].error}
                                                             </div>
                                                         )}
@@ -347,24 +365,32 @@ const StudentWorkspace = () => {
                 </Group>
             </div>
 
-            {showConfetti && (
-                <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px]">
+            {/* Success Modal */}
+            <AnimatePresence>
+                {showConfetti && (
                     <motion.div
-                        initial={{ scale: 0.5, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        className="bg-white p-8 rounded-2xl shadow-2xl text-center pointer-events-auto"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px]"
                     >
-                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <CheckCircle2 className="w-10 h-10 text-green-600" />
-                        </div>
-                        <h2 className="text-2xl font-bold text-gray-900 mb-2">Excellent Work!</h2>
-                        <p className="text-gray-500 mb-6">You've mastered text processing edge cases.</p>
-                        <Button onClick={() => navigate('/student/dashboard')} className="w-full bg-gray-900 text-white hover:bg-gray-800">
-                            Back to Dashboard
-                        </Button>
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="bg-white p-8 rounded-2xl shadow-2xl text-center max-w-sm w-full mx-4"
+                        >
+                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <CheckCircle2 className="w-8 h-8 text-green-600" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Submitted!</h2>
+                            <p className="text-gray-500 mb-6">Your code has been sent for grading.</p>
+                            <Button onClick={() => navigate('/student/dashboard')} className="w-full bg-gray-900 text-white">
+                                Back to Dashboard
+                            </Button>
+                        </motion.div>
                     </motion.div>
-                </div>
-            )}
+                )}
+            </AnimatePresence>
         </div>
     );
 };

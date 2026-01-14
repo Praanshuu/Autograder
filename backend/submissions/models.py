@@ -51,6 +51,8 @@ class Submission(models.Model):
     final_score = models.IntegerField(default=0)
     teacher_feedback = models.TextField(blank=True)
     ai_feedback = models.TextField(blank=True)
+    time_spent = models.IntegerField(default=0, help_text="Time spent in minutes")
+    feedback_tags = models.CharField(max_length=255, blank=True, help_text="Comma-separated tags e.g. 'Logic Error, Syntax'")
     is_graded = models.BooleanField(default=False)
     is_published = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

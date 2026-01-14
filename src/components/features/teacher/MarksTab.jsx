@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
     Search,
     Download,
@@ -12,7 +12,8 @@ import {
     Trophy,
     TrendingDown,
     Eye,
-    LineChart
+    LineChart,
+    Loader2
 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -28,18 +29,48 @@ import {
 } from "../../ui/table";
 import { Card, CardContent } from "../../ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../../ui/dialog";
-import { GRADEBOOK_DATA } from "../../../mocks/gradebook";
-import LearningTrajectory from "../../features/analytics/LearningTrajectory";
+import { classService } from "../../../services/classService";
 
 export default function MarksTab() {
+    const { classId } = useParams();
     const [heatmapMode, setHeatmapMode] = useState(false);
     const [selectedStudent, setSelectedStudent] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // State for Real Data
+    const [gradebook, setGradebook] = useState({ assignments: [], roster: [] });
+
+    useEffect(() => {
+        const fetchGrades = async () => {
+            if (!classId) return;
+            try {
+                setLoading(true);
+                const response = await classService.getClassGrades(classId);
+                setGradebook({
+                    assignments: response.data.assignments || [],
+                    roster: response.data.roster || []
+                });
+            } catch (error) {
+                console.error("Failed to fetch grades:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchGrades();
+    }, [classId]);
+
+    if (loading) {
+        return <div className="flex justify-center py-10"><Loader2 className="w-8 h-8 animate-spin text-indigo-600" /></div>;
+    }
+
+    const { assignments, roster } = gradebook;
 
     // Calculate Class Averages per Assignment
-    const assignmentAverages = GRADEBOOK_DATA.assignments.map(assign => {
-        const scores = GRADEBOOK_DATA.students.map(student => {
-            const grade = GRADEBOOK_DATA.grades[`${student.id}-${assign.id}`];
-            return grade?.score || 0;
+    const assignmentAverages = assignments.map(assign => {
+        const scores = roster.map(student => {
+            const grade = student.grades[assign.id];
+            return grade !== undefined ? grade : null;
         }).filter(score => score !== null);
 
         if (scores.length === 0) return 0;
@@ -47,20 +78,26 @@ export default function MarksTab() {
     });
 
     // Calculate Overall Student Averages
-    const studentAverages = GRADEBOOK_DATA.students.map(student => {
-        const scores = GRADEBOOK_DATA.assignments.map(assign => {
-            const grade = GRADEBOOK_DATA.grades[`${student.id}-${assign.id}`];
-            return grade?.score || 0;
-        });
+    const studentAverages = roster.map(student => {
+        const scores = assignments.map(assign => {
+            const grade = student.grades[assign.id];
+            return grade !== undefined ? grade : null;
+        }).filter(score => score !== null);
+
+        if (scores.length === 0) return 0;
         return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
     });
 
     // Class Stats
-    const overallClassAverage = Math.round(studentAverages.reduce((a, b) => a + b, 0) / studentAverages.length);
-    const highestAverage = Math.max(...studentAverages);
+    const overallClassAverage = studentAverages.length > 0
+        ? Math.round(studentAverages.reduce((a, b) => a + b, 0) / studentAverages.length)
+        : 0;
+    const highestAverage = studentAverages.length > 0 ? Math.max(...studentAverages) : 0;
+    const submissionsCount = roster.reduce((acc, student) => acc + Object.keys(student.grades).length, 0);
 
-    const getGradeColor = (score, status) => {
-        if (heatmapMode && score !== null && typeof score === 'number') {
+    const getGradeColor = (score) => {
+        if (score === undefined || score === null) return "text-gray-400";
+        if (heatmapMode) {
             // Heatmap intensity
             if (score >= 90) return "bg-green-200 text-green-900";
             if (score >= 80) return "bg-green-100 text-green-800";
@@ -68,10 +105,6 @@ export default function MarksTab() {
             if (score >= 60) return "bg-orange-100 text-orange-800";
             return "bg-red-100 text-red-900";
         }
-
-        if (status === "Missing") return "bg-red-50 text-red-700";
-        if (status === "Late") return "bg-amber-50 text-amber-700";
-        if (status === "To Grade") return "bg-blue-50 text-blue-700";
         if (score >= 90) return "text-green-700 font-bold bg-green-50/50";
         if (score >= 70) return "text-gray-900";
         if (score < 60) return "text-red-600 font-bold bg-red-50/50";
@@ -107,8 +140,8 @@ export default function MarksTab() {
                 <Card className="shadow-sm border-l-4 border-amber-500">
                     <CardContent className="p-4 flex items-center justify-between">
                         <div>
-                            <p className="text-sm font-medium text-gray-500">Submissions Needed</p>
-                            <h3 className="text-2xl font-bold text-gray-900">12</h3>
+                            <p className="text-sm font-medium text-gray-500">Total Submissions</p>
+                            <h3 className="text-2xl font-bold text-gray-900">{submissionsCount}</h3>
                         </div>
                         <div className="p-2 bg-amber-50 rounded-full">
                             <AlertCircle className="w-5 h-5 text-amber-600" />
@@ -139,10 +172,6 @@ export default function MarksTab() {
                             <Eye className="w-4 h-4" /> Heatmap
                         </Label>
                     </div>
-                    <Button variant="outline" className="gap-2">
-                        <Download className="w-4 h-4" />
-                        <span className="hidden sm:inline">Export CSV</span>
-                    </Button>
                 </div>
             </div>
 
@@ -154,12 +183,12 @@ export default function MarksTab() {
                             <TableRow className="bg-gray-50/80 hover:bg-gray-50/80 border-b border-gray-200">
                                 <TableHead className="w-[200px] font-bold text-gray-700 sticky left-0 bg-gray-50 z-20 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">Student Name</TableHead>
                                 <TableHead className="w-[100px] text-center font-bold text-gray-700 bg-gray-50/50">Overall</TableHead>
-                                {GRADEBOOK_DATA.assignments.map(assign => (
+                                {assignments.map(assign => (
                                     <TableHead key={assign.id} className="text-center min-w-[140px] p-0">
                                         <div className="flex flex-col items-center justify-center h-full py-3 hover:bg-gray-100 transition-colors cursor-pointer group">
                                             <span className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{assign.title}</span>
                                             <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">
-                                                {assign.totalPoints} Points
+                                                {assign.points} Points
                                             </span>
                                         </div>
                                     </TableHead>
@@ -167,23 +196,16 @@ export default function MarksTab() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {GRADEBOOK_DATA.students.map((student, idx) => (
+                            {roster.map((student, idx) => (
                                 <TableRow key={student.id} className="group hover:bg-muted/30 transition-colors">
                                     <TableCell className="font-medium sticky left-0 bg-white group-hover:bg-gray-50 transition-colors z-10 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)] py-3">
-                                        <div
-                                            className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
-                                            onClick={() => setSelectedStudent(student)}
-                                        >
+                                        <div className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity">
                                             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 flex items-center justify-center text-indigo-700 text-xs font-bold border border-indigo-200 shadow-sm relative">
-                                                {student.avatar}
-                                                {/* Hint indicator that this is clickable */}
-                                                <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border shadow-sm">
-                                                    <LineChart className="w-2.5 h-2.5 text-indigo-600" />
-                                                </div>
+                                                {student.name.charAt(0)}
                                             </div>
                                             <div>
                                                 <div className="text-sm font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">{student.name}</div>
-                                                <div className="text-xs text-gray-500">ID: {student.id.toUpperCase()}</div>
+                                                <div className="text-xs text-gray-500">{student.email}</div>
                                             </div>
                                         </div>
                                     </TableCell>
@@ -196,94 +218,27 @@ export default function MarksTab() {
                                         </span>
                                     </TableCell>
 
-                                    {GRADEBOOK_DATA.assignments.map(assign => {
-                                        const grade = GRADEBOOK_DATA.grades[`${student.id}-${assign.id}`];
-                                        if (!grade) {
-                                            return <TableCell key={assign.id} className="text-center bg-gray-50/20 p-0" />;
-                                        }
-
+                                    {assignments.map(assign => {
+                                        const grade = student.grades[assign.id];
                                         return (
                                             <TableCell key={assign.id} className="p-0 text-center border-l border-gray-100 hover:border-indigo-300 relative">
-                                                {grade.submissionId ? (
-                                                    <Link
-                                                        to={`/teacher/grading/submission/${grade.submissionId}`}
-                                                        className={`flex items-center justify-center w-full h-16 hover:brightness-95 transition-all ${getGradeColor(grade.score, grade.status)}`}
-                                                    >
-                                                        {grade.status === "To Grade" ? (
-                                                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-blue-200 rounded-full shadow-sm">
-                                                                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-                                                                <span className="text-xs font-bold text-blue-700">Grade</span>
-                                                            </div>
-                                                        ) : grade.status === "Missing" ? (
-                                                            <div className="flex flex-col items-center text-red-400 opacity-70">
-                                                                <XCircle className="w-5 h-5" />
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex flex-col items-center">
-                                                                <span className="text-lg font-mono font-medium tracking-tight">{grade.score}</span>
-                                                                {grade.status === "Late" && !heatmapMode && <span className="text-[10px] font-bold uppercase tracking-wider text-amber-600 mt-0.5">Late</span>}
-                                                            </div>
-                                                        )}
-                                                    </Link>
-                                                ) : (
-                                                    <div className={`flex items-center justify-center w-full h-16 ${getGradeColor(0, grade.status)}`}>
-                                                        <div className="flex flex-col items-center text-red-300">
-                                                            <XCircle className="w-5 h-5" />
-                                                        </div>
-                                                    </div>
-                                                )}
+                                                <div className={`flex items-center justify-center w-full h-16 ${getGradeColor(grade)}`}>
+                                                    {grade !== undefined ? (
+                                                        <span className="text-lg font-mono font-medium tracking-tight">{grade}</span>
+                                                    ) : (
+                                                        <span className="text-gray-300">-</span>
+                                                    )}
+                                                </div>
                                             </TableCell>
                                         );
                                     })}
                                 </TableRow>
                             ))}
-
-                            {/* Class Averages Row */}
-                            <TableRow className="bg-gray-50 border-t-2 border-gray-200">
-                                <TableCell className="font-bold text-gray-500 sticky left-0 bg-gray-50 z-20 border-r shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]">
-                                    <span className="px-2">Class Average</span>
-                                </TableCell>
-                                <TableCell className="text-center font-bold text-gray-500">-</TableCell>
-                                {assignmentAverages.map((avg, i) => (
-                                    <TableCell key={i} className="text-center py-4">
-                                        <div className="flex flex-col items-center gap-1">
-                                            <span className={`text-sm font-bold px-2 py-0.5 rounded ${avg >= 80 ? 'bg-green-100 text-green-800' : 'bg-gray-200 text-gray-700'}`}>
-                                                {avg}%
-                                            </span>
-                                        </div>
-                                    </TableCell>
-                                ))}
-                            </TableRow>
                         </TableBody>
                     </Table>
                 </div>
             </div>
-
-            {/* Student Trajectory Modal */}
-            <Dialog open={!!selectedStudent} onOpenChange={(open) => !open && setSelectedStudent(null)}>
-                <DialogContent className="sm:max-w-[600px]">
-                    <DialogHeader>
-                        <DialogTitle>{selectedStudent?.name}</DialogTitle>
-                        <DialogDescription>
-                            Review the learning performance trend.
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    {selectedStudent?.history ? (
-                        <div className="py-4">
-                            <LearningTrajectory
-                                data={selectedStudent.history}
-                                studentName={selectedStudent.name}
-                            />
-                        </div>
-                    ) : (
-                        <div className="py-8 text-center text-gray-500">
-                            <LineChart className="w-12 h-12 mx-auto mb-2 opacity-20" />
-                            <p>No history data available for this student.</p>
-                        </div>
-                    )}
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }
+

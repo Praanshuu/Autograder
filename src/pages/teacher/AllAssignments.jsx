@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { CheckCircle2, Circle, Clock, MoreVertical, Filter } from "lucide-react";
+import { CheckCircle2, Circle, Clock, MoreVertical, Filter, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
@@ -10,24 +10,44 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "../../components/ui/dropdown-menu";
-import { MOCK_CLASSES } from "../../mocks/classes";
 import TeacherLayout from "../../components/layout/TeacherLayout";
-
-// Mock Aggregated Assignment Data
-const ALL_ASSIGNMENTS = [
-    { id: 1, title: "Dynamic Programming", class: "Advanced Algorithms", due: "Due Friday", turnedIn: 25, graded: 5, total: 30, status: "active" },
-    { id: 2, title: "Graph Theory Quiz", class: "Advanced Algorithms", due: "Due Mon", turnedIn: 28, graded: 0, total: 30, status: "active" },
-    { id: 3, title: "Database Schema Design", class: "Database Systems", due: "No due date", turnedIn: 15, graded: 12, total: 28, status: "active" },
-    { id: 4, title: "Midterm Exam", class: "Advanced Algorithms", due: "Oct 15", turnedIn: 30, graded: 30, total: 30, status: "reviewed" },
-    { id: 5, title: "Intro to SQL", class: "Database Systems", due: "Sep 20", turnedIn: 28, graded: 28, total: 28, status: "reviewed" },
-];
+import { assignmentService } from "../../services/assignmentService";
 
 export default function AllAssignments() {
-    const [activeTab, setActiveTab] = useState("toreview"); // 'toreview' | 'reviewed'
+    const [activeTab, setActiveTab] = useState("all"); // 'all' | 'published' | 'draft'
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    const filteredAssignments = ALL_ASSIGNMENTS.filter(a =>
-        activeTab === "toreview" ? a.status === "active" : a.status === "reviewed"
-    );
+    useEffect(() => {
+        const fetchAssignments = async () => {
+            try {
+                const response = await assignmentService.getAssignments();
+                const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                setAssignments(data);
+            } catch (error) {
+                console.error("Failed to fetch assignments:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAssignments();
+    }, []);
+
+    const filteredAssignments = assignments.filter(a => {
+        if (activeTab === 'all') return true;
+        return a.status === activeTab;
+    });
+
+    if (loading) {
+        return (
+            <TeacherLayout>
+                <div className="flex justify-center items-center h-[50vh]">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                </div>
+            </TeacherLayout>
+        );
+    }
 
     return (
         <TeacherLayout>
@@ -37,35 +57,36 @@ export default function AllAssignments() {
                         <h1 className="text-3xl font-bold tracking-tight text-gray-900">All Assignments</h1>
                         <p className="text-gray-500">Track and grade work across all your classes.</p>
                     </div>
-                    <Button variant="outline" className="gap-2">
-                        <Filter className="w-4 h-4" />
-                        All Classes
-                    </Button>
                 </div>
 
                 {/* Custom Tabs */}
                 <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg w-fit">
                     <button
-                        onClick={() => setActiveTab("toreview")}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "toreview"
+                        onClick={() => setActiveTab("all")}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "all"
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
                             }`}
                     >
-                        To Review
-                        <Badge className={`ml-2 h-5 px-1.5 rounded-full ${activeTab === "toreview" ? "bg-indigo-100 text-indigo-700 hover:bg-indigo-100" : "bg-gray-200 text-gray-600"
-                            }`}>
-                            3
-                        </Badge>
+                        All
                     </button>
                     <button
-                        onClick={() => setActiveTab("reviewed")}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "reviewed"
+                        onClick={() => setActiveTab("published")}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "published"
                             ? "bg-white text-indigo-600 shadow-sm"
                             : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
                             }`}
                     >
-                        Reviewed
+                        Published
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("draft")}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${activeTab === "draft"
+                            ? "bg-white text-indigo-600 shadow-sm"
+                            : "text-gray-500 hover:text-gray-700 hover:bg-gray-200/50"
+                            }`}
+                    >
+                        Drafts
                     </button>
                 </div>
 
@@ -81,27 +102,36 @@ export default function AllAssignments() {
                                                 <h3 className="text-lg font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
                                                     {assignment.title}
                                                 </h3>
+                                                <Badge variant="outline" className="text-xs font-normal">
+                                                    {assignment.status}
+                                                </Badge>
                                             </div>
-                                            <p className="text-sm text-gray-500 font-medium">{assignment.class}</p>
+                                            <p className="text-sm text-gray-500 font-medium">
+                                                {assignment.class_obj?.name || "Unknown Class"}
+                                            </p>
                                             <div className="flex items-center gap-2 text-xs text-gray-400 mt-2">
                                                 <Clock className="w-3.5 h-3.5" />
-                                                <span>{assignment.due}</span>
+                                                <span>
+                                                    {assignment.due_date
+                                                        ? new Date(assignment.due_date).toLocaleDateString()
+                                                        : "No due date"}
+                                                </span>
                                             </div>
                                         </div>
 
                                         <div className="flex items-center gap-8">
-                                            {/* Stats for Teacher */}
+                                            {/* Stats Placeholder - Backend needs to send these stats */}
                                             <div className="text-center">
-                                                <p className="text-2xl font-light text-gray-900">{assignment.turnedIn - assignment.graded}</p>
+                                                <p className="text-2xl font-light text-gray-900">--</p>
                                                 <p className="text-xs text-gray-500 uppercase tracking-wide">To Grade</p>
                                             </div>
                                             <div className="text-center border-l pl-8">
-                                                <p className="text-2xl font-light text-gray-900">{assignment.graded}</p>
+                                                <p className="text-2xl font-light text-gray-900">--</p>
                                                 <p className="text-xs text-gray-500 uppercase tracking-wide">Graded</p>
                                             </div>
                                             <div className="text-center border-l pl-8 pr-4">
-                                                <p className="text-2xl font-light text-gray-900">{assignment.turnedIn}</p>
-                                                <p className="text-xs text-gray-500 uppercase tracking-wide">Turned In</p>
+                                                <p className="text-2xl font-light text-gray-900">{assignment.questions?.length || 0}</p>
+                                                <p className="text-xs text-gray-500 uppercase tracking-wide">Questions</p>
                                             </div>
                                         </div>
                                     </div>

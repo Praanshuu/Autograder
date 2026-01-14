@@ -1,16 +1,43 @@
-import { Plus, StickyNote, FileText, Calendar } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Plus, StickyNote, FileText, Calendar, Loader2 } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import { Button } from "../../ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "../../ui/card";
-import { MOCK_ASSIGNMENT } from "../../../mocks/assignments";
-
-// Mock list derived from single mock for demo
-const ASSIGNMENTS = [
-    MOCK_ASSIGNMENT,
-    { ...MOCK_ASSIGNMENT, id: "a2", title: "Loops & Conditions", status: "Draft", dueDate: "2024-03-25T23:59:00" }
-];
+import { Card } from "../../ui/card";
+import { assignmentService } from "../../../services/assignmentService";
 
 export default function ClassworkTab() {
+    const { classId } = useParams();
+    const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    useEffect(() => {
+        const fetchAssignments = async () => {
+            if (!classId) return;
+            try {
+                setLoading(true);
+                const response = await assignmentService.getClassAssignments(classId);
+                const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                setAssignments(data);
+            } catch (err) {
+                console.error("Failed to load assignments", err);
+                setError("Failed to load assignments.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAssignments();
+    }, [classId]);
+
+    if (loading) {
+        return <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
+    }
+
+    if (error) {
+        return <div className="text-red-500 py-4 text-center">{error}</div>;
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -26,7 +53,7 @@ export default function ClassworkTab() {
             </div>
 
             <div className="space-y-4">
-                {ASSIGNMENTS.map((assignment) => (
+                {assignments.map((assignment) => (
                     <Card key={assignment.id} className="hover:shadow-md transition-shadow group">
                         <div className="flex items-center justify-between p-6">
                             <div className="flex items-start gap-4">
@@ -39,16 +66,18 @@ export default function ClassworkTab() {
                                             {assignment.title}
                                         </h3>
                                     </Link>
-                                    <p className="text-sm text-gray-500 mt-1 line-clamp-1">{assignment.description}</p>
+                                    <p className="text-sm text-gray-500 mt-1 line-clamp-1">{assignment.description || "No description provided."}</p>
                                     <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-                                        <div className="flex items-center gap-1">
-                                            <Calendar className="w-3 h-3" />
-                                            Due {new Date(assignment.dueDate).toLocaleDateString()}
-                                        </div>
-                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${assignment.status === "Active" ? "bg-green-50 text-green-700 border-green-200" :
-                                                "bg-gray-100 text-gray-700 border-gray-200"
+                                        {assignment.due_date && (
+                                            <div className="flex items-center gap-1">
+                                                <Calendar className="w-3 h-3" />
+                                                Due {new Date(assignment.due_date).toLocaleDateString()}
+                                            </div>
+                                        )}
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${assignment.status === "published" ? "bg-green-50 text-green-700 border-green-200" :
+                                            "bg-gray-100 text-gray-700 border-gray-200"
                                             }`}>
-                                            {assignment.status}
+                                            {assignment.status || "Draft"}
                                         </span>
                                     </div>
                                 </div>
@@ -60,11 +89,11 @@ export default function ClassworkTab() {
                     </Card>
                 ))}
 
-                {ASSIGNMENTS.length === 0 && (
+                {assignments.length === 0 && (
                     <div className="p-12 text-center border-2 border-dashed border-gray-200 rounded-xl">
                         <StickyNote className="w-12 h-12 text-gray-300 mx-auto mb-4" />
                         <h3 className="text-lg font-medium text-gray-900">Assignments will appear here</h3>
-                        <p className="text-gray-500 mt-1">Create assignments and questions to get started.</p>
+                        <p className="text-gray-500 mt-1">Create assignments to get started.</p>
                     </div>
                 )}
             </div>

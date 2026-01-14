@@ -25,7 +25,7 @@ class SubmissionSerializer(serializers.ModelSerializer):
                   'language', 'submitted_at', 'status', 'test_results',
                   'auto_grade_score', 'manual_adjustment', 'final_score',
                   'teacher_feedback', 'ai_feedback', 'is_graded', 'is_published',
-                  'created_at', 'updated_at']
+                  'created_at', 'updated_at', 'time_spent', 'feedback_tags']
         read_only_fields = ['id', 'student', 'submitted_at', 'test_results',
                           'auto_grade_score', 'is_graded', 'is_published',
                           'created_at', 'updated_at']

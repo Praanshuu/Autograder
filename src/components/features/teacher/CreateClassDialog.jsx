@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
+import { classService } from "../../../services/classService";
 import { Button } from "../../ui/button";
 import {
     Dialog,
@@ -13,22 +14,49 @@ import {
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 
-export default function CreateClassDialog() {
+export default function CreateClassDialog({ onClassCreated }) {
     const [open, setOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+
     const [className, setClassName] = useState("");
     const [section, setSection] = useState("");
     const [subject, setSubject] = useState("");
     const [room, setRoom] = useState("");
 
-    const handleCreate = () => {
-        // Logic to create class would go here
-        console.log("Creating class:", { className, section, subject, room });
-        setOpen(false);
-        // Reset form
-        setClassName("");
-        setSection("");
-        setSubject("");
-        setRoom("");
+    const handleCreate = async () => {
+        if (!className) return;
+
+        setLoading(true);
+        setError(null);
+
+        try {
+            // Backend expects specific fields. Adjusting to common Django noms.
+            const classData = {
+                name: className,
+                section: section,
+                subject: subject,
+                room: room
+            };
+
+            const response = await classService.createClass(classData);
+
+            if (onClassCreated) {
+                onClassCreated(response.data);
+            }
+
+            setOpen(false);
+            // Reset form
+            setClassName("");
+            setSection("");
+            setSubject("");
+            setRoom("");
+        } catch (err) {
+            console.error("Failed to create class:", err);
+            setError("Failed to create class. Please try again.");
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -46,6 +74,13 @@ export default function CreateClassDialog() {
                         Enter the details for your new class. Click create when you're done.
                     </DialogDescription>
                 </DialogHeader>
+
+                {error && (
+                    <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-200">
+                        {error}
+                    </div>
+                )}
+
                 <div className="grid gap-4 py-4">
                     <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="name" className="text-right">
@@ -57,6 +92,7 @@ export default function CreateClassDialog() {
                             onChange={(e) => setClassName(e.target.value)}
                             placeholder="e.g. Intro to CS"
                             className="col-span-3"
+                            disabled={loading}
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
@@ -69,6 +105,7 @@ export default function CreateClassDialog() {
                             onChange={(e) => setSection(e.target.value)}
                             placeholder="e.g. 101-A"
                             className="col-span-3"
+                            disabled={loading}
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
@@ -81,6 +118,7 @@ export default function CreateClassDialog() {
                             onChange={(e) => setSubject(e.target.value)}
                             placeholder="e.g. Computer Science"
                             className="col-span-3"
+                            disabled={loading}
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
@@ -93,11 +131,15 @@ export default function CreateClassDialog() {
                             onChange={(e) => setRoom(e.target.value)}
                             placeholder="e.g. 304"
                             className="col-span-3"
+                            disabled={loading}
                         />
                     </div>
                 </div>
                 <DialogFooter>
-                    <Button onClick={handleCreate}>Create Class</Button>
+                    <Button onClick={handleCreate} disabled={loading || !className} className="min-w-[120px]">
+                        {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+                        {loading ? "Creating..." : "Create Class"}
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

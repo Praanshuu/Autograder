@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
     LayoutDashboard,
@@ -12,12 +13,14 @@ import {
     Menu,
     Clock,
     CheckCircle2,
-    MessageSquare
+    MessageSquare,
+    GraduationCap
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "../ui/dropdown-menu";
+import { classService } from "../../services/classService";
 
 const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
     <Link
@@ -72,8 +75,22 @@ const SidebarSection = ({ title, children }) => (
     </div>
 );
 
-export default function StudentLayout({ children }) {
+export default function StudentLayout({ children, refreshTrigger = 0 }) {
     const location = useLocation();
+    const [classes, setClasses] = useState([]);
+
+    useEffect(() => {
+        const fetchClasses = async () => {
+            try {
+                const response = await classService.getClasses();
+                const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                setClasses(data);
+            } catch (error) {
+                console.error("Failed to fetch classes for sidebar", error);
+            }
+        };
+        fetchClasses();
+    }, [refreshTrigger]);
 
     return (
         <div className="min-h-screen bg-gray-50 flex">
@@ -98,6 +115,22 @@ export default function StudentLayout({ children }) {
                             href="/student/assignments"
                             active={location.pathname === "/student/assignments"}
                         />
+                    </SidebarSection>
+
+                    <SidebarSection title="My Classes">
+                        {classes.length > 0 ? (
+                            classes.map(cls => (
+                                <SidebarItem
+                                    key={cls.id}
+                                    icon={GraduationCap}
+                                    label={cls.name}
+                                    href={`/student/class/${cls.id}`} // We can define this route later
+                                    active={location.pathname === `/student/class/${cls.id}`}
+                                />
+                            ))
+                        ) : (
+                            <div className="px-3 py-2 text-xs text-gray-400 italic">No classes joined</div>
+                        )}
                     </SidebarSection>
 
                     <SidebarSection title="Insights">
@@ -170,7 +203,7 @@ export default function StudentLayout({ children }) {
                                         {NOTIFICATIONS.map((notif) => (
                                             <DropdownMenuItem key={notif.id} className="p-4 cursor-pointer focus:bg-gray-50 border-b border-gray-50 last:border-0 items-start gap-3">
                                                 <div className={`mt-1 p-1.5 rounded-full shrink-0 ${notif.type === 'comment' ? 'bg-blue-100 text-blue-600' :
-                                                        'bg-orange-100 text-orange-600'
+                                                    'bg-orange-100 text-orange-600'
                                                     }`}>
                                                     {notif.type === 'comment' ? <MessageSquare className="w-3.5 h-3.5" /> :
                                                         <Clock className="w-3.5 h-3.5" />

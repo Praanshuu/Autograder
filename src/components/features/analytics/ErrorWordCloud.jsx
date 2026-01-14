@@ -3,42 +3,38 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { AlertCircle, Filter, X, MessageSquareWarning } from "lucide-react";
 import { Button } from "../../ui/button";
 
-// Mock Data representing aggregated strings from autograder logs
-const MOCK_FEEDBACK_DATA = [
-    { text: "Output Mismatch", value: 45, type: "error" },
-    { text: "Infinite Loop", value: 38, type: "error" },
-    { text: "Test Case 3 Failed", value: 30, type: "failure" },
-    { text: "Memory Limit Exceeded", value: 25, type: "error" },
-    { text: "Return Type Error", value: 20, type: "error" },
-    { text: "Variable Not Initialized", value: 15, type: "warning" },
-    { text: "Null Pointer", value: 12, type: "error" },
-    { text: "Optimized Solution", value: 8, type: "success" },
-    { text: "Syntax Error: missing ;", value: 18, type: "warning" },
-    { text: "Index Out of Bounds", value: 22, type: "error" },
-];
+export default function ErrorWordCloud({ data = [], selectedTag, onSelectTag }) {
+    if (!data || data.length === 0) {
+        return (
+            <Card className="col-span-1 border-dashed border-gray-200 bg-gray-50 h-full flex flex-col items-center justify-center p-6 text-center text-gray-500">
+                <MessageSquareWarning className="w-8 h-8 mb-2 opacity-20" />
+                <p>No feedback tags found for this assignment yet.</p>
+            </Card>
+        );
+    }
 
-export default function ErrorWordCloud({ selectedTag, onSelectTag }) {
-    // Controlled component: state moved to parent
+    // Simple sizing logic based on value range
+    const maxValue = Math.max(...data.map(d => d.value), 1);
 
-
-    // Simple sizing logic based on value range (0 -> 50)
     const getFontSize = (value) => {
-        // Map 0-50 to 12px-40px
+        // Map 0-max to 12px-36px
         const minSize = 12;
-        const maxSize = 36;
-        const scale = (value / 50); // Normalized 0-1
+        const maxSize = 32;
+        const scale = (value / maxValue);
         return minSize + (scale * (maxSize - minSize));
     };
 
     const getColor = (item) => {
-        if (item.type === 'error') return "#ef4444"; // Red
-        if (item.type === 'failure') return "#f97316"; // Orange
-        if (item.type === 'warning') return "#eab308"; // Yellow
-        return "#22c55e"; // Green/Success
+        // Basic mapping based on keyword heuristics if type isn't explicit
+        const text = item.text.toLowerCase();
+        if (text.includes('error') || text.includes('failed') || text.includes('exception')) return "#ef4444"; // Red
+        if (text.includes('optimization') || text.includes('clean') || text.includes('perfect')) return "#22c55e"; // Green
+        if (text.includes('warning') || text.includes('redundant')) return "#eab308"; // Yellow
+        return "#f97316"; // Orange default
     };
 
     return (
-        <Card className="col-span-1 border-orange-100 bg-orange-50/10">
+        <Card className="col-span-1 border-orange-100 bg-orange-50/10 h-full">
             <CardHeader>
                 <CardTitle className="text-lg flex items-center justify-between">
                     <div className="flex items-center gap-2">
@@ -57,35 +53,34 @@ export default function ErrorWordCloud({ selectedTag, onSelectTag }) {
                     )}
                 </CardTitle>
                 <CardDescription>
-                    Aggregated keywords from Autograder feedback logs.
+                    Frequency of automated feedback tags.
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 p-4 min-h-[300px]">
-                    {MOCK_FEEDBACK_DATA.map((item, i) => (
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 p-4">
+                    {data.map((item, i) => (
                         <span
                             key={i}
                             onClick={() => onSelectTag(selectedTag === item.text ? null : item.text)}
-                            className={`cursor-pointer transition-all hover:scale-110 hover:underline decoration-2 underline-offset-4 ${selectedTag && selectedTag !== item.text ? "opacity-30 blur-[1px]" : "opacity-100"
+                            className={`cursor-pointer transition-all hover:scale-105 hover:underline decoration-2 underline-offset-4 ${selectedTag && selectedTag !== item.text ? "opacity-30 blur-[1px]" : "opacity-100"
                                 }`}
                             style={{
                                 fontSize: `${getFontSize(item.value)}px`,
                                 color: getColor(item),
-                                fontWeight: item.value > 25 ? 700 : 500,
+                                fontWeight: item.value > (maxValue / 2) ? 700 : 500,
                             }}
+                            title={`${item.value} students`}
                         >
                             {item.text}
                         </span>
                     ))}
                 </div>
                 {selectedTag && (() => {
-                    const selectedItem = MOCK_FEEDBACK_DATA.find(i => i.text === selectedTag);
+                    const selectedItem = data.find(i => i.text === selectedTag);
                     return (
                         <div className="mt-4 p-3 bg-white border rounded-md text-sm text-gray-600 shadow-sm animate-in fade-in slide-in-from-top-2">
-                            <span className="font-semibold text-gray-900">Drilldown:</span>
-                            {selectedTag.includes("Test Case") ? " 30% of students failed this specific edge case. Check the test parameters." :
-                                selectedTag.includes("Loop") ? " Suggests inefficient logic (O(n^2) or worse). Recommend reviewing time complexity." :
-                                    ` ${selectedItem ? selectedItem.value : 0} students received this specific feedback string.`}
+                            <span className="font-semibold text-gray-900">Insight:</span>
+                            {` ${selectedItem ? selectedItem.value : 0} students received the feedback "${selectedTag}".`}
                         </div>
                     );
                 })()}
