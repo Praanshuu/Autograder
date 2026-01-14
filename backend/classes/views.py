@@ -5,6 +5,11 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from .models import Class, Enrollment
 from .serializers import ClassSerializer, EnrollmentSerializer
+from django.contrib.auth import get_user_model
+from submissions.models import Submission
+from core.permissions import IsTeacher
+
+User = get_user_model()
 
 
 class ClassViewSet(viewsets.ModelViewSet):
@@ -34,7 +39,7 @@ class ClassViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy', 'archive']:
             # Only teachers/admins can create/update classes
-            return [IsAuthenticated()]
+            return [IsAuthenticated(), IsTeacher()]
         return [IsAuthenticated()]
     
     def perform_create(self, serializer):
@@ -140,6 +145,51 @@ class ClassViewSet(viewsets.ModelViewSet):
         return Response({
             'success': True,
             'data': people
+        })
+
+    @action(detail=True, methods=['get'])
+    def grades(self, request, pk=None):
+        """Get gradebook data (Assignments x Students)"""
+        class_obj = self.get_object()
+        
+        # 1. Assignments
+        assignments = class_obj.assignments.all().order_by('created_at')
+        assign_data = [{'id': a.id, 'title': a.title, 'points': a.points} for a in assignments]
+        
+        # 2. Students
+        students = User.objects.filter(
+            enrollments__class_obj=class_obj,
+            enrollments__role='student',
+            enrollments__status='active'
+        ).distinct().order_by('last_name', 'first_name')
+        
+        # 3. Submissions
+        submissions = Submission.objects.filter(
+            assignment__class_obj=class_obj
+        ).values('student_id', 'assignment_id', 'final_score', 'status')
+        
+        # Map: student_id -> { assignment_id: score }
+        grades_map = {}
+        for sub in submissions:
+            s_id = sub['student_id']
+            a_id = sub['assignment_id']
+            if s_id not in grades_map: grades_map[s_id] = {}
+            grades_map[s_id][a_id] = sub['final_score']
+            
+        # 4. Construct Roster
+        roster = []
+        for student in students:
+            student_grades = grades_map.get(student.id, {})
+            roster.append({
+                'id': student.id,
+                'name': f"{student.first_name} {student.last_name}",
+                'email': student.email,
+                'grades': student_grades
+            })
+            
+        return Response({
+            'assignments': assign_data,
+            'roster': roster
         })
 
 

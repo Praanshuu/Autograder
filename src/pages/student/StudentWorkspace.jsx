@@ -223,11 +223,11 @@ const StudentWorkspace = () => {
             </header>
 
             {/* 2. MAIN WORKSPACE */}
-            <div className="flex-1 flex overflow-hidden relative">
-                <Group direction="horizontal">
+            <div className="h-[calc(100vh-3rem)] w-full overflow-hidden relative">
+                <Group direction="horizontal" className="h-full w-full flex">
 
                     {/* LEFT PANEL: Description */}
-                    <Panel defaultSize={40} minSize={20} className="bg-white flex flex-col">
+                    <Panel defaultSize={30} minSize={20} className="bg-white flex flex-col h-full">
                         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full">
                             <div className="bg-gray-50 border-b border-gray-200 px-1 flex-shrink-0">
                                 <TabsList className="bg-transparent h-9 p-0 w-full justify-start gap-1">
@@ -248,11 +248,11 @@ const StudentWorkspace = () => {
                         </Tabs>
                     </Panel>
 
-                    <Separator className="w-1.5 bg-gray-100 hover:bg-indigo-400 transition-colors flex items-center justify-center group z-10" />
+                    <Separator className="w-1.5 bg-gray-100 hover:bg-indigo-400 transition-colors flex items-center justify-center groupzf-10" />
 
                     {/* RIGHT PANEL: Editor & Output */}
-                    <Panel minSize={30} className="flex flex-col min-w-0 bg-white md:w-[60%] relative">
-                        <Group direction="vertical">
+                    <Panel minSize={30} className="bg-white flex flex-col h-full">
+                        <Group direction="vertical" className="h-full w-full flex flex-col">
 
                             {/* EDITOR */}
                             <Panel defaultSize={60} minSize={20} className="flex flex-col relative bg-[#2d2d2d]">

@@ -125,3 +125,5 @@ dist
 *.njsproj
 *.sln
 *.sw?
+
+# public/data

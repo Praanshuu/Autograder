@@ -4,11 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 export default function PerformanceMatrix({ submissions }) {
     // Filter out null scores for the chart
     const data = submissions
-        .filter(s => s.autoGradeScore !== null && s.timeSpent !== null)
+        .filter(s => s.final_score !== null && s.time_spent !== null)
         .map(s => ({
-            x: s.timeSpent,
-            y: s.autoGradeScore,
-            name: s.studentName,
+            x: s.time_spent,
+            y: s.final_score,
+            name: s.student?.first_name ? `${s.student.first_name} ${s.student.last_name || ''}` : `Student ${s.student_id}`,
             status: s.status
         }));
 

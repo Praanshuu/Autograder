@@ -53,4 +53,9 @@ export const classService = {
   getClassPeople: async (classId) => {
     return await api.get(API_CONFIG.ENDPOINTS.CLASSES.PEOPLE(classId));
   },
+
+  // Get gradebook data
+  getClassGrades: async (classId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}grades/`);
+  },
 };
