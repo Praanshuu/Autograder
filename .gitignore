@@ -134,3 +134,13 @@ backend/db_dump_clean.json
 backend/db_dump_final.json
 backend/*.backup
 backend/db.sqlite3.current
+
+# Sensitive credentials and user data
+CREDENTIALS.md
+backend/list_all_users.py
+backend/add_hints_to_questions.py
+
+# Database files (contains user data)
+backend/db.sqlite3
+*.sqlite3
+db.sqlite3.backup

@@ -30,11 +30,13 @@ class Question(models.Model):
     
     title = models.CharField(max_length=200)
     description = models.TextField()
+    hint = models.TextField(blank=True, help_text="Hint to help students solve the problem")
     difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES, default='Medium')
     test_cases = models.ManyToManyField(TestCase, related_name='questions')
     time_limit = models.IntegerField(default=5000)  # milliseconds
     memory_limit = models.IntegerField(default=256)  # MB
     allowed_languages = models.JSONField(default=list)
+    starter_code = models.TextField(blank=True, help_text="Starter code template for students")
     order = models.IntegerField(default=0)
     
     class Meta:
