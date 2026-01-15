@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
     LayoutDashboard,
     BookOpen,
@@ -21,6 +21,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "../ui/dropdown-menu";
 import { classService } from "../../services/classService";
+import { useAuth } from "../../contexts/AuthContext";
 
 const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
     <Link
@@ -77,7 +78,14 @@ const SidebarSection = ({ title, children }) => (
 
 export default function StudentLayout({ children, refreshTrigger = 0 }) {
     const location = useLocation();
+    const navigate = useNavigate();
+    const { logout, user } = useAuth();
     const [classes, setClasses] = useState([]);
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
 
     useEffect(() => {
         const fetchClasses = async () => {
@@ -153,7 +161,10 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                 </div>
 
                 <div className="p-4 border-t border-gray-100">
-                    <button className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                    <button 
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                    >
                         <LogOut className="w-5 h-5" />
                         Sign Out
                     </button>
@@ -235,9 +246,11 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 rounded-full hover:bg-gray-100 ring-offset-2 focus-visible:ring-2">
                                     <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
-                                        AS
+                                        {user?.first_name?.[0]}{user?.last_name?.[0]}
                                     </div>
-                                    <span className="text-sm font-medium text-gray-700 hidden sm:block">Alex S.</span>
+                                    <span className="text-sm font-medium text-gray-700 hidden sm:block">
+                                        {user?.first_name} {user?.last_name}
+                                    </span>
                                     <ChevronDown className="w-4 h-4 text-gray-400" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -251,7 +264,10 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                                     <Link to="/student/settings">Settings</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
+                                <DropdownMenuItem 
+                                    onClick={handleLogout}
+                                    className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
+                                >
                                     Logout
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

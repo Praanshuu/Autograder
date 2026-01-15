@@ -127,3 +127,10 @@ dist
 *.sw?
 
 public/data
+
+# Database temporary files
+backend/db_dump_fixed.json
+backend/db_dump_clean.json
+backend/db_dump_final.json
+backend/*.backup
+backend/db.sqlite3.current

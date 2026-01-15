@@ -89,6 +89,9 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
     def register(self, request):
         """User registration"""
+        print(f"=== REGISTRATION ATTEMPT ===")
+        print(f"Request data: {request.data}")
+        
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
@@ -101,6 +104,8 @@ class UserViewSet(viewsets.ModelViewSet):
                     'access': str(refresh.access_token),
                 }
             }, status=status.HTTP_201_CREATED)
+        
+        print(f"Validation errors: {serializer.errors}")
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=False, methods=['post'], permission_classes=[AllowAny])
