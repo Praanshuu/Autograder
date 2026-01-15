@@ -1,4 +1,5 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { authService } from "../../services/authService";
 import {
     LayoutDashboard,
     Calendar,
@@ -83,6 +84,7 @@ const SidebarSection = ({ title, children }) => (
 
 export default function TeacherLayout({ children }) {
     const location = useLocation();
+    const navigate = useNavigate();
 
     return (
         <div className="min-h-screen bg-gray-50 flex">
@@ -135,7 +137,13 @@ export default function TeacherLayout({ children }) {
                 </div>
 
                 <div className="p-4 border-t border-gray-100">
-                    <button className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                    <button
+                        onClick={() => {
+                            authService.logout();
+                            navigate('/login', { replace: true });
+                        }}
+                        className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                    >
                         <LogOut className="w-5 h-5" />
                         Sign Out
                     </button>

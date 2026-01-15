@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'assignments',
     'submissions',
     'notifications',
+    'anymail',
 ]
 
 MIDDLEWARE = [
@@ -182,3 +183,10 @@ MAX_CODE_LENGTH = config('MAX_CODE_LENGTH', default=50000, cast=int)
 # AI Grading Settings (Optional)
 AI_GRADING_API_KEY = config('AI_GRADING_API_KEY', default='')
 AI_GRADING_ENDPOINT = config('AI_GRADING_ENDPOINT', default='')
+
+# Email Configuration (Resend)
+EMAIL_BACKEND = "anymail.backends.resend.EmailBackend"
+ANYMAIL = {
+    "RESEND_API_KEY": config('RESEND_API_KEY', default=''),
+}
+DEFAULT_FROM_EMAIL = "onboarding@resend.dev"

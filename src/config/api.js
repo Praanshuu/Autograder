@@ -10,6 +10,8 @@ export const API_CONFIG = {
       ME: '/users/me/',
       UPDATE_ME: '/users/update_me/',
       SETTINGS: '/users/settings/',
+      REQUEST_PASSWORD_RESET: '/users/request_password_reset/',
+      RESET_PASSWORD_CONFIRM: '/users/reset_password_confirm/',
     },
     // Classes
     CLASSES: {

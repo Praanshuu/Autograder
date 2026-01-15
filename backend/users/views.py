@@ -6,6 +6,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import authenticate
 from .models import User
 from .serializers import UserSerializer, UserRegistrationSerializer, UserSettingsSerializer
+from django.core.mail import send_mail
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.conf import settings
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -14,7 +19,7 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_permissions(self):
-        if self.action == 'create' or self.action == 'register' or self.action == 'login':
+        if self.action in ['create', 'register', 'login', 'request_password_reset', 'reset_password_confirm']:
             return [AllowAny()]
         return [IsAuthenticated()]
     
@@ -86,3 +91,59 @@ class UserViewSet(viewsets.ModelViewSet):
             serializer.save()
             return Response({'success': True, 'user': UserSerializer(request.user).data})
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def request_password_reset(self, request):
+        """Request password reset email"""
+        email = request.data.get('email')
+        if not email:
+            return Response({'message': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # For security, don't reveal that the user doesn't exist
+            # But return success so frontend shows the "check email" message
+            return Response({'success': True, 'message': 'If an account exists, a reset email has been sent.'})
+            
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Construct reset link
+        # TODO: Move domain to settings
+        reset_link = f"http://localhost:5173/reset-password/{uid}/{token}"
+        
+        try:
+            send_mail(
+                subject='Password Reset Request - Autograder',
+                message=f'Click the following link to reset your password: {reset_link}',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            return Response({'success': True, 'message': 'Password reset email sent'})
+        except Exception as e:
+            return Response({'success': False, 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['post'], permission_classes=[AllowAny])
+    def reset_password_confirm(self, request):
+        """Confirm password reset with token"""
+        uid = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        
+        if not all([uid, token, new_password]):
+             return Response({'message': 'All fields are required'}, status=status.HTTP_400_BAD_REQUEST)
+             
+        try:
+            uid_decoded = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=uid_decoded)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({'message': 'Invalid link'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if user and default_token_generator.check_token(user, token):
+            user.set_password(new_password)
+            user.save()
+            return Response({'success': True, 'message': 'Password has been reset successfully'})
+        else:
+            return Response({'message': 'Invalid or expired token'}, status=status.HTTP_400_BAD_REQUEST)

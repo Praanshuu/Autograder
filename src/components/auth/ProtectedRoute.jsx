@@ -2,8 +2,10 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
+import { authService } from '../../services/authService';
+
 const ProtectedRoute = ({ children, requiredRole = null }) => {
-  const { isAuthenticated, user, isLoading } = useAuth();
+  const { isAuthenticated, user, isLoading, logout } = useAuth();
   const location = useLocation();
 
   // Show loading spinner while checking authentication
@@ -15,8 +17,9 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
     );
   }
 
-  // Redirect to login if not authenticated
-  if (!isAuthenticated) {
+  // Redirect to login if not authenticated or token is invalid
+  // We check authService.isAuthenticated() directly to catch stale context states
+  if (!isAuthenticated || !authService.isAuthenticated()) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
