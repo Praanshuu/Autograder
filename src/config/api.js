@@ -5,9 +5,9 @@ export const API_CONFIG = {
   ENDPOINTS: {
     // Authentication
     AUTH: {
-      REGISTER: '/auth/register/',
-      LOGIN: '/auth/login/',
-      ME: '/users/me/',
+      REGISTER: '/users/register/',
+      LOGIN: '/auth/simple-login/',  // Use working function-based view
+      ME: '/users/me/',  // Use working function-based view
       UPDATE_ME: '/users/update_me/',
       SETTINGS: '/users/settings/',
       REQUEST_PASSWORD_RESET: '/users/request_password_reset/',

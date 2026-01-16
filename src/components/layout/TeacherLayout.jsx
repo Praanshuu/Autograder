@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { authService } from "../../services/authService";
+
 import {
     LayoutDashboard,
     Calendar,
@@ -20,6 +20,7 @@ import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "../ui/dropdown-menu";
+import { useAuth } from "../../contexts/AuthContext";
 
 const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
     <Link
@@ -85,6 +86,12 @@ const SidebarSection = ({ title, children }) => (
 export default function TeacherLayout({ children }) {
     const location = useLocation();
     const navigate = useNavigate();
+    const { logout, user } = useAuth();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/login');
+    };
 
     return (
         <div className="min-h-screen bg-gray-50 flex">
@@ -138,10 +145,7 @@ export default function TeacherLayout({ children }) {
 
                 <div className="p-4 border-t border-gray-100">
                     <button
-                        onClick={() => {
-                            authService.logout();
-                            navigate('/login', { replace: true });
-                        }}
+                        onClick={handleLogout}
                         className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors"
                     >
                         <LogOut className="w-5 h-5" />
@@ -246,9 +250,11 @@ export default function TeacherLayout({ children }) {
                             <DropdownMenuTrigger asChild>
                                 <Button variant="ghost" className="flex items-center gap-2 pl-2 pr-1 rounded-full hover:bg-gray-100 ring-offset-2 focus-visible:ring-2">
                                     <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
-                                        JD
+                                        {user?.first_name?.[0]}{user?.last_name?.[0]}
                                     </div>
-                                    <span className="text-sm font-medium text-gray-700 hidden sm:block">John Doe</span>
+                                    <span className="text-sm font-medium text-gray-700 hidden sm:block">
+                                        {user?.first_name} {user?.last_name}
+                                    </span>
                                     <ChevronDown className="w-4 h-4 text-gray-400" />
                                 </Button>
                             </DropdownMenuTrigger>
@@ -262,7 +268,10 @@ export default function TeacherLayout({ children }) {
                                     <Link to="/teacher/settings">Settings</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
+                                <DropdownMenuItem
+                                    onClick={handleLogout}
+                                    className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
+                                >
                                     Logout
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

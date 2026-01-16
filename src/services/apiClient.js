@@ -18,6 +18,14 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    // Debug logging for registration requests
+    if (config.url?.includes('register')) {
+      console.log('=== REGISTRATION REQUEST ===');
+      console.log('URL:', config.url);
+      console.log('Method:', config.method);
+      console.log('Data:', config.data);
+      console.log('Headers:', config.headers);
+    }
     return config;
   },
   (error) => {
@@ -83,15 +91,24 @@ const handleApiResponse = (response) => {
 
 // API error wrapper
 const handleApiError = (error) => {
+  // Django REST Framework returns validation errors directly in response.data
+  // e.g., { "username": ["This field is required."], "password": ["..."] }
+  const responseData = error.response?.data || {};
+  
   const errorResponse = {
     success: false,
     status: error.response?.status || 500,
     message: error.response?.data?.message || error.message || 'An error occurred',
-    errors: error.response?.data?.errors || {},
+    // If response data has validation errors (object with field names), use it directly
+    errors: typeof responseData === 'object' && !responseData.message ? responseData : {},
   };
 
-  // Log error for debugging
-  console.error('API Error:', errorResponse);
+  // Enhanced logging for debugging
+  console.error('=== API ERROR ===');
+  console.error('Status:', errorResponse.status);
+  console.error('Message:', errorResponse.message);
+  console.error('Errors:', errorResponse.errors);
+  console.error('Full response data:', responseData);
   
   return errorResponse;
 };

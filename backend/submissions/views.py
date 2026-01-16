@@ -221,3 +221,146 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             'message': 'Autograder queued for execution',
             'submissions_count': submissions.count()
         })
+    
+    @action(detail=False, methods=['post'], url_path='start-timer')
+    def start_timer(self, request):
+        """Start or resume timer for a question"""
+        if request.user.role != 'student':
+            return Response(
+                {'message': 'Only students can track time'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        assignment_id = request.data.get('assignment_id')
+        question_id = request.data.get('question_id')
+        
+        if not assignment_id or not question_id:
+            return Response(
+                {'message': 'assignment_id and question_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            assignment = Assignment.objects.get(id=assignment_id)
+            question = Question.objects.get(id=question_id)
+        except (Assignment.DoesNotExist, Question.DoesNotExist):
+            return Response(
+                {'message': 'Assignment or Question not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get or create submission for tracking
+        submission, created = Submission.objects.get_or_create(
+            assignment=assignment,
+            question=question,
+            student=request.user,
+            defaults={
+                'code_content': '',
+                'language': 'python',
+                'started_at': timezone.now(),
+                'last_activity_at': timezone.now()
+            }
+        )
+        
+        if not submission.started_at:
+            submission.started_at = timezone.now()
+        
+        submission.last_activity_at = timezone.now()
+        submission.save()
+        
+        return Response({
+            'success': True,
+            'data': {
+                'started_at': submission.started_at,
+                'time_spent': submission.time_spent,
+                'last_activity_at': submission.last_activity_at
+            }
+        })
+    
+    @action(detail=False, methods=['post'], url_path='update-timer')
+    def update_timer(self, request):
+        """Update time spent on a question"""
+        if request.user.role != 'student':
+            return Response(
+                {'message': 'Only students can track time'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        assignment_id = request.data.get('assignment_id')
+        question_id = request.data.get('question_id')
+        time_spent = request.data.get('time_spent', 0)  # in seconds
+        
+        if not assignment_id or not question_id:
+            return Response(
+                {'message': 'assignment_id and question_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            submission = Submission.objects.get(
+                assignment_id=assignment_id,
+                question_id=question_id,
+                student=request.user
+            )
+        except Submission.DoesNotExist:
+            return Response(
+                {'message': 'Submission not found. Start timer first.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        submission.time_spent = time_spent
+        submission.last_activity_at = timezone.now()
+        submission.save()
+        
+        return Response({
+            'success': True,
+            'data': {
+                'time_spent': submission.time_spent,
+                'last_activity_at': submission.last_activity_at
+            }
+        })
+    
+    @action(detail=False, methods=['get'], url_path='get-timer')
+    def get_timer(self, request):
+        """Get current timer state for a question"""
+        if request.user.role != 'student':
+            return Response(
+                {'message': 'Only students can track time'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        assignment_id = request.query_params.get('assignment_id')
+        question_id = request.query_params.get('question_id')
+        
+        if not assignment_id or not question_id:
+            return Response(
+                {'message': 'assignment_id and question_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            submission = Submission.objects.get(
+                assignment_id=assignment_id,
+                question_id=question_id,
+                student=request.user
+            )
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'started_at': submission.started_at,
+                    'time_spent': submission.time_spent,
+                    'last_activity_at': submission.last_activity_at,
+                    'code_content': submission.code_content
+                }
+            })
+        except Submission.DoesNotExist:
+            return Response({
+                'success': True,
+                'data': {
+                    'started_at': None,
+                    'time_spent': 0,
+                    'last_activity_at': None,
+                    'code_content': ''
+                }
+            })

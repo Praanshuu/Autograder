@@ -32,7 +32,7 @@ def api_root(request):
 urlpatterns = [
     path('', api_root, name='api-root'),
     path('admin/', admin.site.urls),
-    path('api/auth/', include('users.urls')),
+    path('api/auth/', include('auth_urls')),
     path('api/users/', include('users.urls')),
     path('api/classes/', include('classes.urls')),
     path('api/assignments/', include('assignments.urls')),

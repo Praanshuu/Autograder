@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
     ChevronLeft,
@@ -14,7 +14,10 @@ import {
     ChevronDown,
     Terminal,
     GripVertical,
-    Loader2
+    Loader2,
+    Clock,
+    Pause,
+    PlayCircle
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
@@ -48,6 +51,13 @@ const StudentWorkspace = () => {
     const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
+    
+    // Timer state
+    const [timeSpent, setTimeSpent] = useState(0); // in seconds
+    const [isTimerRunning, setIsTimerRunning] = useState(false);
+    const [showHint, setShowHint] = useState(false);
+    const timerIntervalRef = useRef(null);
+    const lastUpdateRef = useRef(Date.now());
 
     // Fetch Assignment Data
     useEffect(() => {
@@ -61,10 +71,21 @@ const StudentWorkspace = () => {
                 const data = response.data;
                 setAssignment(data);
 
-                // Set initial code from starter code if available
+                // Get timer state from backend
                 if (data.questions && data.questions.length > 0) {
-                    // Currently checking single question per assignment for MVP
-                    setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                    const questionId = data.questions[0].id;
+                    try {
+                        const timerResponse = await submissionService.getTimer(assignmentId, questionId);
+                        if (timerResponse.success && timerResponse.data) {
+                            setTimeSpent(timerResponse.data.time_spent || 0);
+                            setCode(timerResponse.data.code_content || data.questions[0].starter_code || "# Write your python code here\n");
+                        } else {
+                            setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                        }
+                    } catch (err) {
+                        console.error("Failed to load timer:", err);
+                        setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load assignment:", err);
@@ -76,6 +97,89 @@ const StudentWorkspace = () => {
 
         fetchAssignment();
     }, [assignmentId]);
+    
+    // Start timer when component mounts
+    useEffect(() => {
+        if (assignment && assignment.questions && assignment.questions.length > 0) {
+            startTimer();
+        }
+        
+        // Cleanup on unmount - pause timer and save
+        return () => {
+            pauseTimer();
+        };
+    }, [assignment]);
+    
+    // Timer interval
+    useEffect(() => {
+        if (isTimerRunning) {
+            timerIntervalRef.current = setInterval(() => {
+                setTimeSpent(prev => prev + 1);
+            }, 1000);
+        } else {
+            if (timerIntervalRef.current) {
+                clearInterval(timerIntervalRef.current);
+            }
+        }
+        
+        return () => {
+            if (timerIntervalRef.current) {
+                clearInterval(timerIntervalRef.current);
+            }
+        };
+    }, [isTimerRunning]);
+    
+    // Auto-save timer every 30 seconds
+    useEffect(() => {
+        const autoSaveInterval = setInterval(() => {
+            if (assignment && assignment.questions && assignment.questions.length > 0 && timeSpent > 0) {
+                updateTimerOnBackend();
+            }
+        }, 30000); // 30 seconds
+        
+        return () => clearInterval(autoSaveInterval);
+    }, [assignment, timeSpent]);
+    
+    // Timer functions
+    const startTimer = async () => {
+        if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
+        
+        const questionId = assignment.questions[0].id;
+        try {
+            await submissionService.startTimer(assignmentId, questionId);
+            setIsTimerRunning(true);
+            lastUpdateRef.current = Date.now();
+        } catch (err) {
+            console.error("Failed to start timer:", err);
+        }
+    };
+    
+    const pauseTimer = async () => {
+        setIsTimerRunning(false);
+        await updateTimerOnBackend();
+    };
+    
+    const updateTimerOnBackend = async () => {
+        if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
+        
+        const questionId = assignment.questions[0].id;
+        try {
+            await submissionService.updateTimer(assignmentId, questionId, timeSpent);
+        } catch (err) {
+            console.error("Failed to update timer:", err);
+        }
+    };
+    
+    const formatTime = (seconds) => {
+        const hrs = Math.floor(seconds / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        
+        if (hrs > 0) {
+            return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
 
     // Handler: Run Code (Sandbox)
     const handleRunCode = async () => {
@@ -126,17 +230,22 @@ const StudentWorkspace = () => {
 
         setIsSubmitting(true);
         try {
+            // Save timer before submitting
+            await updateTimerOnBackend();
+            
             const question = assignment.questions[0];
             const response = await submissionService.submitCode({
                 assignment: assignment.id,
                 question: question.id,
                 code_content: code,
-                language: "python"
+                language: "python",
+                time_spent: timeSpent
             });
 
             // Backend grades it immediately for now (or queues it)
             // Assuming immediate grading response similar to runCode
             setShowConfetti(true);
+            pauseTimer();
 
             // Optionally fetch the new "Submission" object to show history
 
@@ -193,6 +302,22 @@ const StudentWorkspace = () => {
                             {assignment.difficulty || "Medium"}
                         </span>
                     </h1>
+                    <div className="h-4 w-px bg-gray-200" />
+                    {/* Timer Display */}
+                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-md border border-gray-200">
+                        <Clock className="w-4 h-4 text-gray-600" />
+                        <span className="font-mono text-sm font-medium text-gray-900">{formatTime(timeSpent)}</span>
+                        <button
+                            onClick={() => isTimerRunning ? pauseTimer() : startTimer()}
+                            className="ml-1 p-0.5 hover:bg-gray-200 rounded transition-colors"
+                        >
+                            {isTimerRunning ? (
+                                <Pause className="w-3.5 h-3.5 text-gray-600" />
+                            ) : (
+                                <PlayCircle className="w-3.5 h-3.5 text-gray-600" />
+                            )}
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -240,9 +365,39 @@ const StudentWorkspace = () => {
                             <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-200 hover:scrollbar-thumb-gray-300">
                                 <TabsContent value="description" className="mt-0 animate-in fade-in duration-300">
                                     <h2 className="text-lg font-bold text-gray-900 mb-2">{currentQuestion.title}</h2>
-                                    <div className="prose prose-sm max-w-none text-gray-600">
+                                    <div className="prose prose-sm max-w-none text-gray-600 mb-6">
                                         <p>{currentQuestion.description || assignment.description}</p>
                                     </div>
+                                    
+                                    {/* Hint Section */}
+                                    {currentQuestion.hint && (
+                                        <div className="mt-6 border-t border-gray-200 pt-4">
+                                            <button
+                                                onClick={() => setShowHint(!showHint)}
+                                                className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors mb-3"
+                                            >
+                                                <Lightbulb className="w-4 h-4" />
+                                                {showHint ? 'Hide Hint' : 'Show Hint'}
+                                            </button>
+                                            
+                                            {showHint && (
+                                                <motion.div
+                                                    initial={{ opacity: 0, height: 0 }}
+                                                    animate={{ opacity: 1, height: 'auto' }}
+                                                    exit={{ opacity: 0, height: 0 }}
+                                                    className="bg-amber-50 border border-amber-200 rounded-lg p-4"
+                                                >
+                                                    <div className="flex items-start gap-3">
+                                                        <Lightbulb className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                                                        <div>
+                                                            <h4 className="font-semibold text-amber-900 mb-1">Hint</h4>
+                                                            <p className="text-sm text-amber-800">{currentQuestion.hint}</p>
+                                                        </div>
+                                                    </div>
+                                                </motion.div>
+                                            )}
+                                        </div>
+                                    )}
                                 </TabsContent>
                             </div>
                         </Tabs>

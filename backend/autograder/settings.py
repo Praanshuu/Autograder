@@ -3,10 +3,8 @@ Django settings for autograder project.
 """
 
 from pathlib import Path
-from pathlib import Path
 from decouple import config
 from datetime import timedelta
-import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -168,13 +166,28 @@ SIMPLE_JWT = {
 }
 
 # CORS Settings
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:5173,http://localhost:3000',
-    cast=lambda v: [s.strip() for s in v.split(',')]
-)
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:5173",
+#     "http://localhost:5174", 
+#     "http://localhost:5175",
+#     "http://localhost:3000",
+# ]
+
+# Alternative: Allow all origins for development (less secure but works)
+CORS_ALLOW_ALL_ORIGINS = True
 
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
 
 # Code Execution Settings
 CODE_EXECUTION_TIMEOUT = config('CODE_EXECUTION_TIMEOUT', default=10, cast=int)  # seconds

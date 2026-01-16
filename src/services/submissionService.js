@@ -46,4 +46,24 @@ export const submissionService = {
   runAutograder: async (assignmentId) => {
     return await api.post(API_CONFIG.ENDPOINTS.SUBMISSIONS.RUN_AUTOGRADER, { assignment_id: assignmentId });
   },
+  
+  // Timer tracking methods
+  startTimer: async (assignmentId, questionId) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.SUBMISSIONS.LIST}start-timer/`, {
+      assignment_id: assignmentId,
+      question_id: questionId
+    });
+  },
+  
+  updateTimer: async (assignmentId, questionId, timeSpent) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.SUBMISSIONS.LIST}update-timer/`, {
+      assignment_id: assignmentId,
+      question_id: questionId,
+      time_spent: timeSpent
+    });
+  },
+  
+  getTimer: async (assignmentId, questionId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.SUBMISSIONS.LIST}get-timer/?assignment_id=${assignmentId}&question_id=${questionId}`);
+  },
 };
