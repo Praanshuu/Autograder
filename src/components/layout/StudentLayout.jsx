@@ -161,7 +161,7 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                 </div>
 
                 <div className="p-4 border-t border-gray-100">
-                    <button
+                    <button 
                         onClick={handleLogout}
                         className="flex items-center gap-3 px-3 py-2 w-full text-sm font-medium text-red-600 hover:bg-red-50 rounded-md transition-colors"
                     >
@@ -249,7 +249,7 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                                         {user?.first_name?.[0]}{user?.last_name?.[0]}
                                     </div>
                                     <span className="text-sm font-medium text-gray-700 hidden sm:block">
-                                        {user?.first_name} {user?.last_name}
+                                        {user?.first_name} {user?.last_name?.[0]}.
                                     </span>
                                     <ChevronDown className="w-4 h-4 text-gray-400" />
                                 </Button>
@@ -264,10 +264,7 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                                     <Link to="/student/settings">Settings</Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    onClick={handleLogout}
-                                    className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer"
-                                >
+                                <DropdownMenuItem className="text-red-600 focus:text-red-700 focus:bg-red-50 cursor-pointer">
                                     Logout
                                 </DropdownMenuItem>
                             </DropdownMenuContent>

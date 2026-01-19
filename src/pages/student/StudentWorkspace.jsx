@@ -65,15 +65,16 @@ const StudentWorkspace = () => {
             if (!assignmentId) return;
             try {
                 setLoading(true);
-                // Note: backend should return 'questions' with test cases included
-                // or we might need a separate call for questions if not nested
                 const response = await assignmentService.getAssignment(assignmentId);
                 const data = response.data;
+                console.log("Assignment data loaded:", data);
+                console.log("Questions:", data.questions);
                 setAssignment(data);
 
                 // Get timer state from backend
                 if (data.questions && data.questions.length > 0) {
                     const questionId = data.questions[0].id;
+                    console.log("First question:", data.questions[0]);
                     try {
                         const timerResponse = await submissionService.getTimer(assignmentId, questionId);
                         if (timerResponse.success && timerResponse.data) {
@@ -86,6 +87,8 @@ const StudentWorkspace = () => {
                         console.error("Failed to load timer:", err);
                         setCode(data.questions[0].starter_code || "# Write your python code here\n");
                     }
+                } else {
+                    console.error("No questions found in assignment!");
                 }
             } catch (err) {
                 console.error("Failed to load assignment:", err);
@@ -348,176 +351,156 @@ const StudentWorkspace = () => {
             </header>
 
             {/* 2. MAIN WORKSPACE */}
-            <div className="h-[calc(100vh-3rem)] w-full overflow-hidden relative">
-                <Group direction="horizontal" className="h-full w-full flex">
-
-                    {/* LEFT PANEL: Description */}
-                    <Panel defaultSize={30} minSize={20} className="bg-white flex flex-col h-full">
-                        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col h-full">
-                            <div className="bg-gray-50 border-b border-gray-200 px-1 flex-shrink-0">
-                                <TabsList className="bg-transparent h-9 p-0 w-full justify-start gap-1">
-                                    <TabsTrigger value="description" className="data-[state=active]:bg-white data-[state=active]:shadow-sm data-[state=active]:text-indigo-600 text-xs font-medium px-4 h-7 rounded-t-md border-t border-x border-transparent data-[state=active]:border-gray-200 mb-[-1px]">
-                                        <FileText className="w-3.5 h-3.5 mr-1.5" /> Description
-                                    </TabsTrigger>
-                                </TabsList>
-                            </div>
-
-                            <div className="flex-1 overflow-y-auto p-5 scrollbar-thin scrollbar-thumb-gray-200 hover:scrollbar-thumb-gray-300">
-                                <TabsContent value="description" className="mt-0 animate-in fade-in duration-300">
-                                    <h2 className="text-lg font-bold text-gray-900 mb-2">{currentQuestion.title}</h2>
-                                    <div className="prose prose-sm max-w-none text-gray-600 mb-6">
-                                        <p>{currentQuestion.description || assignment.description}</p>
+            <div className="h-[calc(100vh-3rem)] w-full overflow-hidden flex">
+                {/* LEFT PANEL: Description - FIXED WIDTH */}
+                <div className="w-[30%] min-w-[300px] max-w-[500px] bg-white border-r border-gray-200 flex flex-col">
+                    <div className="bg-gray-50 border-b border-gray-200 px-3 h-10 flex items-center flex-shrink-0">
+                        <FileText className="w-4 h-4 mr-2 text-gray-600" />
+                        <span className="text-sm font-medium text-gray-700">Description</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-5">
+                        <h2 className="text-lg font-bold text-gray-900 mb-3">{currentQuestion.title}</h2>
+                        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
+                            {currentQuestion.description || assignment.description}
+                        </p>
+                        
+                        {/* Hint Section */}
+                        {currentQuestion.hint && (
+                            <div className="mt-6 border-t border-gray-200 pt-4">
+                                <button
+                                    onClick={() => setShowHint(!showHint)}
+                                    className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors mb-3"
+                                >
+                                    <Lightbulb className="w-4 h-4" />
+                                    {showHint ? 'Hide Hint' : 'Show Hint'}
+                                </button>
+                                
+                                {showHint && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                                        <div className="flex items-start gap-3">
+                                            <Lightbulb className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                                            <div>
+                                                <h4 className="font-semibold text-amber-900 mb-1">Hint</h4>
+                                                <p className="text-sm text-amber-800">{currentQuestion.hint}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                    
-                                    {/* Hint Section */}
-                                    {currentQuestion.hint && (
-                                        <div className="mt-6 border-t border-gray-200 pt-4">
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* RIGHT PANEL: Editor & Output - TAKES REMAINING SPACE */}
+                <div className="flex-1 bg-white flex flex-col h-full">
+                    {/* EDITOR */}
+                    <div className="flex-[60] min-h-0 flex flex-col bg-[#2d2d2d]">
+                        <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                                <span className="text-blue-400 font-medium">Python 3</span>
+                            </div>
+                            <span
+                                className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
+                                onClick={() => setCode(currentQuestion.starter_code || "")}
+                            >
+                                <RotateCcw className="w-3 h-3" /> Reset
+                            </span>
+                        </div>
+
+                        <div className="flex-1 relative overflow-hidden bg-[#2d2d2d]">
+                            <div className="h-full w-full overflow-auto">
+                                <Editor
+                                    value={code}
+                                    onValueChange={code => setCode(code)}
+                                    highlight={code => highlight(code, languages.python)}
+                                    padding={20}
+                                    style={{
+                                        fontFamily: '"Fira Code", "Fira Mono", monospace',
+                                        fontSize: 14,
+                                        backgroundColor: '#2d2d2d',
+                                        color: '#f8f8f2',
+                                        minHeight: '100%'
+                                    }}
+                                    className="min-h-full"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* DIVIDER */}
+                    <div className="h-1 bg-gray-800 flex-shrink-0" />
+
+                    {/* CONSOLE */}
+                    <div className="flex-[40] min-h-0 bg-white flex flex-col">
+                        <div className="h-9 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
+                                    <Terminal className="w-3.5 h-3.5" />
+                                    Test Results
+                                </div>
+                                {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
+                                {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-auto">
+                            {!output && !isRunning && (
+                                <div className="flex flex-col items-center justify-center text-gray-400 p-4 h-full">
+                                    <span className="text-sm">Run your code to check test cases.</span>
+                                </div>
+                            )}
+
+                            {output && (
+                                <div className="flex h-full w-full">
+                                    {/* Test Case List */}
+                                    <div className="w-36 bg-gray-50 border-r border-gray-200 overflow-y-auto py-2 flex-shrink-0">
+                                        <div className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cases</div>
+                                        {output.results.map((result, idx) => (
                                             <button
-                                                onClick={() => setShowHint(!showHint)}
-                                                className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors mb-3"
+                                                key={idx}
+                                                onClick={() => setSelectedTestCase(idx)}
+                                                className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 border-l-2 transition-all ${selectedTestCase === idx ? 'bg-white border-indigo-600 text-indigo-700' : 'border-transparent text-gray-600 hover:bg-gray-100'}`}
                                             >
-                                                <Lightbulb className="w-4 h-4" />
-                                                {showHint ? 'Hide Hint' : 'Show Hint'}
+                                                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${result.status === 'pass' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                                Test Case {idx + 1}
                                             </button>
-                                            
-                                            {showHint && (
-                                                <motion.div
-                                                    initial={{ opacity: 0, height: 0 }}
-                                                    animate={{ opacity: 1, height: 'auto' }}
-                                                    exit={{ opacity: 0, height: 0 }}
-                                                    className="bg-amber-50 border border-amber-200 rounded-lg p-4"
-                                                >
-                                                    <div className="flex items-start gap-3">
-                                                        <Lightbulb className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                                                        <div>
-                                                            <h4 className="font-semibold text-amber-900 mb-1">Hint</h4>
-                                                            <p className="text-sm text-amber-800">{currentQuestion.hint}</p>
+                                        ))}
+                                    </div>
+
+                                    {/* Result Details */}
+                                    <div className="flex-1 p-4 overflow-y-auto min-w-0">
+                                        {output.results[selectedTestCase] && (
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Input</h4>
+                                                    <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].input}</div>
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <div>
+                                                        <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Expected</h4>
+                                                        <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].expected}</div>
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Your Output</h4>
+                                                        <div className={`p-2 rounded border font-mono text-xs ${output.results[selectedTestCase].status === 'pass' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                                                            {output.results[selectedTestCase].output}
                                                         </div>
                                                     </div>
-                                                </motion.div>
-                                            )}
-                                        </div>
-                                    )}
-                                </TabsContent>
-                            </div>
-                        </Tabs>
-                    </Panel>
-
-                    <Separator className="w-1.5 bg-gray-100 hover:bg-indigo-400 transition-colors flex items-center justify-center groupzf-10" />
-
-                    {/* RIGHT PANEL: Editor & Output */}
-                    <Panel minSize={30} className="bg-white flex flex-col h-full">
-                        <Group direction="vertical" className="h-full w-full flex flex-col">
-
-                            {/* EDITOR */}
-                            <Panel defaultSize={60} minSize={20} className="flex flex-col relative bg-[#2d2d2d]">
-                                <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-blue-400 font-medium">Python 3</span>
-                                    </div>
-                                    <span
-                                        className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                        onClick={() => setCode(currentQuestion.starter_code || "")}
-                                    >
-                                        <RotateCcw className="w-3 h-3" /> Reset
-                                    </span>
-                                </div>
-
-                                <div className="flex-1 relative overflow-hidden bg-[#2d2d2d]">
-                                    <div className="h-full w-full overflow-auto custom-scrollbar">
-                                        <Editor
-                                            value={code}
-                                            onValueChange={code => setCode(code)}
-                                            highlight={code => highlight(code, languages.python)}
-                                            padding={20}
-                                            style={{
-                                                fontFamily: '"Fira Code", "Fira Mono", monospace',
-                                                fontSize: 14,
-                                                backgroundColor: '#2d2d2d',
-                                                color: '#f8f8f2',
-                                                minHeight: '100%'
-                                            }}
-                                            className="min-h-full"
-                                        />
-                                    </div>
-                                </div>
-                            </Panel>
-
-                            <Separator className="h-1.5 bg-gray-800 hover:bg-indigo-500 transition-colors flex-shrink-0 z-10 border-t border-b border-gray-900/50" />
-
-                            {/* CONSOLE */}
-                            <Panel defaultSize={40} minSize={10} className="bg-white flex flex-col">
-                                <div className="h-9 min-h-[36px] bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
-                                    <div className="flex items-center gap-2">
-                                        <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
-                                            <Terminal className="w-3.5 h-3.5" />
-                                            Test Results
-                                        </div>
-                                        {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
-                                        {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                        {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
-                                    </div>
-                                </div>
-
-                                <div className="flex-1 overflow-hidden flex flex-col relative w-full h-full">
-                                    {!output && !isRunning && (
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 p-4">
-                                            <span className="text-sm">Run your code to check test cases.</span>
-                                        </div>
-                                    )}
-
-                                    {output && (
-                                        <div className="flex h-full w-full">
-                                            {/* Test Case List */}
-                                            <div className="w-36 bg-gray-50 border-r border-gray-200 overflow-y-auto py-2 flex-shrink-0">
-                                                <div className="px-3 pb-2 text-[10px] font-bold text-gray-400 uppercase tracking-wider">Cases</div>
-                                                {output.results.map((result, idx) => (
-                                                    <button
-                                                        key={idx}
-                                                        onClick={() => setSelectedTestCase(idx)}
-                                                        className={`w-full text-left px-3 py-2 text-xs font-medium flex items-center gap-2 border-l-2 transition-all ${selectedTestCase === idx ? 'bg-white border-indigo-600 text-indigo-700' : 'border-transparent text-gray-600 hover:bg-gray-100'}`}
-                                                    >
-                                                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${result.status === 'pass' ? 'bg-green-500' : 'bg-red-500'}`} />
-                                                        Test Case {idx + 1}
-                                                    </button>
-                                                ))}
-                                            </div>
-
-                                            {/* Result Details */}
-                                            <div className="flex-1 p-4 overflow-y-auto min-w-0">
-                                                {output.results[selectedTestCase] && (
-                                                    <div className="space-y-4">
-                                                        <div>
-                                                            <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Input</h4>
-                                                            <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].input}</div>
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                            <div>
-                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Expected</h4>
-                                                                <div className="bg-gray-50 p-2 rounded border border-gray-200 font-mono text-xs">{output.results[selectedTestCase].expected}</div>
-                                                            </div>
-                                                            <div>
-                                                                <h4 className="text-xs font-bold text-gray-500 uppercase mb-1">Your Output</h4>
-                                                                <div className={`p-2 rounded border font-mono text-xs ${output.results[selectedTestCase].status === 'pass' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                                                                    {output.results[selectedTestCase].output}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        {output.results[selectedTestCase].error && (
-                                                            <div className="text-red-600 bg-red-50 p-2 rounded text-xs font-mono border border-red-100 mt-2">
-                                                                {output.results[selectedTestCase].error}
-                                                            </div>
-                                                        )}
+                                                </div>
+                                                {output.results[selectedTestCase].error && (
+                                                    <div className="text-red-600 bg-red-50 p-2 rounded text-xs font-mono border border-red-100 mt-2">
+                                                        {output.results[selectedTestCase].error}
                                                     </div>
                                                 )}
                                             </div>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
-                            </Panel>
-                        </Group>
-                    </Panel>
-                </Group>
+                            )}
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Success Modal */}

@@ -114,14 +114,57 @@ class SubmissionViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            results = execute_code(code, language, test_cases)
-            return Response({
-                'success': True,
-                'data': results
-            })
+            # Try Docker execution first (more secure)
+            from code_executor.docker_service import get_docker_executor
+            docker_executor = get_docker_executor()
+            
+            if docker_executor.is_available() and language == 'python':
+                # Use Docker for Python execution
+                result = docker_executor.execute_test_cases(code, test_cases)
+                return Response({
+                    'success': True,
+                    'data': result
+                })
+            else:
+                # Fallback to subprocess execution
+                results = execute_code(code, language, test_cases)
+                
+                # Format results to match Docker format
+                formatted_results = []
+                passed_count = 0
+                
+                for i, result in enumerate(results):
+                    passed = result.get('status') == 'pass'
+                    if passed:
+                        passed_count += 1
+                    
+                    formatted_result = {
+                        'test_case_id': i + 1,
+                        'passed': passed,
+                        'actual_output': result.get('console_output', ''),
+                        'expected_output': result.get('test_case', {}).get('expected_output', '') if result.get('test_case') else '',
+                        'error': result.get('error_message', ''),
+                        'execution_time': result.get('execution_time', 0),
+                        'test_case': result.get('test_case', {})
+                    }
+                    formatted_results.append(formatted_result)
+                
+                return Response({
+                    'success': True,
+                    'data': {
+                        'results': formatted_results,
+                        'summary': {
+                            'total': len(test_cases),
+                            'passed': passed_count,
+                            'failed': len(test_cases) - passed_count,
+                            'all_passed': passed_count == len(test_cases)
+                        }
+                    }
+                })
         except Exception as e:
+            import traceback
             return Response(
-                {'message': str(e)},
+                {'message': str(e), 'traceback': traceback.format_exc()},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     

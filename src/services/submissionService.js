@@ -28,8 +28,12 @@ export const submissionService = {
   },
 
   // Run code without submitting (for testing)
-  runCode: async (codeData) => {
-    return await api.post(API_CONFIG.ENDPOINTS.SUBMISSIONS.RUN_CODE, codeData);
+  runCode: async (code, language, testCases) => {
+    return await api.post(API_CONFIG.ENDPOINTS.SUBMISSIONS.RUN_CODE, {
+      code: code,
+      language: language,
+      test_cases: testCases
+    });
   },
 
   // Grade a submission (Teacher/TA only)

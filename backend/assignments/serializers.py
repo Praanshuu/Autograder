@@ -23,8 +23,9 @@ class QuestionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Question
-        fields = ['id', 'title', 'description', 'difficulty', 'test_cases',
-                  'test_case_ids', 'time_limit', 'memory_limit', 'allowed_languages', 'order']
+        fields = ['id', 'title', 'description', 'hint', 'difficulty', 'test_cases',
+                  'test_case_ids', 'time_limit', 'memory_limit', 'allowed_languages', 
+                  'starter_code', 'order']
     
     def create(self, validated_data):
         test_cases = validated_data.pop('test_cases', [])
