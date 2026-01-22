@@ -55,16 +55,16 @@ services:
   # React Frontend
   frontend:
     build: 
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ./frontend
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - VITE_API_URL=http://localhost:8000
     volumes:
-      - ./src:/app/src
-      - ./public:/app/public
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
     command: npm run dev -- --host 0.0.0.0
 
   # Nginx reverse proxy (optional for production)

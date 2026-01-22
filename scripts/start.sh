@@ -13,12 +13,19 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# Get project root directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
 # Check if servers are already running
 if lsof -Pi :5173 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo -e "${BLUE}Frontend already running on port 5173${NC}"
 else
     echo -e "${BLUE}Starting frontend server...${NC}"
+    cd frontend
     npm run dev > /dev/null 2>&1 &
+    cd "$PROJECT_ROOT"
     echo -e "${GREEN}✓ Frontend started on http://localhost:5173${NC}"
 fi
 
@@ -26,9 +33,10 @@ if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
     echo -e "${BLUE}Backend already running on port 8000${NC}"
 else
     echo -e "${BLUE}Starting backend server...${NC}"
+    echo -e "${BLUE}Starting backend server...${NC}"
     cd backend
     python3 manage.py runserver > /dev/null 2>&1 &
-    cd ..
+    cd "$PROJECT_ROOT"
     echo -e "${GREEN}✓ Backend started on http://localhost:8000${NC}"
 fi
 
