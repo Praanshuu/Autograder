@@ -8,7 +8,8 @@ import RegisterForm from "./components/auth/RegisterForm";
 import ForgotPassword from "./components/auth/ForgotPassword";
 import ResetPassword from "./components/auth/ResetPassword";
 
-
+// Test Components
+import CodeRunnerTest from "./pages/CodeRunnerTest";
 
 // Pages
 
@@ -73,6 +74,12 @@ const Landing = () => {
           >
             Create Account
           </a>
+          <a
+            href="/test-runner"
+            className="px-8 py-4 bg-green-600 text-white rounded-xl font-semibold hover:bg-green-700 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 text-lg shadow-md"
+          >
+            🧠 Test Code Runner
+          </a>
         </div>
       </div>
 
@@ -98,6 +105,9 @@ function App() {
           <Route path="/register" element={<RegisterForm />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
+          
+          {/* Test Route - Remove in production */}
+          <Route path="/test-runner" element={<CodeRunnerTest />} />
 
 
           {/* Teacher Routes */}

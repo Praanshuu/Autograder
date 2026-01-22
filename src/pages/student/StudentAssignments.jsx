@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
     Search,
     Filter,
@@ -8,9 +8,10 @@ import {
     Clock,
     AlertCircle,
     ArrowRight,
-    Loader2
+    Loader2,
+    Timer
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 import StudentLayout from "../../components/layout/StudentLayout";
 import { Button } from "../../components/ui/button";
@@ -29,12 +30,15 @@ import { assignmentService } from "../../services/assignmentService";
 import { classService } from "../../services/classService";
 
 export default function StudentAssignments() {
+    const navigate = useNavigate();
     const [assignments, setAssignments] = useState([]);
     const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
     const [classFilter, setClassFilter] = useState("all");
+    const [showStartConfirmation, setShowStartConfirmation] = useState(false);
+    const [selectedAssignment, setSelectedAssignment] = useState(null);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -60,6 +64,20 @@ export default function StudentAssignments() {
 
         fetchData();
     }, []);
+
+    const handleStartAssignment = (assignment, e) => {
+        e.preventDefault(); // Prevent Link navigation
+        setSelectedAssignment(assignment);
+        setShowStartConfirmation(true);
+    };
+
+    const handleConfirmStart = () => {
+        if (selectedAssignment) {
+            navigate(`/student/workspace/${selectedAssignment.id}`);
+        }
+        setShowStartConfirmation(false);
+        setSelectedAssignment(null);
+    };
 
     // Filter Logic
     const filteredAssignments = assignments.filter(item => {
@@ -182,7 +200,7 @@ export default function StudentAssignments() {
                                 animate={{ opacity: 1 }}
                             >
                                 <Card className="hover:shadow-md transition-shadow group cursor-pointer overflow-hidden border-l-4 border-l-transparent hover:border-l-indigo-600">
-                                    <Link to={`/student/workspace/${assignment.id}`} className="block">
+                                    <div onClick={(e) => handleStartAssignment(assignment, e)} className="block">
                                         <CardContent className="p-6 flex flex-col md:flex-row md:items-center gap-6">
                                             {/* Date Box */}
                                             <div className="flex flex-row md:flex-col items-center md:items-start gap-2 md:gap-0 min-w-[100px]">
@@ -226,13 +244,59 @@ export default function StudentAssignments() {
                                                 </Button>
                                             </div>
                                         </CardContent>
-                                    </Link>
+                                    </div>
                                 </Card>
                             </motion.div>
                         ))}
                     </div>
                 )}
             </motion.div>
+
+            {/* Start Assignment Confirmation Modal */}
+            <AnimatePresence>
+                {showStartConfirmation && selectedAssignment && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px]"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.8, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.8, opacity: 0 }}
+                            className="bg-white p-8 rounded-2xl shadow-2xl text-center max-w-md w-full mx-4"
+                        >
+                            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Timer className="w-8 h-8 text-indigo-600" />
+                            </div>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Start Assignment?</h2>
+                            <p className="text-gray-500 mb-2">
+                                <strong>{selectedAssignment.title}</strong>
+                            </p>
+                            <p className="text-gray-500 mb-6">
+                                Once you start, the timer will begin and you can only exit by submitting your solution. 
+                                Are you ready to begin?
+                            </p>
+                            <div className="flex gap-3">
+                                <Button 
+                                    variant="outline" 
+                                    onClick={() => setShowStartConfirmation(false)}
+                                    className="flex-1"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button 
+                                    onClick={handleConfirmStart}
+                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                >
+                                    Start Assignment
+                                </Button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </StudentLayout>
     );
 }

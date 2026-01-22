@@ -1,6 +1,6 @@
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+  BASE_URL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001/api',
   TIMEOUT: 10000, // 10 seconds
   ENDPOINTS: {
     // Authentication
@@ -32,12 +32,14 @@ export const API_CONFIG = {
     },
     // Submissions
     SUBMISSIONS: {
-      LIST: '/submissions/submissions/',
-      DETAIL: (id) => `/submissions/submissions/${id}/`,
+      LIST: '/submissions/',
+      DETAIL: (id) => `/submissions/${id}/`,
       RUN_CODE: '/submissions/run/',
-      GRADE: (id) => `/submissions/submissions/${id}/grade/`,
-      PUBLISH: (id) => `/submissions/submissions/${id}/publish/`,
+      GRADE: (id) => `/submissions/${id}/grade/`,
+      PUBLISH: (id) => `/submissions/${id}/publish/`,
       RUN_AUTOGRADER: '/submissions/grading/run-autograder/',
+      SAMPLE_QUESTIONS: '/submissions/sample-questions/',
+      SYSTEM_STATUS: '/submissions/system-status/',
     },
     // Notifications
     NOTIFICATIONS: {

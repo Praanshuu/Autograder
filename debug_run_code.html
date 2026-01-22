@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug Run Code</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .code-editor { width: 100%; height: 200px; font-family: monospace; }
+        .button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .output { background: #f8f9fa; padding: 15px; margin: 10px 0; border-radius: 4px; white-space: pre-wrap; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .debug { background: #fff3cd; color: #856404; margin: 5px 0; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐛 Debug Run Code Function</h1>
+        
+        <div>
+            <h3>Code Editor</h3>
+            <textarea id="codeEditor" class="code-editor">print("hello")</textarea>
+            <br>
+            <button class="button" onclick="debugRunCode()">🐛 Debug Run Code</button>
+            <button class="button" onclick="clearLogs()">🧹 Clear Logs</button>
+        </div>
+        
+        <div id="debugLogs"></div>
+        <div id="output" class="output">Click "Debug Run Code" to test...</div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8001/api';
+        let authToken = null;
+
+        function log(message, type = 'debug') {
+            const debugLogs = document.getElementById('debugLogs');
+            const logDiv = document.createElement('div');
+            logDiv.className = type;
+            logDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLogs.appendChild(logDiv);
+            console.log(message);
+        }
+
+        function clearLogs() {
+            document.getElementById('debugLogs').innerHTML = '';
+            document.getElementById('output').textContent = 'Logs cleared...';
+        }
+
+        async function login() {
+            try {
+                log('🔐 Attempting login...');
+                const response = await fetch(`${API_BASE}/auth/simple-login/`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: 'testuser', password: 'testpass123' })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    authToken = data.tokens.access;
+                    log('✅ Login successful');
+                    return true;
+                } else {
+                    log('❌ Login failed: ' + JSON.stringify(data));
+                    return false;
+                }
+            } catch (error) {
+                log('❌ Login error: ' + error.message);
+                return false;
+            }
+        }
+
+        async function debugRunCode() {
+            const output = document.getElementById('output');
+            
+            try {
+                // Step 1: Login
+                if (!authToken) {
+                    log('🔐 No token, logging in...');
+                    const loginSuccess = await login();
+                    if (!loginSuccess) {
+                        output.textContent = '❌ Login failed';
+                        return;
+                    }
+                }
+
+                // Step 2: Get code
+                const code = document.getElementById('codeEditor').value;
+                log('📝 Code to execute: ' + JSON.stringify(code));
+
+                // Step 3: Prepare request data (simulating frontend)
+                const requestData = {
+                    code: code,
+                    language: "python",
+                    test_cases: [
+                        {
+                            "id": 39,
+                            "input": "",
+                            "expected_output": "Hello, World!",
+                            "is_hidden": false,
+                            "points": 50
+                        }
+                    ],
+                    question_id: 40
+                };
+                
+                log('📤 Request data: ' + JSON.stringify(requestData, null, 2));
+
+                // Step 4: Make API call
+                log('🚀 Making API call to /api/submissions/run/');
+                const response = await fetch(`${API_BASE}/submissions/run/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                log(`📡 Response status: ${response.status} ${response.statusText}`);
+
+                // Step 5: Parse response
+                const responseText = await response.text();
+                log('📥 Raw response: ' + responseText);
+
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                    log('✅ Response parsed successfully');
+                } catch (parseError) {
+                    log('❌ Failed to parse response: ' + parseError.message);
+                    output.textContent = '❌ Invalid JSON response: ' + responseText;
+                    return;
+                }
+
+                // Step 6: Process response (simulating frontend logic)
+                log('🔍 Processing response data...');
+                log('Response structure: ' + JSON.stringify(Object.keys(data)));
+
+                if (data.success) {
+                    log('✅ API call successful');
+                    
+                    const resultData = data.data;
+                    log('📊 Result data keys: ' + JSON.stringify(Object.keys(resultData)));
+                    log('📊 Summary: ' + JSON.stringify(resultData.summary));
+                    log('📊 Results count: ' + resultData.results.length);
+
+                    // Simulate frontend output formatting
+                    const formattedOutput = {
+                        status: resultData.summary.all_passed ? 'success' : 'error',
+                        message: resultData.summary.all_passed ? 'All Test Cases Passed!' : 'Some tests failed.',
+                        results: resultData.results.map((r, index) => ({
+                            id: index,
+                            status: r.passed ? 'pass' : 'fail',
+                            output: r.actual_output || '',
+                            expected: r.expected_output || '',
+                            error: r.error || '',
+                            input: r.test_case?.input || ''
+                        }))
+                    };
+
+                    log('✅ Formatted output: ' + JSON.stringify(formattedOutput, null, 2));
+
+                    // Display results
+                    let displayText = `📊 Test Results:\n`;
+                    displayText += `Status: ${formattedOutput.status}\n`;
+                    displayText += `Message: ${formattedOutput.message}\n`;
+                    displayText += `Tests: ${resultData.summary.passed}/${resultData.summary.total}\n\n`;
+
+                    formattedOutput.results.forEach((result, i) => {
+                        displayText += `Test ${i + 1}: ${result.status}\n`;
+                        displayText += `  Input: "${result.input}"\n`;
+                        displayText += `  Expected: "${result.expected}"\n`;
+                        displayText += `  Actual: "${result.output}"\n`;
+                        if (result.error) {
+                            displayText += `  Error: ${result.error}\n`;
+                        }
+                        displayText += `\n`;
+                    });
+
+                    output.textContent = displayText;
+                    output.className = `output ${formattedOutput.status}`;
+
+                } else {
+                    log('❌ API call failed: ' + data.message);
+                    output.textContent = '❌ API Error: ' + (data.message || 'Unknown error');
+                    output.className = 'output error';
+                }
+
+            } catch (error) {
+                log('❌ Unexpected error: ' + error.message);
+                log('❌ Error stack: ' + error.stack);
+                output.textContent = '❌ Unexpected Error: ' + error.message;
+                output.className = 'output error';
+            }
+        }
+
+        // Auto-login on page load
+        window.onload = function() {
+            log('🌐 Page loaded, attempting auto-login...');
+            login();
+        };
+    </script>
+</body>
+</html>
