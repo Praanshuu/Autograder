@@ -55,9 +55,12 @@ const StudentWorkspace = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showConfetti, setShowConfetti] = useState(false);
     const [showExitWarning, setShowExitWarning] = useState(false);
-    
+    const [isCompleted, setIsCompleted] = useState(false); // Track completion status
+
     // Timer state
-    const [timeSpent, setTimeSpent] = useState(0); // in seconds
+    const [timeSpent, setTimeSpent] = useState(0); // in seconds (for backend tracking)
+    const [timeRemaining, setTimeRemaining] = useState(0); // countdown timer in seconds
+    const [totalTimeAllowed, setTotalTimeAllowed] = useState(0); // total time for this difficulty
     const [isTimerRunning, setIsTimerRunning] = useState(false);
     const [showHint, setShowHint] = useState(false);
     const timerIntervalRef = useRef(null);
@@ -68,35 +71,35 @@ const StudentWorkspace = () => {
         python: {
             name: "Python 3",
             extension: "py",
-            defaultCode: "# Write your Python code here\nprint(\"Hello, World!\")",
+            defaultCode: "",
             icon: "🐍",
             prismLang: languages.python
         },
         javascript: {
             name: "JavaScript",
-            extension: "js", 
-            defaultCode: "// Write your JavaScript code here\nconsole.log(\"Hello, World!\");",
+            extension: "js",
+            defaultCode: "",
             icon: "🟨",
             prismLang: languages.javascript
         },
         java: {
             name: "Java",
             extension: "java",
-            defaultCode: "// Write your Java code here\npublic class Main {\n    public static void main(String[] args) {\n        System.out.println(\"Hello, World!\");\n    }\n}",
+            defaultCode: "",
             icon: "☕",
             prismLang: languages.java
         },
         cpp: {
             name: "C++",
             extension: "cpp",
-            defaultCode: "// Write your C++ code here\n#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << \"Hello, World!\" << endl;\n    return 0;\n}",
+            defaultCode: "",
             icon: "⚡",
             prismLang: languages.cpp
         },
         c: {
             name: "C",
-            extension: "c", 
-            defaultCode: "// Write your C code here\n#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!\\n\");\n    return 0;\n}",
+            extension: "c",
+            defaultCode: "",
             icon: "🔧",
             prismLang: languages.c
         }
@@ -117,18 +120,52 @@ const StudentWorkspace = () => {
                 // Get timer state from backend
                 if (data.questions && data.questions.length > 0) {
                     const questionId = data.questions[0].id;
-                    console.log("First question:", data.questions[0]);
+                    const question = data.questions[0];
+
+                    // Calculate time limits
+                    const timeLimit = getTimeLimit(question.difficulty);
+                    setTotalTimeAllowed(timeLimit);
+
+                    console.log("First question:", question);
+                    // Check for existing submissions
                     try {
-                        const timerResponse = await submissionService.getTimer(assignmentId, questionId);
+                        const submissionsResponse = await submissionService.getAssignmentSubmissions(assignmentId);
+                        if (submissionsResponse.data && submissionsResponse.data.length > 0) {
+                            const passed = submissionsResponse.data.some(s => s.status === 'success');
+                            if (passed) {
+                                setIsCompleted(true);
+                                // Optional: Load the successful code
+                                // setCode(passedSubmission.code_content);
+                            }
+                        }
+                    } catch (err) {
+                        console.error("Failed to check submissions:", err);
+                    }
+
+                    try {
+                        const timerResponse = await submissionService.getTimer(assignmentId, questionId, selectedLanguage);
                         if (timerResponse.success && timerResponse.data) {
-                            setTimeSpent(timerResponse.data.time_spent || 0);
-                            setCode(timerResponse.data.code_content || data.questions[0].starter_code || "# Write your python code here\n");
+                            const spentTime = timerResponse.data.time_spent || 0;
+                            setTimeSpent(spentTime);
+
+                            // Calculate remaining time
+                            const remaining = Math.max(0, timeLimit - spentTime);
+                            setTimeRemaining(remaining);
+
+                            // Only set code if not completed/submitted or if we want to show draft
+                            if (!isCompleted) {
+                                setCode(timerResponse.data.code_content || data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
+                            }
                         } else {
-                            setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                            setTimeSpent(0);
+                            setTimeRemaining(timeLimit);
+                            if (!isCompleted) setCode(data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
                         }
                     } catch (err) {
                         console.error("Failed to load timer:", err);
-                        setCode(data.questions[0].starter_code || "# Write your python code here\n");
+                        setTimeSpent(0);
+                        setTimeRemaining(timeLimit);
+                        if (!isCompleted) setCode(data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
                     }
                 } else {
                     console.error("No questions found in assignment!");
@@ -143,13 +180,13 @@ const StudentWorkspace = () => {
 
         fetchAssignment();
     }, [assignmentId]);
-    
+
     // Start timer when component mounts
     useEffect(() => {
         if (assignment && assignment.questions && assignment.questions.length > 0) {
             startTimer();
         }
-        
+
         // Cleanup on unmount - pause timer and save
         return () => {
             pauseTimer();
@@ -160,7 +197,7 @@ const StudentWorkspace = () => {
     useEffect(() => {
         const handleBeforeUnload = (e) => {
             e.preventDefault();
-            e.returnValue = 'Are you sure you want to leave? Your progress will be saved but the timer will stop.';
+            e.returnValue = 'If you leave this page, your assignment will be submitted automatically. Are you sure?';
             return e.returnValue;
         };
 
@@ -174,7 +211,7 @@ const StudentWorkspace = () => {
         // Add event listeners
         window.addEventListener('beforeunload', handleBeforeUnload);
         window.addEventListener('popstate', handlePopState);
-        
+
         // Push initial state to prevent back navigation
         window.history.pushState(null, '', window.location.pathname);
 
@@ -183,26 +220,37 @@ const StudentWorkspace = () => {
             window.removeEventListener('popstate', handlePopState);
         };
     }, []);
-    
+
     // Timer interval
     useEffect(() => {
-        if (isTimerRunning) {
+        if (isTimerRunning && timeRemaining > 0) {
             timerIntervalRef.current = setInterval(() => {
                 setTimeSpent(prev => prev + 1);
+                setTimeRemaining(prev => {
+                    const newRemaining = prev - 1;
+
+                    // Auto-submit when time runs out
+                    if (newRemaining <= 0) {
+                        handleTimeUp();
+                        return 0;
+                    }
+
+                    return newRemaining;
+                });
             }, 1000);
         } else {
             if (timerIntervalRef.current) {
                 clearInterval(timerIntervalRef.current);
             }
         }
-        
+
         return () => {
             if (timerIntervalRef.current) {
                 clearInterval(timerIntervalRef.current);
             }
         };
-    }, [isTimerRunning]);
-    
+    }, [isTimerRunning, timeRemaining]);
+
     // Auto-save timer every 30 seconds
     useEffect(() => {
         const autoSaveInterval = setInterval(() => {
@@ -210,49 +258,90 @@ const StudentWorkspace = () => {
                 updateTimerOnBackend();
             }
         }, 30000); // 30 seconds
-        
+
         return () => clearInterval(autoSaveInterval);
     }, [assignment, timeSpent]);
-    
+
     // Timer functions
     const startTimer = async () => {
         if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
-        
-        const questionId = assignment.questions[0].id;
+
+        const aqId = assignment.questions[0].id; // This is the AssignmentQuestion ID
         try {
-            await submissionService.startTimer(assignmentId, questionId);
+            await submissionService.startTimer(assignmentId, aqId, selectedLanguage);
             setIsTimerRunning(true);
             lastUpdateRef.current = Date.now();
         } catch (err) {
             console.error("Failed to start timer:", err);
         }
     };
-    
+
     const pauseTimer = async () => {
         setIsTimerRunning(false);
         await updateTimerOnBackend();
     };
-    
+
     const updateTimerOnBackend = async () => {
         if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
-        
-        const questionId = assignment.questions[0].id;
+
+        const aqId = assignment.questions[0].id;
         try {
-            await submissionService.updateTimer(assignmentId, questionId, timeSpent);
+            await submissionService.updateTimer(assignmentId, aqId, timeSpent, selectedLanguage);
         } catch (err) {
             console.error("Failed to update timer:", err);
         }
     };
-    
+
     const formatTime = (seconds) => {
         const hrs = Math.floor(seconds / 3600);
         const mins = Math.floor((seconds % 3600) / 60);
         const secs = seconds % 60;
-        
+
         if (hrs > 0) {
             return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
         }
         return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Calculate time limit based on difficulty
+    const getTimeLimit = (difficulty) => {
+        switch (difficulty?.toLowerCase()) {
+            case 'easy': return 30 * 60; // 30 minutes
+            case 'medium': return 45 * 60; // 45 minutes  
+            case 'hard': return 60 * 60; // 60 minutes
+            default: return 45 * 60; // default to 45 minutes
+        }
+    };
+
+    // Handle when time runs out
+    const handleTimeUp = async () => {
+        setIsTimerRunning(false);
+
+        try {
+            // Auto-submit the assignment
+            await updateTimerOnBackend();
+
+            const question = assignment.questions[0];
+            const submissionData = {
+                assignment_id: assignment.id,
+                assignment_question_id: question.id,
+                code_content: code,
+                language: selectedLanguage,
+                time_spent: timeSpent
+            };
+
+            const response = await submissionService.submitCode(submissionData);
+
+            if (response.success) {
+                alert("Time's up! Your assignment has been automatically submitted.");
+                navigate('/student/dashboard');
+            } else {
+                throw new Error(response.message || 'Auto-submission failed');
+            }
+        } catch (err) {
+            console.error("Failed to auto-submit:", err);
+            alert("Time's up! Please submit your assignment manually.");
+        }
     };
 
     // Handle back button with warning
@@ -260,15 +349,76 @@ const StudentWorkspace = () => {
         setShowExitWarning(true);
     };
 
-    const handleConfirmExit = () => {
-        pauseTimer();
-        navigate('/student/dashboard');
+    const handleConfirmExit = async () => {
+        try {
+            setIsSubmitting(true);
+
+            // Save timer before submitting
+            await updateTimerOnBackend();
+
+            const question = assignment.questions[0];
+            const submissionData = {
+                assignment_id: assignment.id,
+                assignment_question_id: question.id,
+                code_content: code,
+                language: selectedLanguage,
+                time_spent: timeSpent
+            };
+
+            const response = await submissionService.submitCode(submissionData);
+
+            if (response.success) {
+                setShowExitWarning(false);
+                setShowConfetti(true);
+
+                // Auto-close success modal and navigate after 3 seconds
+                setTimeout(() => {
+                    setShowConfetti(false);
+                    pauseTimer();
+                    navigate('/student/dashboard');
+                }, 3000);
+            } else {
+                throw new Error(response.message || 'Submission failed');
+            }
+        } catch (err) {
+            console.error("Failed to submit assignment:", err);
+            alert("Failed to submit assignment. Please try again.");
+            setShowExitWarning(false);
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     // Language change handler
-    const handleLanguageChange = (newLanguage) => {
+    const handleLanguageChange = async (newLanguage) => {
         setSelectedLanguage(newLanguage);
-        setCode(languageConfig[newLanguage].defaultCode);
+
+        // Try to load existing submission for this language
+        try {
+            const timerResponse = await submissionService.getTimer(assignmentId, questionId, newLanguage);
+            if (timerResponse.success && timerResponse.data && timerResponse.data.code_content) {
+                // Use the existing code for this language
+                setCode(timerResponse.data.code_content);
+            } else {
+                // No existing submission for this language, use starter code or default
+                const questionStarterCode = assignment?.questions?.[0]?.starter_code;
+                if (questionStarterCode && questionStarterCode.trim()) {
+                    setCode(questionStarterCode);
+                } else {
+                    setCode(languageConfig[newLanguage].defaultCode);
+                }
+            }
+        } catch (error) {
+            console.error("Error loading language-specific code:", error);
+            // Fallback to starter code or default
+            const questionStarterCode = assignment?.questions?.[0]?.starter_code;
+            if (questionStarterCode && questionStarterCode.trim()) {
+                setCode(questionStarterCode);
+            } else {
+                setCode(languageConfig[newLanguage].defaultCode);
+            }
+        }
+
         setOutput(null); // Clear previous output
     };
 
@@ -280,8 +430,8 @@ const StudentWorkspace = () => {
         setOutput({ status: 'running' }); // UI State for "Running..."
 
         try {
-            const question = assignment.questions[0];
-            const testCases = question.test_cases || [];
+            const aq = assignment.questions[0];
+            const testCases = aq.question?.test_cases || [];
 
             console.log("🚀 Starting code execution...");
             console.log("Code:", code);
@@ -292,7 +442,7 @@ const StudentWorkspace = () => {
                 code: code,
                 language: selectedLanguage, // Use selected language instead of hardcoded "python"
                 test_cases: testCases,
-                question_id: question.id
+                question_id: aq.question?.id
             });
 
             console.log("✅ Run code response:", response); // Debug log
@@ -304,7 +454,7 @@ const StudentWorkspace = () => {
 
             const formattedOutput = {
                 status: resultData.summary.execution_successful ? 'success' : 'error',
-                message: resultData.summary.execution_successful ? 
+                message: resultData.summary.execution_successful ?
                     (resultData.summary.has_output ? 'Code executed successfully!' : 'Code ran but produced no output') :
                     'Code execution failed',
                 results: resultData.results.map((r, index) => ({
@@ -342,13 +492,14 @@ const StudentWorkspace = () => {
         try {
             // Save timer before submitting
             await updateTimerOnBackend();
-            
-            const question = assignment.questions[0];
+
+            const aq = assignment.questions[0];
             const response = await submissionService.submitCode({
-                assignment: assignment.id,
-                question: question.id,
+                assignment_id: assignment.id,
+                assignment_question_id: aq.id,
+                question_id: aq.question?.id,
                 code_content: code,
-                language: selectedLanguage, // Use selected language instead of hardcoded "python"
+                language: selectedLanguage,
                 time_spent: timeSpent
             });
 
@@ -394,11 +545,23 @@ const StudentWorkspace = () => {
         );
     }
 
-    const currentQuestion = assignment.questions?.[0] || {};
+    // Helper to get current AQ and Question
+    const getCurrentAQ = () => assignment?.questions?.[0]; // For now only first question
+    const getCurrentQuestion = () => getCurrentAQ()?.question || {};
+
+    const currentQuestion = getCurrentQuestion();
     const testCases = currentQuestion.test_cases || [];
 
     return (
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
+            {/* Completed Banner */}
+            {isCompleted && (
+                <div className="bg-green-100 border-b border-green-200 px-4 py-2 text-green-800 text-sm font-medium flex items-center justify-center gap-2">
+                    <CheckCircle className="w-4 h-4" />
+                    Assignment Completed! You cannot submit changes anymore.
+                </div>
+            )}
+
             {/* 1. HEADER */}
             <header className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-4">
@@ -414,14 +577,21 @@ const StudentWorkspace = () => {
                         <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
                             {assignment.difficulty || "Medium"}
                         </span>
+                        <span className="text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
+                            {Math.floor(totalTimeAllowed / 60)} min
+                        </span>
                     </h1>
                     <div className="h-4 w-px bg-gray-200" />
                     {/* Timer Display */}
-                    <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-md border border-gray-200">
-                        <Clock className="w-4 h-4 text-gray-600" />
-                        <span className="font-mono text-sm font-medium text-gray-900">{formatTime(timeSpent)}</span>
-                        <div className={`w-2 h-2 rounded-full ${isTimerRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
-                    </div>
+                    {!isCompleted && (
+                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-md border border-gray-200">
+                            <Clock className="w-4 h-4 text-gray-600" />
+                            <span className={`font-mono text-sm font-medium ${timeRemaining <= 300 ? 'text-red-600' : 'text-gray-900'}`}>
+                                {formatTime(timeRemaining)} remaining
+                            </span>
+                            <div className={`w-2 h-2 rounded-full ${isTimerRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -433,7 +603,7 @@ const StudentWorkspace = () => {
                         variant="secondary"
                         size="sm"
                         onClick={handleRunCode}
-                        disabled={isRunning || isSubmitting}
+                        disabled={isRunning || isSubmitting || isCompleted}
                         className="h-8 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 border-0 font-medium text-xs gap-2"
                     >
                         {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
@@ -442,7 +612,7 @@ const StudentWorkspace = () => {
                     <Button
                         size="sm"
                         onClick={handleSubmit}
-                        disabled={isRunning || isSubmitting}
+                        disabled={isRunning || isSubmitting || isCompleted}
                         className="h-8 px-5 bg-green-600 hover:bg-green-700 text-white font-medium text-xs gap-2 shadow-sm"
                     >
                         {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -464,7 +634,7 @@ const StudentWorkspace = () => {
                         <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
                             {currentQuestion.description || assignment.description}
                         </p>
-                        
+
                         {/* Hint Section */}
                         {currentQuestion.hint && (
                             <div className="mt-6 border-t border-gray-200 pt-4">
@@ -475,7 +645,7 @@ const StudentWorkspace = () => {
                                     <Lightbulb className="w-4 h-4" />
                                     {showHint ? 'Hide Hint' : 'Show Hint'}
                                 </button>
-                                
+
                                 {showHint && (
                                     <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
                                         <div className="flex items-start gap-3">
@@ -515,7 +685,7 @@ const StudentWorkspace = () => {
                             </div>
                             <span
                                 className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                onClick={() => setCode(currentQuestion.starter_code || "")}
+                                onClick={() => setCode(languageConfig[selectedLanguage].defaultCode)}
                             >
                                 <RotateCcw className="w-3 h-3" /> Reset
                             </span>
@@ -602,7 +772,7 @@ const StudentWorkspace = () => {
                                                             {result.error && <span className="text-red-600 text-xs">(Error)</span>}
                                                         </h3>
                                                     </div>
-                                                    
+
                                                     <div className="p-4 space-y-3">
                                                         {/* Input (if any) */}
                                                         {result.input && (
@@ -613,7 +783,7 @@ const StudentWorkspace = () => {
                                                                 </div>
                                                             </div>
                                                         )}
-                                                        
+
                                                         {/* Main Output - Most Important */}
                                                         <div>
                                                             <div className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
@@ -633,7 +803,7 @@ const StudentWorkspace = () => {
                                                                 )}
                                                             </div>
                                                         </div>
-                                                        
+
                                                         {/* Test Comparison (Secondary) */}
                                                         {result.expected && (
                                                             <div className="border-t border-gray-200 pt-3 mt-3">
@@ -696,22 +866,24 @@ const StudentWorkspace = () => {
                             </div>
                             <h2 className="text-2xl font-bold text-gray-900 mb-2">Exit Assignment?</h2>
                             <p className="text-gray-500 mb-6">
-                                Are you sure you want to exit? Your progress will be saved, but the timer will stop. 
-                                You can only exit by submitting your solution.
+                                If you click on "Exit Assignment", the assignment will be submitted automatically.
+                                Your current code and progress will be saved and submitted.
                             </p>
                             <div className="flex gap-3">
-                                <Button 
-                                    variant="outline" 
+                                <Button
+                                    variant="outline"
                                     onClick={() => setShowExitWarning(false)}
                                     className="flex-1"
+                                    disabled={isSubmitting}
                                 >
                                     Continue Working
                                 </Button>
-                                <Button 
+                                <Button
                                     onClick={handleConfirmExit}
                                     className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                                    disabled={isSubmitting}
                                 >
-                                    Exit Assignment
+                                    {isSubmitting ? 'Submitting...' : 'Exit & Submit Assignment'}
                                 </Button>
                             </div>
                         </motion.div>
@@ -736,8 +908,8 @@ const StudentWorkspace = () => {
                             <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <CheckCircle2 className="w-8 h-8 text-green-600" />
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Submitted!</h2>
-                            <p className="text-gray-500 mb-6">Your code has been sent for grading. You will be redirected to the dashboard in a few seconds.</p>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Assignment Submitted Successfully!</h2>
+                            <p className="text-gray-500 mb-6">Your assignment has been automatically submitted and sent for grading. You will be redirected to the dashboard in a few seconds.</p>
                             <Button onClick={() => navigate('/student/dashboard')} className="w-full bg-gray-900 text-white">
                                 Back to Dashboard
                             </Button>

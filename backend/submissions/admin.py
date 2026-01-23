@@ -1,16 +1,21 @@
 from django.contrib import admin
-from .models import Submission, TestResult
+from .models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
 
+@admin.register(SubmissionAttempt)
+class SubmissionAttemptAdmin(admin.ModelAdmin):
+    list_display = ['student', 'assignment_question', 'status', 'attempt_number', 'created_at']
+    list_filter = ['status']
+
+@admin.register(AssignmentProgress)
+class AssignmentProgressAdmin(admin.ModelAdmin):
+    list_display = ['student', 'assignment_question', 'last_updated']
 
 @admin.register(TestResult)
 class TestResultAdmin(admin.ModelAdmin):
-    list_display = ['id', 'status', 'execution_time', 'points_earned']
+    list_display = ['attempt', 'test_case_id', 'status', 'score']
     list_filter = ['status']
 
-
-@admin.register(Submission)
-class SubmissionAdmin(admin.ModelAdmin):
-    list_display = ['student', 'assignment', 'question', 'language', 'status',
-                    'final_score', 'is_graded', 'is_published', 'submitted_at']
-    list_filter = ['status', 'is_graded', 'is_published', 'language', 'submitted_at']
-    search_fields = ['student__username', 'assignment__title', 'question__title']
+@admin.register(GradebookEntry)
+class GradebookEntryAdmin(admin.ModelAdmin):
+    list_display = ['student', 'content_item', 'final_score', 'status']
+    list_filter = ['status']

@@ -1,3 +1,4 @@
+import uuid
 from django.db import models
 from django.conf import settings
 import random
@@ -10,19 +11,12 @@ def generate_join_code():
 
 
 class Class(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='owned_classes')
     name = models.CharField(max_length=200)
     section = models.CharField(max_length=100)
-    subject = models.CharField(max_length=200, blank=True)
-    room = models.CharField(max_length=100, blank=True)
-    description = models.TextField(blank=True)
-    theme_color = models.CharField(max_length=7, default='#6366f1')
-    bg_pattern = models.CharField(max_length=50, default='bg-indigo-600')
-    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='owned_classes')
     join_code = models.CharField(max_length=10, unique=True, default=generate_join_code)
-    is_archived = models.BooleanField(default=False)
-    semester = models.CharField(max_length=100, blank=True)
-    start_date = models.DateField(null=True, blank=True)
-    end_date = models.DateField(null=True, blank=True)
+    settings = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -35,6 +29,23 @@ class Class(models.Model):
         return f"{self.name} - {self.section}"
 
 
+class Module(models.Model):
+    """
+    Grouping unit (e.g., "Week 1").
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class_obj = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='modules')
+    title = models.CharField(max_length=200)
+    order_index = models.IntegerField(default=0)
+    
+    class Meta:
+        db_table = 'modules'
+        ordering = ['order_index']
+    
+    def __str__(self):
+        return f"{self.title} ({self.class_obj.name})"
+
+
 class Enrollment(models.Model):
     ROLE_CHOICES = [
         ('teacher', 'Teacher'),
@@ -42,18 +53,10 @@ class Enrollment(models.Model):
         ('student', 'Student'),
     ]
     
-    STATUS_CHOICES = [
-        ('active', 'Active'),
-        ('removed', 'Removed'),
-    ]
-    
     class_obj = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='enrollments')
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='enrollments')
     role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
     joined_at = models.DateTimeField(auto_now_add=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'enrollments'

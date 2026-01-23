@@ -1,66 +1,62 @@
 from rest_framework import serializers
-from .models import Assignment, Question, TestCase
-from classes.models import Class
+from .models import Assignment, Question, AssignmentQuestion, ContentItem
 from classes.serializers import ClassSerializer
 from users.serializers import UserSerializer
 
 
-class TestCaseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = TestCase
-        fields = ['id', 'input', 'expected_output', 'is_hidden', 'points']
-
-
 class QuestionSerializer(serializers.ModelSerializer):
-    test_cases = TestCaseSerializer(many=True, read_only=True)
-    test_case_ids = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=TestCase.objects.all(),
-        source='test_cases',
-        write_only=True,
-        required=False
-    )
+    slug = serializers.SlugField(required=False)
     
     class Meta:
         model = Question
-        fields = ['id', 'title', 'description', 'hint', 'difficulty', 'test_cases',
-                  'test_case_ids', 'time_limit', 'memory_limit', 'allowed_languages', 
-                  'starter_code', 'order']
-    
+        fields = ['id', 'title', 'slug', 'description', 'starter_code', 'reference_solution', 'test_cases']
+
     def create(self, validated_data):
-        test_cases = validated_data.pop('test_cases', [])
-        question = Question.objects.create(**validated_data)
-        question.test_cases.set(test_cases)
-        return question
+        if 'slug' not in validated_data:
+            # Generate a simple slug from title or use uuid if title is missing (edge case)
+            from django.utils.text import slugify
+            import uuid
+            title = validated_data.get('title', '')
+            base_slug = slugify(title)
+            if not base_slug:
+                base_slug = "question"
+            # Append short UUID to ensure uniqueness
+            validated_data['slug'] = f"{base_slug}-{str(uuid.uuid4())[:8]}"
+            
+        # Ensure test_cases is a list
+        if 'test_cases' not in validated_data:
+            validated_data['test_cases'] = []
+            
+        # Set created_by from context
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class AssignmentQuestionSerializer(serializers.ModelSerializer):
+    question = QuestionSerializer(read_only=True)
+    
+    class Meta:
+        model = AssignmentQuestion
+        fields = ['id', 'question', 'order', 'custom_points']
 
 
 class AssignmentSerializer(serializers.ModelSerializer):
-    class_obj = ClassSerializer(read_only=True)
-    class_obj_id = serializers.PrimaryKeyRelatedField(
-        queryset=Class.objects.all(),
-        source='class_obj',
-        write_only=True
-    )
-    questions = QuestionSerializer(many=True, read_only=True)
-    question_ids = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=Question.objects.all(),
-        source='questions',
-        write_only=True,
-        required=False
-    )
-    created_by = UserSerializer(read_only=True)
+    questions = AssignmentQuestionSerializer(source='assignmentquestion_set', many=True, read_only=True)
+    class_name = serializers.CharField(source='module.class_obj.name', read_only=True)
+    points = serializers.IntegerField(source='points_total', read_only=True)
     
+    total_students = serializers.SerializerMethodField()
+    
+    class_id = serializers.UUIDField(source='module.class_obj.id', read_only=True)
+
     class Meta:
         model = Assignment
-        fields = ['id', 'class_obj', 'class_obj_id', 'title', 'description',
-                  'due_date', 'points', 'status', 'questions', 'question_ids',
-                  'allow_late_submission', 'created_by', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
-    
-    def create(self, validated_data):
-        questions = validated_data.pop('questions', [])
-        validated_data['created_by'] = self.context['request'].user
-        assignment = Assignment.objects.create(**validated_data)
-        assignment.questions.set(questions)
-        return assignment
+        # Include fields from ContentItem (inherited) and Assignment
+        fields = ['id', 'title', 'description', 'due_date', 'is_published', 
+                  'mode', 'points_total', 'points', 'difficulty', 'config', 'questions', 
+                  'module', 'class_name', 'class_id', 'total_students']
+        read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students']
+
+    def get_total_students(self, obj):
+        # Count students enrolled in the class linked to this assignment's module
+        return obj.module.class_obj.enrollments.filter(role='student').count()

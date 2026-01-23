@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     MoveLeft,
@@ -9,7 +9,8 @@ import {
     ChevronRight,
     ChevronLeft,
     TerminalSquare,
-    History
+    History,
+    Loader2
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -20,26 +21,63 @@ import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { MOCK_SUBMISSIONS } from "../../mocks/assignments";
+import { submissionService } from "../../services/submissionService";
 import LearningTrajectory from "../../components/features/analytics/LearningTrajectory";
 
 export default function GradingInterface() {
     const { id } = useParams();
-    // In a real app, fetch submission by ID
-    const submission = MOCK_SUBMISSIONS.find(s => s.id === id) || MOCK_SUBMISSIONS[0];
+    const [submission, setSubmission] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
-    const [manualScore, setManualScore] = useState(submission.finalScore || submission.autoGradeScore || 0);
-    const [feedback, setFeedback] = useState(submission.feedback || "");
+    const [manualScore, setManualScore] = useState(0);
+    const [feedback, setFeedback] = useState("");
+
+    useEffect(() => {
+        const fetchSubmission = async () => {
+            try {
+                setLoading(true);
+                const response = await submissionService.getSubmission(id);
+                const data = response.data;
+                setSubmission(data);
+                setManualScore(data.manual_score !== null ? data.manual_score : (data.final_score || 0));
+                setFeedback(data.feedback_text || "");
+            } catch (err) {
+                console.error("Failed to load submission:", err);
+                setError("Failed to load submission.");
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchSubmission();
+    }, [id]);
 
     const handleRunTests = () => {
         // Mock running tests
         alert("Running Autograder... (Mock)");
     };
 
-    const handleSave = () => {
-        console.log("Saving Grade:", { id, manualScore, feedback });
-        // Navigate or show toast
+    const handleSave = async () => {
+        try {
+            console.log("Saving Grade:", { id, manualScore, feedback });
+            await submissionService.gradeSubmission(id, {
+                manual_score: manualScore,
+                feedback_text: feedback
+            });
+            alert("Grade saved successfully!");
+        } catch (err) {
+            console.error("Failed to save grade:", err);
+            alert("Failed to save grade.");
+        }
     };
+
+    if (loading) {
+        return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
+    }
+
+    if (error || !submission) {
+        return <div className="p-8 text-center text-red-500">{error || "Submission not found"}</div>;
+    }
 
     return (
         <div className="h-screen flex flex-col bg-gray-50">
@@ -47,13 +85,13 @@ export default function GradingInterface() {
             <header className="h-16 bg-white border-b px-4 flex items-center justify-between shrink-0 z-10">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild>
-                        <Link to="/teacher/assignment/a1"> {/* Back to Assignment */}
+                        <Link to={`/teacher/assignment/${submission.assignment_id}`}> {/* Back to Assignment */}
                             <MoveLeft className="w-5 h-5" />
                         </Link>
                     </Button>
                     <div>
-                        <h1 className="text-lg font-bold text-gray-900">{submission.studentName}</h1>
-                        <p className="text-xs text-gray-500">Submission Time: {new Date(submission.submittedAt).toLocaleString()}</p>
+                        <h1 className="text-lg font-bold text-gray-900">{submission.student?.username || "Student"}</h1>
+                        <p className="text-xs text-gray-500">Submission Time: {new Date(submission.created_at).toLocaleString()}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -77,7 +115,9 @@ export default function GradingInterface() {
                     </div>
                     <pre className="counter-reset: line">
                         <code>
-                            {submission.code || "# No code submitted"}
+                            {/* Fetch actual code content if not in submission object, might need to fetch blob */}
+                            {/* Assuming for now we rely on what we have, or mock it if missing */}
+                            {"# Code viewer placeholder - need to fetch code blob"}
                         </code>
                     </pre>
                 </div>

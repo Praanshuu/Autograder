@@ -1,69 +1,91 @@
+import uuid
 from django.db import models
 from django.conf import settings
-from assignments.models import Assignment, Question, TestCase
+from assignments.models import AssignmentQuestion, ContentItem
+
+
+class AssignmentProgress(models.Model):
+    """
+    Mutable draft. Overwritten frequently.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='progress')
+    assignment_question = models.ForeignKey(AssignmentQuestion, on_delete=models.CASCADE, related_name='progress')
+    current_code = models.TextField()
+    time_spent = models.IntegerField(default=0)  # seconds
+    started_at = models.DateTimeField(null=True, blank=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        db_table = 'assignment_progress'
+        unique_together = ['student', 'assignment_question']
+
+
+class SubmissionAttempt(models.Model):
+    """
+    Immutable submission log.
+    For Exam: Only 1 row allowed per student/question (logic enforced in view).
+    For Practice: Multiple rows allowed.
+    """
+    STATUS_CHOICES = [
+        ('queued', 'Queued'),
+        ('processing', 'Processing'),
+        ('success', 'Success'),
+        ('fail', 'Fail'),
+        ('error', 'Error'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='attempts')
+    assignment_question = models.ForeignKey(AssignmentQuestion, on_delete=models.CASCADE, related_name='attempts')
+    attempt_number = models.IntegerField(default=1)
+    code_blob_ref = models.CharField(max_length=255, blank=True)  # Path in MinIO
+    execution_time_ms = models.IntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued')
+    created_at = models.DateTimeField(auto_now_add=True)
+    manual_score = models.FloatField(null=True, blank=True)
+    feedback_text = models.TextField(blank=True)
+    
+    class Meta:
+        db_table = 'submission_attempts'
+        ordering = ['student', 'assignment_question', '-attempt_number']
 
 
 class TestResult(models.Model):
+    """
+    Details for a specific attempt.
+    """
     STATUS_CHOICES = [
         ('pass', 'Pass'),
         ('fail', 'Fail'),
-        ('error', 'Error'),
-        ('timeout', 'Timeout'),
     ]
     
-    test_case = models.ForeignKey(TestCase, on_delete=models.CASCADE)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
-    execution_time = models.IntegerField(default=0)  # milliseconds
-    memory_usage = models.IntegerField(default=0)  # MB
-    console_output = models.TextField(blank=True)
-    error_message = models.TextField(blank=True)
-    points_earned = models.IntegerField(default=0)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    attempt = models.ForeignKey(SubmissionAttempt, on_delete=models.CASCADE, related_name='test_results')
+    test_case_id = models.CharField(max_length=50) # ID from JSONB in Question
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    score = models.FloatField(default=0.0)
     
     class Meta:
-        db_table = 'test_results'
+        db_table = 'test_result_details'
 
 
-class Submission(models.Model):
+class GradebookEntry(models.Model):
+    """
+    Summary for gradebook.
+    """
     STATUS_CHOICES = [
+        ('graded', 'Graded'),
         ('submitted', 'Submitted'),
-        ('late', 'Late'),
-        ('missing', 'Missing'),
     ]
     
-    LANGUAGE_CHOICES = [
-        ('python', 'Python'),
-        ('javascript', 'JavaScript'),
-        ('java', 'Java'),
-        ('cpp', 'C++'),
-        ('c', 'C'),
-    ]
-    
-    assignment = models.ForeignKey(Assignment, on_delete=models.CASCADE, related_name='submissions')
-    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='submissions')
-    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='submissions')
-    code_content = models.TextField()
-    language = models.CharField(max_length=20, choices=LANGUAGE_CHOICES)
-    submitted_at = models.DateTimeField(auto_now_add=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='grades')
+    content_item = models.ForeignKey(ContentItem, on_delete=models.CASCADE)
+    final_score = models.FloatField(default=0.0)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
-    test_results = models.ManyToManyField(TestResult, related_name='submissions', blank=True)
-    auto_grade_score = models.IntegerField(default=0)
-    manual_adjustment = models.IntegerField(default=0)
-    final_score = models.IntegerField(default=0)
-    teacher_feedback = models.TextField(blank=True)
-    ai_feedback = models.TextField(blank=True)
-    time_spent = models.IntegerField(default=0, help_text="Time spent in seconds")
-    started_at = models.DateTimeField(null=True, blank=True, help_text="When student first opened the question")
-    last_activity_at = models.DateTimeField(null=True, blank=True, help_text="Last time student was active on this question")
-    feedback_tags = models.CharField(max_length=255, blank=True, help_text="Comma-separated tags e.g. 'Logic Error, Syntax'")
-    is_graded = models.BooleanField(default=False)
-    is_published = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'submissions'
-        unique_together = ['assignment', 'question', 'student']
-        ordering = ['-submitted_at']
-    
-    def __str__(self):
-        return f"{self.student.username} - {self.assignment.title} - {self.question.title}"
+        db_table = 'gradebook_entries'
+        unique_together = ['student', 'content_item']

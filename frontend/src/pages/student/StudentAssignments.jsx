@@ -85,7 +85,7 @@ export default function StudentAssignments() {
         const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase());
 
         // 2. Class Filter
-        const matchesClass = classFilter === "all" || item.class_obj?.id.toString() === classFilter;
+        const matchesClass = classFilter === "all" || item.class_id?.toString() === classFilter;
 
         // 3. Status Filter (Mock logic for now, needing 'is_submitted' flag from backend)
         // Ideally backend provides 'status' or we derive it from 'submissions' list if available
@@ -227,7 +227,7 @@ export default function StudentAssignments() {
                                                 <div className="flex items-center gap-4 text-sm text-gray-500">
                                                     <span className="flex items-center gap-1">
                                                         <CheckCircle2 className="w-3.5 h-3.5" />
-                                                        {assignment.class_obj?.name || "Class"}
+                                                        {assignment.class_name || "Class"}
                                                     </span>
                                                     <span className="flex items-center gap-1">
                                                         <AlertCircle className="w-3.5 h-3.5" />
@@ -275,18 +275,18 @@ export default function StudentAssignments() {
                                 <strong>{selectedAssignment.title}</strong>
                             </p>
                             <p className="text-gray-500 mb-6">
-                                Once you start, the timer will begin and you can only exit by submitting your solution. 
+                                Once you start, the timer will begin and you can only exit by submitting your solution.
                                 Are you ready to begin?
                             </p>
                             <div className="flex gap-3">
-                                <Button 
-                                    variant="outline" 
+                                <Button
+                                    variant="outline"
                                     onClick={() => setShowStartConfirmation(false)}
                                     className="flex-1"
                                 >
                                     Cancel
                                 </Button>
-                                <Button 
+                                <Button
                                     onClick={handleConfirmStart}
                                     className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
                                 >

@@ -21,8 +21,6 @@ export default function CreateClassDialog({ onClassCreated }) {
 
     const [className, setClassName] = useState("");
     const [section, setSection] = useState("");
-    const [subject, setSubject] = useState("");
-    const [room, setRoom] = useState("");
 
     const handleCreate = async () => {
         if (!className) return;
@@ -31,12 +29,9 @@ export default function CreateClassDialog({ onClassCreated }) {
         setError(null);
 
         try {
-            // Backend expects specific fields. Adjusting to common Django noms.
             const classData = {
                 name: className,
-                section: section,
-                subject: subject,
-                room: room
+                section: section
             };
 
             const response = await classService.createClass(classData);
@@ -49,8 +44,6 @@ export default function CreateClassDialog({ onClassCreated }) {
             // Reset form
             setClassName("");
             setSection("");
-            setSubject("");
-            setRoom("");
         } catch (err) {
             console.error("Failed to create class:", err);
             setError("Failed to create class. Please try again.");
@@ -104,32 +97,6 @@ export default function CreateClassDialog({ onClassCreated }) {
                             value={section}
                             onChange={(e) => setSection(e.target.value)}
                             placeholder="e.g. 101-A"
-                            className="col-span-3"
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="subject" className="text-right">
-                            Subject
-                        </Label>
-                        <Input
-                            id="subject"
-                            value={subject}
-                            onChange={(e) => setSubject(e.target.value)}
-                            placeholder="e.g. Computer Science"
-                            className="col-span-3"
-                            disabled={loading}
-                        />
-                    </div>
-                    <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="room" className="text-right">
-                            Room
-                        </Label>
-                        <Input
-                            id="room"
-                            value={room}
-                            onChange={(e) => setRoom(e.target.value)}
-                            placeholder="e.g. 304"
                             className="col-span-3"
                             disabled={loading}
                         />

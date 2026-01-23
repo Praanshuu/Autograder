@@ -68,7 +68,7 @@ export default function AssignmentDashboard() {
 
                 // 2. Fetch Submissions
                 const subResponse = await submissionService.getAssignmentSubmissions(id);
-                const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data.results || []);
+                const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
                 setSubmissions(subData);
                 setError(null);
             } catch (err) {
@@ -83,7 +83,7 @@ export default function AssignmentDashboard() {
     }, [id]);
 
     // Derived Stats
-    const totalStudents = assignment?.class_obj?.student_count || 0; // Assuming API provides this or we fetch class details
+    const totalStudents = assignment?.total_students || 0;
     const submittedCount = submissions.length;
     const gradedCount = submissions.filter(s => s.is_graded).length;
 
@@ -286,7 +286,12 @@ export default function AssignmentDashboard() {
                                                         {sub.created_at ? new Date(sub.created_at).toLocaleDateString() : "-"}
                                                     </TableCell>
                                                     <TableCell className="text-right font-bold">
-                                                        {sub.final_score !== null ? `${sub.final_score}%` : "-"}
+                                                        {(() => {
+                                                            if (!sub.test_results || sub.test_results.length === 0) return "-";
+                                                            const passed = sub.test_results.filter(r => r.status === 'pass').length;
+                                                            const total = sub.test_results.length;
+                                                            return `${Math.round((passed / total) * 100)}%`;
+                                                        })()}
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <Button size="sm" variant="outline" asChild>

@@ -1,5 +1,5 @@
 export const MOCK_ASSIGNMENT = {
-    id: "a1",
+    id: "bfb8916e-9080-4965-aa87-01308323a6d7",
     title: "Data Type & Variables",
     status: "Active",
     dueDate: "2024-03-20T23:59:00",

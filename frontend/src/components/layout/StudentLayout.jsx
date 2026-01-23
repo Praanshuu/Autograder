@@ -14,7 +14,8 @@ import {
     Clock,
     CheckCircle2,
     MessageSquare,
-    GraduationCap
+    GraduationCap,
+    Calendar
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -122,6 +123,12 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                             label="Assignments"
                             href="/student/assignments"
                             active={location.pathname === "/student/assignments"}
+                        />
+                        <SidebarItem
+                            icon={Calendar}
+                            label="Calendar"
+                            href="/student/calendar"
+                            active={location.pathname === "/student/calendar"}
                         />
                     </SidebarSection>
 

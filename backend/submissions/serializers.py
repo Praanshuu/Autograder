@@ -1,31 +1,65 @@
 from rest_framework import serializers
-from .models import Submission, TestResult
-from assignments.serializers import AssignmentSerializer, QuestionSerializer, TestCaseSerializer
+from .models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
+from assignments.serializers import AssignmentQuestionSerializer
 from users.serializers import UserSerializer
 
 
 class TestResultSerializer(serializers.ModelSerializer):
-    test_case = TestCaseSerializer(read_only=True)
-    
     class Meta:
         model = TestResult
-        fields = ['id', 'test_case', 'status', 'execution_time', 'memory_usage',
-                  'console_output', 'error_message', 'points_earned']
+        fields = ['id', 'test_case_id', 'status', 'score']
 
 
-class SubmissionSerializer(serializers.ModelSerializer):
-    assignment = AssignmentSerializer(read_only=True)
-    question = QuestionSerializer(read_only=True)
+class SubmissionAttemptSerializer(serializers.ModelSerializer):
+    assignment_question = AssignmentQuestionSerializer(read_only=True)
     student = UserSerializer(read_only=True)
     test_results = TestResultSerializer(many=True, read_only=True)
     
+    # Flattened/Convenience fields for frontend
+    question = serializers.SerializerMethodField()
+    final_score = serializers.SerializerMethodField()
+    is_graded = serializers.SerializerMethodField()
+    feedback_tags = serializers.SerializerMethodField()
+    assignment_id = serializers.UUIDField(source='assignment_question.assignment.id', read_only=True)
+
     class Meta:
-        model = Submission
-        fields = ['id', 'assignment', 'question', 'student', 'code_content',
-                  'language', 'submitted_at', 'status', 'test_results',
-                  'auto_grade_score', 'manual_adjustment', 'final_score',
-                  'teacher_feedback', 'ai_feedback', 'is_graded', 'is_published',
-                  'created_at', 'updated_at', 'time_spent', 'feedback_tags']
-        read_only_fields = ['id', 'student', 'submitted_at', 'test_results',
-                          'auto_grade_score', 'is_graded', 'is_published',
-                          'created_at', 'updated_at']
+        model = SubmissionAttempt
+        fields = ['id', 'assignment_question', 'question', 'attempt_number', 'status', 
+                  'test_results', 'created_at', 'student', 'final_score', 'is_graded', 
+                  'feedback_tags', 'assignment_id', 'manual_score', 'feedback_text']
+
+    def get_question(self, obj):
+        from assignments.serializers import QuestionSerializer
+        return QuestionSerializer(obj.assignment_question.question).data
+
+    def get_final_score(self, obj):
+        # Return manual score if present
+        if obj.manual_score is not None:
+             return obj.manual_score
+
+        # Calculate score based on passed test cases
+        # This is a naive implementation; real logic might depend on custom_points
+        results = obj.test_results.all()
+        if not results:
+            return 0
+        
+        # Calculate percentage of passed tests
+        passed = sum(1 for r in results if r.status == 'pass')
+        total = len(results)
+        
+        if total == 0:
+            return 0
+            
+        return round((passed / total) * 100)
+
+    def get_is_graded(self, obj):
+        return obj.status in ['success', 'fail']
+
+    def get_feedback_tags(self, obj):
+        return "" # Placeholder
+
+
+class AssignmentProgressSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssignmentProgress
+        fields = ['assignment_question', 'current_code', 'time_spent', 'last_updated']

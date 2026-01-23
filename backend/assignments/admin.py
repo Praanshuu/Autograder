@@ -1,22 +1,22 @@
 from django.contrib import admin
-from .models import Assignment, Question, TestCase
+from .models import ContentItem, Question, Assignment, AssignmentQuestion, Module
 
-
-@admin.register(TestCase)
-class TestCaseAdmin(admin.ModelAdmin):
-    list_display = ['id', 'is_hidden', 'points']
-    list_filter = ['is_hidden']
-
+@admin.register(ContentItem)
+class ContentItemAdmin(admin.ModelAdmin):
+    list_display = ['title', 'type', 'module', 'due_date', 'is_published']
+    list_filter = ['type', 'is_published']
 
 @admin.register(Question)
 class QuestionAdmin(admin.ModelAdmin):
-    list_display = ['title', 'difficulty', 'order']
-    list_filter = ['difficulty']
-    search_fields = ['title']
-
+    list_display = ['title', 'slug', 'created_by']
+    search_fields = ['title', 'slug']
 
 @admin.register(Assignment)
 class AssignmentAdmin(admin.ModelAdmin):
-    list_display = ['title', 'class_obj', 'status', 'due_date', 'created_by']
-    list_filter = ['status', 'created_at']
-    search_fields = ['title', 'class_obj__name']
+    list_display = ['title', 'mode', 'points_total', 'due_date']
+    list_filter = ['mode', 'difficulty']
+
+@admin.register(AssignmentQuestion)
+class AssignmentQuestionAdmin(admin.ModelAdmin):
+    list_display = ['assignment', 'question', 'order']
+    ordering = ['assignment', 'order']

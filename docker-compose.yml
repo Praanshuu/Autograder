@@ -1,86 +1,50 @@
 version: '3.8'
 
 services:
-  # Redis for caching and rate limiting
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-
-  # PostgreSQL database (optional - can use SQLite for development)
-  postgres:
-    image: postgres:15-alpine
-    restart: unless-stopped
+  db:
+    image: postgres:16
+    container_name: autograder_db
     environment:
       POSTGRES_DB: autograder
-      POSTGRES_USER: autograder
-      POSTGRES_PASSWORD: autograder_password
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
     ports:
-      - "5432:5432"
+      - "5435:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-  # Django Backend
-  backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
-    restart: unless-stopped
+  redis:
+    image: redis:7
+    container_name: autograder_redis
     ports:
-      - "8000:8000"
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+
+  minio:
+    image: minio/minio
+    container_name: autograder_minio
+    ports:
+      - "9002:9000"
+      - "9003:9001"
     environment:
-      - DEBUG=True
-      - DATABASE_URL=sqlite:///db.sqlite3
-      - REDIS_URL=redis://redis:6379/0
-      - DOCKER_EXECUTOR_IMAGE=autograder-executor:latest
-      - DOCKER_MAX_WORKERS=20
-      - MAX_CODE_RUNS_PER_MINUTE=10
-      - CODE_EXECUTION_TIMEOUT=8
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./backend:/app
-    depends_on:
-      - redis
-    command: >
-      sh -c "
-        python manage.py migrate &&
-        python manage.py collectstatic --noinput &&
-        python manage.py runserver 0.0.0.0:8000
-      "
-
-  # React Frontend
-  frontend:
-    build: 
-      context: ./frontend
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - VITE_API_URL=http://localhost:8000
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/public:/app/public
-    command: npm run dev -- --host 0.0.0.0
-
-  # Nginx reverse proxy (optional for production)
-  nginx:
-    image: nginx:alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
-    depends_on:
-      - backend
-      - frontend
-    profiles:
-      - production
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
 
 volumes:
   postgres_data:
   redis_data:
+  minio_data:

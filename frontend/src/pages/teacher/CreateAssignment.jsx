@@ -67,40 +67,29 @@ export default function CreateAssignment() {
         setError(null);
 
         try {
-            // 1. Create Questions and Test Cases first
+            // 1. Create Questions
             const createdQuestionIds = [];
 
             for (const q of questions) {
-                // Create Test Cases for this question
-                const createdTestCaseIds = [];
-                for (const tc of (q.testCases || [])) {
-                    // Skip empty test cases
-                    if (!tc.input && !tc.output) continue;
+                // Prepare Test Cases for this question (embedded)
+                const testCases = (q.testCases || []).filter(tc => tc.input || tc.output).map(tc => ({
+                    input: tc.input || "",
+                    expected_output: tc.output || "",
+                    is_hidden: false,
+                    points: 10
+                }));
 
-                    const tcResponse = await assignmentService.createTestCase({
-                        input: tc.input || "",
-                        expected_output: tc.output || "",
-                        is_hidden: false,
-                        points: 10
-                    });
-
-                    if (tcResponse?.data?.id) {
-                        createdTestCaseIds.push(tcResponse.data.id);
-                    } else {
-                        console.warn("Test case creation returned no ID:", tcResponse);
-                    }
-                }
-
-                // Create Question
+                // Create Question with embedded test cases
                 const qResponse = await assignmentService.createQuestion({
                     title: q.title,
                     description: q.description,
                     difficulty: q.difficulty,
-                    test_case_ids: createdTestCaseIds,
+                    test_cases: testCases, // Send JSON list directly
                     time_limit: 1.0,
                     memory_limit: 128,
                     allowed_languages: ["python"],
-                    order: questions.indexOf(q)
+                    starter_code: q.starterCode || "", // If your UI supports it, else empty
+                    // order: questions.indexOf(q) // Model doesn't have order on Question, it's on AssignmentQuestion
                 });
 
                 if (qResponse?.data?.id) {
@@ -112,13 +101,13 @@ export default function CreateAssignment() {
 
             // 2. Create Assignment with Class ID and Question IDs
             const payload = {
-                class_obj_id: parseInt(selectedClassId), // Backend expects 'class_obj_id'
+                class_obj_id: selectedClassId, // Backend expects 'class_obj_id'
                 title: title,
                 description: instructions,
                 question_ids: createdQuestionIds,
                 points: points, // Make sure points matches model type (int)
                 due_date: dueDate ? new Date(dueDate).toISOString() : null,
-                status: 'published' // Auto-publish? Or 'draft'?
+                is_published: true // Correct field for visibility
             };
 
             await assignmentService.createAssignment(payload);

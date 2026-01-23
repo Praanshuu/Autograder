@@ -80,24 +80,31 @@ export const submissionService = {
   runAutograder: async (assignmentId) => {
     return await api.post(API_CONFIG.ENDPOINTS.SUBMISSIONS.RUN_AUTOGRADER, { assignment_id: assignmentId });
   },
-  
+
   // Timer tracking methods
-  startTimer: async (assignmentId, questionId) => {
-    return await api.post('/submissions/start-timer/', {
+  startTimer: async (assignmentId, questionId, language = 'python') => {
+    // questionId here should be assignment_question_id
+    return await api.post('/submissions/progress/start-timer/', {
       assignment_id: assignmentId,
-      question_id: questionId
+      assignment_question_id: questionId, // Mapping argument to expected backend field
+      language: language
     });
   },
-  
-  updateTimer: async (assignmentId, questionId, timeSpent) => {
-    return await api.post('/submissions/update-timer/', {
+
+  updateTimer: async (assignmentId, questionId, timeSpent, language = 'python') => {
+    return await api.post('/submissions/progress/update-timer/', {
       assignment_id: assignmentId,
-      question_id: questionId,
-      time_spent: timeSpent
+      assignment_question_id: questionId,
+      time_spent: timeSpent,
+      language: language
     });
   },
-  
-  getTimer: async (assignmentId, questionId) => {
-    return await api.get(`/submissions/get-timer/?assignment_id=${assignmentId}&question_id=${questionId}`);
+
+  getTimer: async (assignmentId, questionId, language = 'python') => {
+    // For getTimer, we might pass assignment_id AND question_id (raw) if we don't have AQ ID,
+    // OR we pass questionId as AQ ID.
+    // Backend get_timer handles both if implemented smartly, but I implemented logic to fallback.
+    // Let's pass query params clearly
+    return await api.get(`/submissions/progress/get-timer/?assignment_id=${assignmentId}&assignment_question_id=${questionId}&language=${language}`);
   },
 };

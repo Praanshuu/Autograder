@@ -4,7 +4,6 @@ import os
 import uuid
 from django.conf import settings
 from .models import TestResult
-from assignments.models import TestCase
 
 
 def execute_code(code, language, test_cases):

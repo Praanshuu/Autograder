@@ -37,8 +37,8 @@ urlpatterns = [
     path('api/classes/', include('classes.urls')),
     path('api/assignments/', include('assignments.urls')),
     path('api/submissions/', include('submissions.urls')),
-    path('api/code/', include('submissions.urls')),
-    path('api/grading/', include('submissions.urls')),
+    # path('api/code/', include('submissions.urls')),
+    # path('api/grading/', include('submissions.urls')),
     path('api/notifications/', include('notifications.urls')),
 ]
 

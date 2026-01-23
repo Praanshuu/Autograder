@@ -42,8 +42,10 @@ INSTALLED_APPS = [
     'classes',
     'assignments',
     'submissions',
+    'analytics',
     'notifications',
     'anymail',
+    'storages',
 ]
 
 MIDDLEWARE = [
@@ -83,10 +85,34 @@ WSGI_APPLICATION = 'autograder.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': config('POSTGRES_DB', default='autograder'),
+        'USER': config('POSTGRES_USER', default='postgres'),
+        'PASSWORD': config('POSTGRES_PASSWORD', default='password'),
+        'HOST': config('POSTGRES_HOST', default='localhost'),
+        'PORT': config('POSTGRES_PORT', default='5435'),
     }
 }
+
+# Redis Cache
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": config('REDIS_URL', default='redis://localhost:6380/1'),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
+# MinIO Storage
+AWS_ACCESS_KEY_ID = config('MINIO_ROOT_USER', default='minioadmin')
+AWS_SECRET_ACCESS_KEY = config('MINIO_ROOT_PASSWORD', default='minioadmin')
+AWS_STORAGE_BUCKET_NAME = config('MINIO_BUCKET_NAME', default='autograder-bucket')
+AWS_S3_ENDPOINT_URL = config('MINIO_ENDPOINT', default='http://localhost:9002')
+AWS_S3_USE_SSL = False
+AWS_QUERYSTRING_AUTH = False
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
 
 # Custom User Model

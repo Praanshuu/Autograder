@@ -2,12 +2,13 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q
-from .models import Class, Enrollment
+from django.db.models import Count, Q
+from .models import Class, Enrollment, Module
 from .serializers import ClassSerializer, EnrollmentSerializer
 from django.contrib.auth import get_user_model
-from submissions.models import Submission
+from submissions.models import GradebookEntry
 from core.permissions import IsTeacher
+from assignments.models import Assignment
 
 User = get_user_model()
 
@@ -20,10 +21,8 @@ class ClassViewSet(viewsets.ModelViewSet):
         user = self.request.user
         archived = self.request.query_params.get('archived', None)
         
-        # Get classes user is enrolled in or owns
         enrollments = Enrollment.objects.filter(
-            user=user,
-            status='active'
+            user=user
         ).values_list('class_obj_id', flat=True)
         
         owned_classes = Class.objects.filter(owner=user).values_list('id', flat=True)
@@ -31,10 +30,10 @@ class ClassViewSet(viewsets.ModelViewSet):
         
         queryset = Class.objects.filter(id__in=all_class_ids)
         
-        if archived is not None:
-            queryset = queryset.filter(is_archived=(archived.lower() == 'true'))
-        
-        return queryset.select_related('owner').prefetch_related('enrollments')
+        return queryset.select_related('owner').prefetch_related('enrollments').annotate(
+            student_count=Count('enrollments', filter=Q(enrollments__role='student'), distinct=True),
+            assignment_count=Count('modules__items', filter=Q(modules__items__type='assignment'), distinct=True)
+        ).order_by('-created_at')
     
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy', 'archive']:
@@ -63,10 +62,11 @@ class ClassViewSet(viewsets.ModelViewSet):
             )
             
         try:
-            class_obj = Class.objects.get(join_code=join_code, is_archived=False)
+            # Removed is_archived check
+            class_obj = Class.objects.get(join_code=join_code)
         except Class.DoesNotExist:
              return Response(
-                {'message': 'Invalid join code or class is archived'},
+                {'message': 'Invalid join code'},
                 status=status.HTTP_404_NOT_FOUND
             )
         
@@ -76,19 +76,14 @@ class ClassViewSet(viewsets.ModelViewSet):
             user=request.user,
             defaults={
                 'role': 'teacher' if request.user.role == 'teacher' else 'student',
-                'status': 'active'
             }
         )
         
         if not created:
-            if enrollment.status == 'active':
-                return Response(
-                    {'message': 'Already enrolled in this class'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            else:
-                enrollment.status = 'active'
-                enrollment.save()
+             return Response(
+                {'message': 'Already enrolled in this class'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         return Response({
             'success': True,
@@ -100,35 +95,16 @@ class ClassViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def join(self, request, pk=None):
         """Join a class using join code (legacy, requires ID)"""
-        # ... logic if needed, or deprecate
         return self.join_by_code(request)
     
-    @action(detail=True, methods=['post'])
-    def archive(self, request, pk=None):
-        """Archive or unarchive a class"""
-        class_obj = self.get_object()
-        
-        if class_obj.owner != request.user and request.user.role != 'admin':
-            return Response(
-                {'message': 'Not authorized'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        class_obj.is_archived = not class_obj.is_archived
-        class_obj.save()
-        
-        return Response({
-            'success': True,
-            'data': ClassSerializer(class_obj).data
-        })
+    # Archive action removed as is_archived field is gone
     
     @action(detail=True, methods=['get'])
     def people(self, request, pk=None):
         """Get class roster"""
         class_obj = self.get_object()
         enrollments = Enrollment.objects.filter(
-            class_obj=class_obj,
-            status='active'
+            class_obj=class_obj
         ).select_related('user')
         
         people = []
@@ -152,29 +128,28 @@ class ClassViewSet(viewsets.ModelViewSet):
         """Get gradebook data (Assignments x Students)"""
         class_obj = self.get_object()
         
-        # 1. Assignments
-        assignments = class_obj.assignments.all().order_by('created_at')
-        assign_data = [{'id': a.id, 'title': a.title, 'points': a.points} for a in assignments]
+        # 1. Assignments (ContentItems of type assignment in this class)
+        assignments = Assignment.objects.filter(module__class_obj=class_obj).order_by('created_at')
+        assign_data = [{'id': a.id, 'title': a.title, 'points': a.points_total} for a in assignments]
         
         # 2. Students
         students = User.objects.filter(
             enrollments__class_obj=class_obj,
-            enrollments__role='student',
-            enrollments__status='active'
+            enrollments__role='student'
         ).distinct().order_by('last_name', 'first_name')
         
-        # 3. Submissions
-        submissions = Submission.objects.filter(
-            assignment__class_obj=class_obj
-        ).values('student_id', 'assignment_id', 'final_score', 'status')
+        # 3. GradebookEntries
+        entries = GradebookEntry.objects.filter(
+            content_item__module__class_obj=class_obj
+        ).values('student_id', 'content_item_id', 'final_score', 'status')
         
-        # Map: student_id -> { assignment_id: score }
+        # Map: student_id -> { content_item_id: score }
         grades_map = {}
-        for sub in submissions:
-            s_id = sub['student_id']
-            a_id = sub['assignment_id']
+        for entry in entries:
+            s_id = entry['student_id']
+            c_id = entry['content_item_id']
             if s_id not in grades_map: grades_map[s_id] = {}
-            grades_map[s_id][a_id] = sub['final_score']
+            grades_map[s_id][c_id] = entry['final_score']
             
         # 4. Construct Roster
         roster = []
@@ -199,6 +174,5 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         return Enrollment.objects.filter(
-            user=self.request.user,
-            status='active'
+            user=self.request.user
         ).select_related('class_obj', 'user')
