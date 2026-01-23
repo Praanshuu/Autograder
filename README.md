@@ -9,20 +9,27 @@ An automated grading system built with React (Vite) frontend and Django backend.
 **Detailed setup instructions:** See [SETUP.md](SETUP.md)
 
 ## Quick Setup
+### Option 1: Automated Script (Recommended)
+```bash
+# 1. One-time Setup (installs dependencies, sets up DB)
+./setup.sh
 
+# 2. Daily Start (starts Backend + Frontend)
+./start.sh
+```
+
+### Option 2: Manual Setup
 ```bash
 # 1. Install dependencies
 npm install
 cd backend && pip3 install -r requirements.txt
 
 # 2. Setup database
-cd backend
-python3 setup_database.py
+python manage.py migrate
 
 # 3. Run servers
 # Terminal 1 - Backend
-cd backend
-python3 manage.py runserver
+python manage.py runserver
 
 # Terminal 2 - Frontend
 npm run dev
