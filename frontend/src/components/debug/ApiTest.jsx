@@ -34,8 +34,8 @@ const ApiTest = () => {
         <CardTitle>API Connection Test</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Button 
-          onClick={testApiConnection} 
+        <Button
+          onClick={testApiConnection}
           disabled={loading}
           className="w-full"
         >

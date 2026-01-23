@@ -1,122 +1,79 @@
-# Implementation Plan - Autograder Frontend
+# Implementation Plan: Scalable Autograder Backend
 
-## Goal Description
-Initialize and develop the frontend UI for **Autograder**, a coding-focused LMS. The focus is on a modern, minimalistic, and responsive design inspired by Google Classroom and LeetCode, tailored for Teachers, Students, and TAs.
+**Goal**: Transform the current SQLite prototype into a production-ready system backed by PostgreSQL, Redis, and MinIO, implementing the **v3 Unified Schema**.
 
-## User Review Required
-> [!IMPORTANT]
-> **Project Initialization**: I plan to use **Vite** with **React** and **TailwindCSS**. This provides a fast, modern development environment perfectly matching your requirements.
-> **State Management**: I will stick to **React Context + Hooks** as requested to keep it lightweight, unless you prefer a small library like **Zustand** for easier global state (e.g., user session, theme).
-> **Mock Data**: Since there is no backend, I will create a dedicated `mock` directory with robust JSON data to simulate API responses for classes, assignments, and submissions.
+## Phase 1: Infrastructure & Environment Setup (The Foundation)
+**Objective**: Get the "Big Engines" running so Django can connect to them.
 
-## Proposed Changes
+1.  **Dockerize the Stack**:
+    *   Create a `docker-compose.yml` file in the root.
+    *   **Services**:
+        *   `postgres`: Version 16 (The main DB).
+        *   `redis`: Version 7 (For Cache & Queue).
+        *   `minio`: S3-compatible storage (For Code Blobs).
+    *   **Health Checks**: Ensure services are up before Django starts.
 
-### Project Setup
-#### [NEW] [Project Initialization]
-- Initialize Vite React project in the root directory.
-- Configure TailwindCSS (v3).
-- Setup `react-router-dom` for routing.
-- Setup `lucide-react` for icons.
-- **[NEW]** Setup `shadcn/ui` for premium generic components.
-- **[NEW]** Setup `framer-motion` for smooth animations.
+2.  **Django Configuration (`settings.py`)**:
+    *   **Database**: Switch `DATABASES` from sqlite3 to `django.db.backends.postgresql`.
+    *   **Cache**: Set `CACHES` to use `django_redis`.
+    *   **Storage**: Configure `django-storages` with `s3boto3` to point to local MinIO.
+    *   **Env Variables**: Use `python-decouple` or `django-environ` for secrets (DB passwords).
 
-### Component Structure
-I will organize components by feature and reusability.
+## Phase 2: Domain Modeling (The Schema Implementation)
+**Objective**: Rewrite `models.py` files to match Schema v3.
 
-#### [NEW] [Directory Structure]
-```text
-/src
-  /components
-    /ui          (Reusable atoms: Button, Card, Input, Badge)
-    /layout      (Sidebar, Navbar, AuthLayout, DashboardLayout)
-    /features    (Feature-specific components)
-      /teacher
-      /student
-      /editor
-  /pages         (Page views)
-    /teacher
-    /student
-    /auth
-  /context       (Global state: AuthContext, ThemeContext)
-  /mocks         (Mock data generators)
-```
+### 1. Users App (`backend/users`)
+*   **Modify**: `User` model.
+*   **Add**: `role` (Enum), `avatar_url`, `settings` (JSONB).
 
-### Initial Development Tasks
-1.  **Scaffolding**: Run `npm create vite@latest` and install dependencies.
-2.  **Design System**: Define tailwind config for "calm, neutral colors" and typography.
-3.  **Routing**: define routes in `App.jsx` for `/teacher/*`, `/student/*`.
-4.  **Core Layouts**: Build the shared shell (Navbar with role-based links).
-5.  **ShadCN Setup**: Initialize shadcn and add base components (Card, Button, Sheet, Dropdown).
-6.  **Teacher Dashboard**: Refactor to use proper Cards and Framer Motion entrance animations.
-7.  **Assignment Creation**:
-    -   Create `/teacher/assignment/create` page.
-    -   Implement `AssignmentForm` (Title, Instructions, Deadline).
-    -   Implement `QuestionEditor` (Problem, Inputs, Test Cases).
-    -   Use `Reorder` from Framer Motion for questions list.
-8.  **Class Page Implementation**:
-    -   **Global Layout**: Update `TeacherLayout` with Breadcrumbs, Calendar, Teaching sections.
-    -   **Class Header**: Banner image, Theme color, Class Info.
-    -   **Tabs Navigation**: Stream, Classwork, People, Marks.
-    -   **Stream Tab**: Announcements feed, Upcoming work widget (with View All modal), Attachments UI.
-    -   **Classwork Tab**: Create dropdown, Topics, Assignment list.
-    -   **People Tab**: Teacher, TA, and Student lists with invite actions (Email Modal).
-    -   **Marks Tab**: Gradebook table.
-    -   **Archived Classes**: Refine UI with grayscale styling and read-only indicators.
-    -   **Create Class**: Implement as a **Modal/Dialog** on the dashboard for better UX (preserves context).
-        -   Fields: Name, Section, Subject, Room.
+### 2. Classes App (`backend/classes`)
+*   **Modify**: `Class` model (add `settings` JSONB).
+*   **New Model**: `Module` (Parent: Class).
+    *   *Fields*: `title`, `order_index`.
 
-### Grading & Analytics System
-#### [NEW] [AssignmentDashboard.jsx](file:///d:/Programming/internshipiit/Autograder_UI_Proj/autograder/src/pages/teacher/AssignmentDashboard.jsx)
-*   **Route**: `/teacher/assignment/:id`
-*   **Purpose**: Central hub for a specific assignment.
-*   **Analytics**:
-    *   **Charts**: Grade Distribution (Bar Chart), Submission Status (Pie Chart).
-    *   **Stats**: Average Score, Median, Top Score, Submission Rate.
-*   **Submissions List**: Filterable table (All, To Grade, Graded).
-    *   Columns: Student, Status, Submission Time, Auto-Grade Score, Final Score, Action.
+### 3. Assignments App (`backend/assignments`) - *Major Refactor*
+*   **New Model**: `ContentItem` (Polymorphic Parent).
+    *   *Fields*: `title`, `description`, `is_published`, `due_date`, `type`.
+*   **Refactor**: `Assignment` (Inherits ContentItem).
+    *   *Add*: `mode` ('practice', 'exam'), `config` (JSONB).
+*   **Refactor**: `Question` (was Question/ProblemVersion).
+    *   *Simplify*: Remove versioning logic. Add `slug`.
+*   **New Model**: `AssignmentQuestion` (Through Table).
+    *   *Fields*: `order`, `custom_points`.
 
-#### [NEW] [GradingInterface.jsx](file:///d:/Programming/internshipiit/Autograder_UI_Proj/autograder/src/pages/teacher/GradingInterface.jsx)
-*   **Route**: `/teacher/grading/submission/:id`
-*   **Layout**: Split Pane (Resizable?).
-    *   **Left Pane**: Code Viewer (Monaco Editor or simple SyntaxHighlighter) showing student's code.
-    *   **Right Pane**: Grading Tools.
-        *   **Autograder Report**: Pass/Fail status of test cases, execution time, memory usage.
-        *   **Rubric**: Manual criteria (e.g., Code Style, Logic) with sliders or inputs.
-        *   **Feedback**: Text comments.
-        *   **Score Override**: Allow teacher to adjust the final calculated grade.
+### 4. Submissions App (`backend/submissions`) - *The Engine*
+*   **New Model**: `AssignmentProgress` (for Autosave).
+    *   *Fields*: `current_code` (Text), `time_spent`.
+*   **Refactor**: `SubmissionAttempt` (was Submission).
+    *   *Change*: Make immutable. Add `code_blob_ref`, `execution_time_ms`.
+*   **Refactor**: `TestResult`.
+    *   *Optimize*: Use lightweight fields.
 
-#### [MODIFY] [MarksTab.jsx](file:///d:/Programming/internshipiit/Autograder_UI_Proj/autograder/src/components/features/teacher/MarksTab.jsx)
-*   **Concept**: A "Master Gradebook" spreadsheet.
-*   **Structure**:
-    *   **Rows**: Students (sorted alphabetically).
-    *   **Columns**:
-        1.  **Student Info** (Name, Avatar).
-        2.  **Overall Average** (Calculated percentage).
-        3.  **Assignments** (Dynamic columns based on created assignments).
-*   **Features**:
-    *   **Visual cues**: Color-code cells (Red for missing, Green for good scores).
-    *   **Interactivity**: Click a cell -> Go to `/teacher/grading/submission/:id`.
-    *   **Stats**: Row at the bottom showing "Class Average" for each assignment. (e.g., "Assignment 1 Avg: 88%").
+### 5. Analytics App (`backend/analytics`) - *New App*
+*   **New Models**: `SubmissionAnalysis`, `ProblemAnalytics`.
+*   **Purpose**: Isolate heavy-read aggregates from the transaction logs.
 
+## Phase 3: Migration Strategy
+**Objective**: Switch databases cleanly.
 
-## Verification Plan
+*   **Strategy**: "Fresh Start" is recommended given the architectural shift.
+    1.  Delete old SQLite `db.sqlite3`.
+    2.  Delete all `migrations/` folders (except `__init__.py`).
+    3.  Run `makemigrations` and `migrate` against the new Postgres container.
+    4.  Create a `seed_data` script to populate initial Users and a Demo Class.
 
-### Automated Tests
-- **Linting**: Ensure `eslint` passes.
-- **Build**: Run `npm run build` to verify no breaking errors.
+## Phase 4: API Adaptation
+**Objective**: Update Views/Serializers to respect the new models.
 
-### Manual Verification
-- **Browser Preview**: I will run the dev server and use the browser tool to verify:
-    - Routing works (e.g., navigating to `/teacher/dashboard` works).
-    - UI aesthetics match the "Google Classroom" clean vibe.
-    - Responsiveness on different viewport sizes.
-#### [MODIFY] [PeopleTab.jsx](file:///d:/Programming/internshipiit/Autograder_UI_Proj/autograder/src/components/features/teacher/PeopleTab.jsx)
-*   **Enhancements**:
-    *   **Teachers**: List of instructors.
-    *   **Students**:
-        *   Full list of enrolled students.
-        *   Actions: "Remove", "Email".
-    *   **Invite Modal**:
-        *   Triggered by `UserPlus` icon.
-        *   Input field for Email Address.
-        *   "Invite" button.
+*   **Update Serializers**: Ensure Frontend receives the correct JSON shape (e.g., `Question` details nested inside `Assignment` view).
+*   **Refactor Views**:
+    *   `AssignmentViewSet`: Needs to handle the "Assignment -> AssignmentQuestion -> Question" hierarchy.
+    *   `SubmissionViewSet`: Needs to write to `AssignmentProgress` on autosave and `SubmissionAttempt` on final submit.
+
+## Execution Order
+1.  **Setup**: Docker & Settings.
+2.  **Core Models**: User, Class, Enrollment.
+3.  **Content Models**: Module, ContentItem, Assignment, Question.
+4.  **Submission Models**: Progress, Attempt, Result.
+5.  **Analytics Models**: Analysis, Aggregates.
+6.  **Migration**: Run & Seed.
