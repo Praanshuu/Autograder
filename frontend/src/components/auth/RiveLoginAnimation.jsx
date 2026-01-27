@@ -3,7 +3,7 @@ import React from 'react';
 import { useRive, Layout, Fit, Alignment } from '@rive-app/react-canvas';
 
 const RiveLoginAnimation = () => {
-    const { RiveComponent } = useRive({
+    const { rive, RiveComponent } = useRive({
         src: '/22487-42095-look.riv',
         stateMachines: "State Machine 1", // Common default name, can be adjusted
         autoplay: true,

@@ -107,4 +107,21 @@ export const submissionService = {
     // Let's pass query params clearly
     return await api.get(`/submissions/progress/get-timer/?assignment_id=${assignmentId}&assignment_question_id=${questionId}&language=${language}`);
   },
+
+  finishAssignment: async (assignmentId) => {
+    return await api.post('/submissions/progress/finish-assignment/', { assignment_id: assignmentId });
+  },
+
+  getAssignmentStatus: async (assignmentId) => {
+    return await api.get(`/submissions/progress/assignment-status/?assignment_id=${assignmentId}`);
+  },
+
+  // Teacher Endpoints
+  getAssignmentSummary: async (assignmentId) => {
+    return await api.get(`/submissions/progress/summary/?assignment_id=${assignmentId}`);
+  },
+
+  getStudentReport: async (assignmentId, studentId) => {
+    return await api.get(`/submissions/progress/student-report/?assignment_id=${assignmentId}&student_id=${studentId}`);
+  },
 };

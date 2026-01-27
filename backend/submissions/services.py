@@ -1,331 +1,93 @@
-import subprocess
-import tempfile
-import os
-import uuid
+import logging
+import time
 from django.conf import settings
-from .models import TestResult
+from code_executor.docker_service import get_docker_executor
+from code_executor.python_runner import get_code_executor
 
+logger = logging.getLogger(__name__)
 
 def execute_code(code, language, test_cases):
     """
-    Execute code against test cases
-    Returns list of test results
+    Execute code against test cases using the best available executor.
+    Strategy:
+    1. Try DockerExecutor (Preferred for isolation & scale)
+    2. Fallback to CodeExecutor (Local process) if Docker is down
     """
+    # 1. Try Docker Execution
+    docker_executor = get_docker_executor()
+    if docker_executor.is_available():
+        logger.info(f"Executing {language} code using DockerExecutor")
+        result = docker_executor.execute_test_cases_concurrent(code, test_cases)
+        return _format_docker_results(result, test_cases)
+    
+    # 2. Fallback to Local Execution
+    logger.warning("Docker execution unavailable. Falling back to Local CodeExecutor.")
+    local_executor = get_code_executor()
+    
     results = []
+    # Extract inputs for batch execution
+    inputs = []
+    for tc in test_cases:
+        inputs.append(str(tc.get('input', '')))
     
-    for test_case_data in test_cases:
-        test_case = test_case_data.get('test_case') if isinstance(test_case_data, dict) else None
-        input_data = test_case_data.get('input', '') if isinstance(test_case_data, dict) else str(test_case_data.get('input', ''))
-        expected_output = test_case_data.get('expected_output', '') if isinstance(test_case_data, dict) else str(test_case_data.get('expected_output', ''))
+    # Execute (Local runner returns list of outputs strings)
+    # Note: Local runner currently assumes inputs are strings
+    execution_result = local_executor.execute(language, code, inputs)
+    
+    if execution_result['status'] == 'error':
+        # Compilation or System Error
+        return [{
+            'status': 'error',
+            'error_message': execution_result['message'],
+            'console_output': '',
+            'execution_time': 0,
+            'test_case': {}
+        }]
+    
+    # Map outputs back to test cases
+    outputs = execution_result['outputs']
+    for i, output in enumerate(outputs):
+        test_case_data = test_cases[i]
+        expected_output = str(test_case_data.get('expected_output', '')).strip()
+        actual_output = str(output).strip()
         
-        result = execute_single_test(code, language, input_data, expected_output, test_case)
-        results.append(result)
-    
+        # Grading Logic
+        passed = actual_output == expected_output
+        # Handle simple error strings from runner
+        error_msg = ""
+        if output.startswith("Error:"):
+            error_msg = output
+            status = 'error'
+        else:
+            status = 'pass' if passed else 'fail'
+
+        results.append({
+            'status': status,
+            'console_output': actual_output,
+            'error_message': error_msg,
+            'execution_time': 0, # Local runner doesn't track per-test time yet
+            'test_case': test_case_data
+        })
+        
     return results
 
-
-def execute_single_test(code, language, input_data, expected_output, test_case=None):
-    """Execute code for a single test case"""
-    timeout = getattr(settings, 'CODE_EXECUTION_TIMEOUT', 10)
-    temp_dir = tempfile.mkdtemp()
-    test_id = str(uuid.uuid4())
+def _format_docker_results(docker_result, original_test_cases):
+    """Convert Docker result format to View format"""
+    formatted = []
+    raw_results = docker_result.get('results', [])
     
-    try:
-        if language == 'python':
-            return execute_python(code, input_data, expected_output, temp_dir, test_id, timeout, test_case)
-        elif language == 'javascript':
-            return execute_javascript(code, input_data, expected_output, temp_dir, test_id, timeout, test_case)
-        elif language == 'java':
-            return execute_java(code, input_data, expected_output, temp_dir, test_id, timeout, test_case)
-        elif language in ['cpp', 'c']:
-            return execute_cpp(code, input_data, expected_output, temp_dir, test_id, timeout, language, test_case)
-        else:
-            return {
-                'status': 'error',
-                'error_message': f'Unsupported language: {language}',
-                'console_output': '',
-                'execution_time': 0
-            }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'error_message': str(e),
-            'console_output': '',
-            'execution_time': 0
-        }
-    finally:
-        # Cleanup
-        import shutil
-        try:
-            shutil.rmtree(temp_dir)
-        except:
-            pass
-
-
-def execute_python(code, input_data, expected_output, temp_dir, test_id, timeout, test_case=None):
-    """Execute Python code"""
-    file_path = os.path.join(temp_dir, f'{test_id}.py')
-    input_file = os.path.join(temp_dir, f'{test_id}_input.txt')
-    
-    with open(file_path, 'w') as f:
-        f.write(code)
-    
-    with open(input_file, 'w') as f:
-        f.write(str(input_data))
-    
-    import time
-    start_time = time.time()
-    
-    try:
-        result = subprocess.run(
-            ['python3', file_path],
-            stdin=open(input_file, 'r'),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=temp_dir
-        )
+    for i, res in enumerate(raw_results):
+        tc_data = original_test_cases[i] if i < len(original_test_cases) else {}
         
-        execution_time = int((time.time() - start_time) * 1000)
-        output = result.stdout.strip()
-        
-        status = 'pass' if output == str(expected_output).strip() else 'fail'
-        
-        return {
+        status = 'pass' if res['passed'] else 'fail'
+        if res.get('error'):
+            status = 'error'
+            
+        formatted.append({
             'status': status,
-            'console_output': output,
-            'error_message': result.stderr,
-            'execution_time': execution_time,
-            'test_case': test_case
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            'status': 'timeout',
-            'error_message': 'Execution timeout',
-            'console_output': '',
-            'execution_time': timeout * 1000,
-            'test_case': test_case
-        }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'error_message': str(e),
-            'console_output': '',
-            'execution_time': 0,
-            'test_case': test_case
-        }
-
-
-def execute_javascript(code, input_data, expected_output, temp_dir, test_id, timeout, test_case=None):
-    """Execute JavaScript code"""
-    file_path = os.path.join(temp_dir, f'{test_id}.js')
-    input_file = os.path.join(temp_dir, f'{test_id}_input.txt')
-    
-    # Wrap code to read input
-    wrapped_code = f"""
-const fs = require('fs');
-const input = fs.readFileSync('{input_file}', 'utf8').trim();
-{code}
-"""
-    
-    with open(file_path, 'w') as f:
-        f.write(wrapped_code)
-    
-    with open(input_file, 'w') as f:
-        f.write(str(input_data))
-    
-    import time
-    start_time = time.time()
-    
-    try:
-        result = subprocess.run(
-            ['node', file_path],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=temp_dir
-        )
-        
-        execution_time = int((time.time() - start_time) * 1000)
-        output = result.stdout.strip()
-        
-        status = 'pass' if output == str(expected_output).strip() else 'fail'
-        
-        return {
-            'status': status,
-            'console_output': output,
-            'error_message': result.stderr,
-            'execution_time': execution_time,
-            'test_case': test_case
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            'status': 'timeout',
-            'error_message': 'Execution timeout',
-            'console_output': '',
-            'execution_time': timeout * 1000,
-            'test_case': test_case
-        }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'error_message': str(e),
-            'console_output': '',
-            'execution_time': 0,
-            'test_case': test_case
-        }
-
-
-def execute_java(code, input_data, expected_output, temp_dir, test_id, timeout, test_case=None):
-    """Execute Java code"""
-    class_name = f'Solution_{test_id.replace("-", "")}'
-    file_path = os.path.join(temp_dir, f'{class_name}.java')
-    input_file = os.path.join(temp_dir, f'{test_id}_input.txt')
-    
-    # Ensure class name matches
-    modified_code = code.replace('public class Solution', f'public class {class_name}')
-    if 'public class' not in modified_code:
-        modified_code = f'public class {class_name} {{\n{code}\n}}'
-    
-    with open(file_path, 'w') as f:
-        f.write(modified_code)
-    
-    with open(input_file, 'w') as f:
-        f.write(str(input_data))
-    
-    import time
-    start_time = time.time()
-    
-    try:
-        # Compile
-        compile_result = subprocess.run(
-            ['javac', file_path],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=temp_dir
-        )
-        
-        if compile_result.returncode != 0:
-            return {
-                'status': 'error',
-                'error_message': compile_result.stderr,
-                'console_output': '',
-                'execution_time': 0,
-                'test_case': test_case
-            }
-        
-        # Execute
-        result = subprocess.run(
-            ['java', '-cp', temp_dir, class_name],
-            stdin=open(input_file, 'r'),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=temp_dir
-        )
-        
-        execution_time = int((time.time() - start_time) * 1000)
-        output = result.stdout.strip()
-        
-        status = 'pass' if output == str(expected_output).strip() else 'fail'
-        
-        return {
-            'status': status,
-            'console_output': output,
-            'error_message': result.stderr,
-            'execution_time': execution_time,
-            'test_case': test_case
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            'status': 'timeout',
-            'error_message': 'Execution timeout',
-            'console_output': '',
-            'execution_time': timeout * 1000,
-            'test_case': test_case
-        }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'error_message': str(e),
-            'console_output': '',
-            'execution_time': 0,
-            'test_case': test_case
-        }
-
-
-def execute_cpp(code, input_data, expected_output, temp_dir, test_id, timeout, language, test_case=None):
-    """Execute C/C++ code"""
-    ext = 'cpp' if language == 'cpp' else 'c'
-    compiler = 'g++' if language == 'cpp' else 'gcc'
-    file_path = os.path.join(temp_dir, f'{test_id}.{ext}')
-    executable = os.path.join(temp_dir, f'{test_id}_exec')
-    input_file = os.path.join(temp_dir, f'{test_id}_input.txt')
-    
-    with open(file_path, 'w') as f:
-        f.write(code)
-    
-    with open(input_file, 'w') as f:
-        f.write(str(input_data))
-    
-    import time
-    start_time = time.time()
-    
-    try:
-        # Compile
-        compile_result = subprocess.run(
-            [compiler, file_path, '-o', executable],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            cwd=temp_dir
-        )
-        
-        if compile_result.returncode != 0:
-            return {
-                'status': 'error',
-                'error_message': compile_result.stderr,
-                'console_output': '',
-                'execution_time': 0,
-                'test_case': test_case
-            }
-        
-        # Execute
-        result = subprocess.run(
-            [executable],
-            stdin=open(input_file, 'r'),
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            cwd=temp_dir
-        )
-        
-        execution_time = int((time.time() - start_time) * 1000)
-        output = result.stdout.strip()
-        
-        status = 'pass' if output == str(expected_output).strip() else 'fail'
-        
-        return {
-            'status': status,
-            'console_output': output,
-            'error_message': result.stderr,
-            'execution_time': execution_time,
-            'test_case': test_case
-        }
-    except subprocess.TimeoutExpired:
-        return {
-            'status': 'timeout',
-            'error_message': 'Execution timeout',
-            'console_output': '',
-            'execution_time': timeout * 1000,
-            'test_case': test_case
-        }
-    except Exception as e:
-        return {
-            'status': 'error',
-            'error_message': str(e),
-            'console_output': '',
-            'execution_time': 0,
-            'test_case': test_case
-        }
+            'console_output': res.get('actual_output', ''),
+            'error_message': res.get('error', ''),
+            'execution_time': res.get('execution_time', 0),
+            'test_case': tc_data
+        })
+    return formatted

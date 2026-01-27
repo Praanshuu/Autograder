@@ -11,6 +11,9 @@ echo -e "${BLUE}=== Starting Autograder ===${NC}"
 echo "Checking Docker services..."
 docker compose up -d
 
+# Add MinGW to PATH for C/C++ support (Windows)
+export PATH="/c/msys64/mingw64/bin:$PATH"
+
 # Activate Virtual Env
 source venv/bin/activate
 

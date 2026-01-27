@@ -1,12 +1,17 @@
-# Dockerfile for secure Python code execution - Optimized for high concurrency
-FROM python:3.11-slim
+# Dockerfile for Multi-Language Code Execution
+# Optimized for high concurrency and low footprint
+FROM python:3.11-slim-bookworm
 
 # Set working directory
 WORKDIR /app
 
-# Install security packages and optimize for smaller image
-RUN apt-get update && apt-get install -y \
-    --no-install-recommends \
+# Install dependencies for C, C++, Java, Node.js
+# We use --no-install-recommends to keep size down
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    g++ \
+    default-jre-headless \
+    nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -26,10 +31,10 @@ COPY --chown=coderunner:coderunner execute.py /app/
 # Switch to non-root user
 USER coderunner
 
-# Set resource limits at container level
+# Labels
 LABEL maintainer="Autograder System"
-LABEL description="Secure Python code execution container"
-LABEL version="2.0"
+LABEL description="Secure Multi-Language Code Execution Container"
+LABEL version="2.5"
 
 # Default command
 CMD ["python", "execute.py"]

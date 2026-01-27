@@ -22,6 +22,7 @@ class DockerExecutor:
     def __init__(self):
         """Initialize Docker client with connection pooling"""
         try:
+            # Standard initialization (Works with docker==6.1.3)
             self.client = docker.from_env()
             self.image_name = getattr(settings, 'DOCKER_EXECUTOR_IMAGE', 'autograder-executor:latest')
             
@@ -31,18 +32,19 @@ class DockerExecutor:
             
             # Container resource limits optimized for 150 concurrent users
             self.container_limits = {
-                'mem_limit': '128m',  # Reduced from 256m for more concurrent containers
+                'mem_limit': '256m',  # Hard Limit
                 'cpu_period': 100000,
                 'cpu_quota': 30000,   # 30% of one CPU (reduced for more concurrency)
                 'timeout': 8,         # Slightly increased timeout
-                'tmpfs_size': '5M'    # Reduced temp space
+                'tmpfs_size': '10M'   # Reduced temp space
             }
             
             # Warm up the image
             self._warm_up_image()
             
         except Exception as e:
-            logger.error(f"Docker client initialization failed: {e}")
+            import traceback
+            logger.error(f"Docker client initialization failed: {e}\n{traceback.format_exc()}")
             self.client = None
             self.executor_pool = None
     
@@ -88,21 +90,22 @@ class DockerExecutor:
             'mem_limit': self.container_limits['mem_limit'],
             'cpu_period': self.container_limits['cpu_period'],
             'cpu_quota': self.container_limits['cpu_quota'],
-            'network_disabled': True,
-            'read_only': True,
-            'tmpfs': {'/tmp': f'size={self.container_limits["tmpfs_size"]},mode=1777'},
+            'network_mode': 'none', # Absolute isolation
+            'read_only': True,      # Prevent filesystem modification
+            'tmpfs': {'/tmp': 'size=10M,mode=1777'}, # Slightly larger for compile artifacts
             'security_opt': ['no-new-privileges:true'],
             'cap_drop': ['ALL'],
-            'user': '1000:1000'  # Non-root user
+            'pids_limit': 50,       # Prevent fork bombs
+            'user': '1000:1000'     # Non-root user
         }
     
     def is_available(self):
         """Check if Docker is available"""
         return self.client is not None and self.executor_pool is not None
     
-    def execute_code_async(self, code, test_input="", timeout=None):
+    def execute_code_async(self, code, language="python", test_input="", timeout=None):
         """
-        Execute Python code asynchronously in Docker container
+        Execute code asynchronously in Docker container
         Optimized for high concurrency
         """
         if timeout is None:
@@ -117,15 +120,16 @@ class DockerExecutor:
             }
         
         # Submit to thread pool for concurrent execution
-        future = self.executor_pool.submit(self._execute_single, code, test_input, timeout)
+        future = self.executor_pool.submit(self._execute_single, code, language, test_input, timeout)
         return future
     
-    def _execute_single(self, code, test_input, timeout):
+    def _execute_single(self, code, language, test_input, timeout):
         """Execute single code submission in Docker container"""
         try:
             # Prepare input data
             input_data = {
                 'code': code,
+                'language': language,
                 'input': test_input
             }
             input_json = json.dumps(input_data)
@@ -135,7 +139,8 @@ class DockerExecutor:
             # Create and run container with optimized settings
             container = self.client.containers.run(
                 self.image_name,
-                command=['python', 'execute.py'],
+                # No command needed if CMD is set in Dockerfile, but explicit is safer
+                # command=['python', 'execute.py'], 
                 stdin_open=True,
                 detach=True,
                 remove=True,
@@ -149,7 +154,10 @@ class DockerExecutor:
                 container_socket.close()
                 
                 # Wait for container to finish
-                result = container.wait(timeout=timeout)
+                # We need a slightly higher timeout for compilation languages
+                wait_timeout = timeout + 5 if language in ['c', 'cpp', 'java'] else timeout
+                
+                result = container.wait(timeout=wait_timeout)
                 execution_time = int((time.time() - start_time) * 1000)
                 
                 # Get output
@@ -157,24 +165,34 @@ class DockerExecutor:
                 
                 # Parse JSON result
                 try:
-                    result_data = json.loads(output)
+                    # In case of segfault or heavy crash, output might not be JSON
+                    # We look for the last line which should be the JSON result
+                    lines = output.strip().split('\n')
+                    last_line = lines[-1] if lines else "{}"
+                    result_data = json.loads(last_line)
                     result_data['execution_time'] = execution_time
                     return result_data
                 except json.JSONDecodeError:
                     return {
                         'success': False,
                         'output': output,
-                        'error': 'Failed to parse execution result',
+                        'error': 'Execution crashed (Segmentation Fault or OOM)',
                         'execution_time': execution_time
                     }
                     
             except Exception as e:
                 # Ensure container cleanup
                 try:
-                    container.kill()
+                    container.remove(force=True)
                 except:
                     pass
-                raise e
+                # Don't re-raise, return error dict
+                return {
+                    'success': False,
+                    'output': '',
+                    'error': f'Container runtime error: {str(e)}',
+                    'execution_time': 0
+                }
                 
         except docker.errors.ContainerError as e:
             return {
@@ -187,7 +205,7 @@ class DockerExecutor:
             return {
                 'success': False,
                 'output': '',
-                'error': f'Docker image not found: {self.image_name}. Please build the image first.',
+                'error': f'Docker image {self.image_name} not found. Please build the image first.',
                 'execution_time': 0
             }
         except Exception as e:

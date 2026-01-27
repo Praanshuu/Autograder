@@ -45,6 +45,7 @@ class SubmissionAttempt(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     manual_score = models.FloatField(null=True, blank=True)
     feedback_text = models.TextField(blank=True)
+    source_code = models.TextField(blank=True) # Snapshot of code at submission time
     
     class Meta:
         db_table = 'submission_attempts'
@@ -65,6 +66,8 @@ class TestResult(models.Model):
     test_case_id = models.CharField(max_length=50) # ID from JSONB in Question
     status = models.CharField(max_length=10, choices=STATUS_CHOICES)
     score = models.FloatField(default=0.0)
+    actual_output = models.TextField(blank=True, default='')
+    error_message = models.TextField(blank=True, default='')
     
     class Meta:
         db_table = 'test_result_details'

@@ -31,11 +31,13 @@ import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-c';
 import 'prismjs/components/prism-cpp';
 import 'prismjs/themes/prism-tomorrow.css'; // Dark theme for code
-import { Panel, Group, Separator } from "react-resizable-panels";
+import { Separator } from "../../components/ui/separator";
+// import { Panel, Group } from "react-resizable-panels"; // Pro feature disabled for now
 
 // Services
 import { assignmentService } from "../../services/assignmentService";
 import { submissionService } from "../../services/submissionService";
+import QuestionPalette from "../../components/workspace/QuestionPalette";
 
 const StudentWorkspace = () => {
     const { assignmentId } = useParams();
@@ -43,6 +45,9 @@ const StudentWorkspace = () => {
 
     // State
     const [assignment, setAssignment] = useState(null);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0); // Hoisted State
+    const [completedQuestions, setCompletedQuestions] = useState(new Set()); // Track completed indices
+    const [codeDrafts, setCodeDrafts] = useState({}); // Local cache: { index: code }
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -56,6 +61,7 @@ const StudentWorkspace = () => {
     const [showConfetti, setShowConfetti] = useState(false);
     const [showExitWarning, setShowExitWarning] = useState(false);
     const [isCompleted, setIsCompleted] = useState(false); // Track completion status
+    const [isReadOnly, setIsReadOnly] = useState(false); // Locked mode after finish
 
     // Timer state
     const [timeSpent, setTimeSpent] = useState(0); // in seconds (for backend tracking)
@@ -105,79 +111,98 @@ const StudentWorkspace = () => {
         }
     };
 
-    // Fetch Assignment Data
+    // Load Question Data when Index Changes
+    useEffect(() => {
+        const loadQuestionData = async () => {
+            if (!assignment || !assignment.questions || !assignment.questions[currentQuestionIndex]) return;
+
+            const aq = assignment.questions[currentQuestionIndex];
+            const question = aq.question;
+            const aqId = aq.id;
+
+            setLoading(false); // Assignment is loaded, just switching questions
+
+            // 1. Calculate Time Limit
+            const timeLimit = getTimeLimit(question.difficulty); // Per question limit?
+            setTotalTimeAllowed(timeLimit);
+
+            // 2. Load Code: Check Drafts -> Then Backend
+            if (codeDrafts[currentQuestionIndex]) {
+                setCode(codeDrafts[currentQuestionIndex]);
+                // Still fetch timer to get time_spent but ignore code
+                try {
+                    const timerResponse = await submissionService.getTimer(assignmentId, aqId, selectedLanguage);
+                    if (timerResponse.success && timerResponse.data) {
+                        setTimeSpent(timerResponse.data.time_spent || 0);
+                        setTimeRemaining(Math.max(0, timeLimit - (timerResponse.data.time_spent || 0)));
+                    }
+                } catch (e) { console.error("Timer fetch failed", e); }
+                return;
+            }
+
+            // 3. Load Timer & Draft Code
+            try {
+                const timerResponse = await submissionService.getTimer(assignmentId, aqId, selectedLanguage);
+                if (timerResponse.success && timerResponse.data) {
+                    const spentTime = timerResponse.data.time_spent || 0;
+                    setTimeSpent(spentTime);
+                    setTimeRemaining(Math.max(0, timeLimit - spentTime));
+
+                    // Load saved code
+                    if (timerResponse.data.code_content) {
+                        setCode(timerResponse.data.code_content);
+                    } else {
+                        setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+                    }
+                } else {
+                    // New/No Progress
+                    setTimeSpent(0);
+                    setTimeRemaining(timeLimit);
+                    setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+                }
+            } catch (err) {
+                console.error("Failed to load timer:", err);
+                setTimeSpent(0);
+                setTimeRemaining(timeLimit);
+                setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+            }
+        };
+
+        if (assignment) {
+            loadQuestionData();
+        }
+    }, [currentQuestionIndex, assignment]);
+
+    // Initial Assignment Fetch & Status Check
     useEffect(() => {
         const fetchAssignment = async () => {
             if (!assignmentId) return;
             try {
                 setLoading(true);
-                const response = await assignmentService.getAssignment(assignmentId);
-                const data = response.data;
-                console.log("Assignment data loaded:", data);
-                console.log("Questions:", data.questions);
-                setAssignment(data);
 
-                // Get timer state from backend
-                if (data.questions && data.questions.length > 0) {
-                    const questionId = data.questions[0].id;
-                    const question = data.questions[0];
+                // Parallel fetch: Assignment + Status
+                const [assignmentRes, statusRes] = await Promise.all([
+                    assignmentService.getAssignment(assignmentId),
+                    submissionService.getAssignmentStatus(assignmentId)
+                ]);
 
-                    // Calculate time limits
-                    const timeLimit = getTimeLimit(question.difficulty);
-                    setTotalTimeAllowed(timeLimit);
+                setAssignment(assignmentRes.data);
 
-                    console.log("First question:", question);
-                    // Check for existing submissions
-                    try {
-                        const submissionsResponse = await submissionService.getAssignmentSubmissions(assignmentId);
-                        if (submissionsResponse.data && submissionsResponse.data.length > 0) {
-                            const passed = submissionsResponse.data.some(s => s.status === 'success');
-                            if (passed) {
-                                setIsCompleted(true);
-                                // Optional: Load the successful code
-                                // setCode(passedSubmission.code_content);
-                            }
-                        }
-                    } catch (err) {
-                        console.error("Failed to check submissions:", err);
-                    }
+                // lock if submitted
+                if (statusRes.data && statusRes.data.status === 'submitted') {
+                    setIsReadOnly(true);
+                    setIsCompleted(true); // Re-use completion banner or specific one
+                }
 
-                    try {
-                        const timerResponse = await submissionService.getTimer(assignmentId, questionId, selectedLanguage);
-                        if (timerResponse.success && timerResponse.data) {
-                            const spentTime = timerResponse.data.time_spent || 0;
-                            setTimeSpent(spentTime);
-
-                            // Calculate remaining time
-                            const remaining = Math.max(0, timeLimit - spentTime);
-                            setTimeRemaining(remaining);
-
-                            // Only set code if not completed/submitted or if we want to show draft
-                            if (!isCompleted) {
-                                setCode(timerResponse.data.code_content || data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
-                            }
-                        } else {
-                            setTimeSpent(0);
-                            setTimeRemaining(timeLimit);
-                            if (!isCompleted) setCode(data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
-                        }
-                    } catch (err) {
-                        console.error("Failed to load timer:", err);
-                        setTimeSpent(0);
-                        setTimeRemaining(timeLimit);
-                        if (!isCompleted) setCode(data.questions[0].starter_code || languageConfig[selectedLanguage].defaultCode);
-                    }
-                } else {
-                    console.error("No questions found in assignment!");
+                // If no questions, stop loading here
+                if (!assignmentRes.data || !assignmentRes.data.questions || assignmentRes.data.questions.length === 0) {
+                    setLoading(false);
                 }
             } catch (err) {
-                console.error("Failed to load assignment:", err);
-                setError("Could not load assignment. Please try again.");
-            } finally {
+                setError("Could not load assignment.");
                 setLoading(false);
             }
         };
-
         fetchAssignment();
     }, [assignmentId]);
 
@@ -266,7 +291,7 @@ const StudentWorkspace = () => {
     const startTimer = async () => {
         if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
 
-        const aqId = assignment.questions[0].id; // This is the AssignmentQuestion ID
+        const aqId = assignment.questions[currentQuestionIndex]?.id; // Use current index
         try {
             await submissionService.startTimer(assignmentId, aqId, selectedLanguage);
             setIsTimerRunning(true);
@@ -284,7 +309,7 @@ const StudentWorkspace = () => {
     const updateTimerOnBackend = async () => {
         if (!assignment || !assignment.questions || assignment.questions.length === 0) return;
 
-        const aqId = assignment.questions[0].id;
+        const aqId = assignment.questions[currentQuestionIndex]?.id;
         try {
             await submissionService.updateTimer(assignmentId, aqId, timeSpent, selectedLanguage);
         } catch (err) {
@@ -321,7 +346,7 @@ const StudentWorkspace = () => {
             // Auto-submit the assignment
             await updateTimerOnBackend();
 
-            const question = assignment.questions[0];
+            const question = assignment.questions[currentQuestionIndex];
             const submissionData = {
                 assignment_id: assignment.id,
                 assignment_question_id: question.id,
@@ -356,7 +381,7 @@ const StudentWorkspace = () => {
             // Save timer before submitting
             await updateTimerOnBackend();
 
-            const question = assignment.questions[0];
+            const question = assignment.questions[currentQuestionIndex];
             const submissionData = {
                 assignment_id: assignment.id,
                 assignment_question_id: question.id,
@@ -401,7 +426,7 @@ const StudentWorkspace = () => {
                 setCode(timerResponse.data.code_content);
             } else {
                 // No existing submission for this language, use starter code or default
-                const questionStarterCode = assignment?.questions?.[0]?.starter_code;
+                const questionStarterCode = assignment?.questions?.[currentQuestionIndex]?.starter_code;
                 if (questionStarterCode && questionStarterCode.trim()) {
                     setCode(questionStarterCode);
                 } else {
@@ -411,7 +436,7 @@ const StudentWorkspace = () => {
         } catch (error) {
             console.error("Error loading language-specific code:", error);
             // Fallback to starter code or default
-            const questionStarterCode = assignment?.questions?.[0]?.starter_code;
+            const questionStarterCode = assignment?.questions?.[currentQuestionIndex]?.starter_code;
             if (questionStarterCode && questionStarterCode.trim()) {
                 setCode(questionStarterCode);
             } else {
@@ -422,15 +447,14 @@ const StudentWorkspace = () => {
         setOutput(null); // Clear previous output
     };
 
-    // Handler: Run Code (Sandbox)
     const handleRunCode = async () => {
-        if (!assignment || !assignment.questions?.[0]) return;
+        if (!assignment || !assignment.questions?.[currentQuestionIndex]) return;
 
         setIsRunning(true);
         setOutput({ status: 'running' }); // UI State for "Running..."
 
         try {
-            const aq = assignment.questions[0];
+            const aq = assignment.questions[currentQuestionIndex];
             const testCases = aq.question?.test_cases || [];
 
             console.log("🚀 Starting code execution...");
@@ -484,42 +508,7 @@ const StudentWorkspace = () => {
         }
     };
 
-    // Handler: Submit Code (Final)
-    const handleSubmit = async () => {
-        if (!assignment || !assignment.questions?.[0]) return;
 
-        setIsSubmitting(true);
-        try {
-            // Save timer before submitting
-            await updateTimerOnBackend();
-
-            const aq = assignment.questions[0];
-            const response = await submissionService.submitCode({
-                assignment_id: assignment.id,
-                assignment_question_id: aq.id,
-                question_id: aq.question?.id,
-                code_content: code,
-                language: selectedLanguage,
-                time_spent: timeSpent
-            });
-
-            // Backend grades it immediately for now (or queues it)
-            // Assuming immediate grading response similar to runCode
-            setShowConfetti(true);
-            pauseTimer();
-
-            // Navigate back to dashboard after 3 seconds
-            setTimeout(() => {
-                navigate('/student/dashboard');
-            }, 3000);
-
-        } catch (err) {
-            console.error("Submission failed:", err);
-            alert("Submission failed: " + (err.response?.data?.message || err.message));
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
 
     if (loading) {
         return (
@@ -545,117 +534,289 @@ const StudentWorkspace = () => {
         );
     }
 
-    // Helper to get current AQ and Question
-    const getCurrentAQ = () => assignment?.questions?.[0]; // For now only first question
-    const getCurrentQuestion = () => getCurrentAQ()?.question || {};
-
-    const currentQuestion = getCurrentQuestion();
+    // Helpers
+    const currentQuestion = assignment?.questions?.[currentQuestionIndex]?.question || {};
+    const currentAQ = assignment?.questions?.[currentQuestionIndex];
+    const totalQuestions = assignment?.questions?.length || 0;
     const testCases = currentQuestion.test_cases || [];
+
+    // Save current code to draft
+    const saveToDrafts = (index, currentCode) => {
+        setCodeDrafts(prev => ({
+            ...prev,
+            [index]: currentCode
+        }));
+    };
+
+    // Navigation Handlers
+    const handleNextQuestion = () => {
+        if (currentQuestionIndex < totalQuestions - 1) {
+            saveToDrafts(currentQuestionIndex, code); // Save current
+            setCurrentQuestionIndex(prev => prev + 1);
+            setOutput(null);
+        }
+    };
+
+    const handlePrevQuestion = () => {
+        if (currentQuestionIndex > 0) {
+            saveToDrafts(currentQuestionIndex, code); // Save current
+            setCurrentQuestionIndex(prev => prev - 1);
+            setOutput(null);
+        }
+    };
+
+    // Updated Submit Handler
+    const handleSubmit = async () => {
+        if (!currentAQ) return;
+
+        setIsSubmitting(true);
+        try {
+            await updateTimerOnBackend();
+
+            const response = await submissionService.submitCode({
+                assignment_id: assignment.id,
+                assignment_question_id: currentAQ.id,
+                question_id: currentQuestion.id,
+                code_content: code,
+                language: selectedLanguage,
+                time_spent: timeSpent
+            });
+
+            // Handle Response (Show Grade Results)
+            // Backend returns the SubmissionAttempt object with test_results
+            const attempt = response.data;
+            processSubmissionResult(attempt);
+
+        } catch (err) {
+            console.error("Submission failed:", err);
+
+            // Handle "Already Completed" (400)
+            if (err.response?.status === 400 && err.response?.data?.message?.includes("already successfully completed")) {
+                alert("You have already completed this question! Marking as complete.");
+                setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+            } else {
+                alert("Submission failed: " + (err.response?.data?.message || err.message));
+            }
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const processSubmissionResult = (attempt) => {
+        if (!attempt || !attempt.test_results) return;
+
+        const formattedResults = attempt.test_results.map((r, idx) => ({
+            id: idx,
+            status: r.status === 'pass' ? 'success' : 'error',
+            output: r.actual_output || '',
+            expected: testCases[idx]?.expected_output || '',
+            error: r.error_message || '',
+            input: testCases[idx]?.input || '',
+            testPassed: r.status === 'pass'
+        }));
+
+        const allPassed = formattedResults.every(r => r.status === 'success');
+
+        setOutput({
+            status: allPassed ? 'success' : 'error',
+            message: allPassed ? 'All Test Cases Passed! Great Job!' : 'Some test cases failed. Review details below.',
+            results: formattedResults
+        });
+
+        pauseTimer();
+
+        // Mark as completed (attempted) regardless of pass/fail 
+        // to allow user to move on
+        setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+    };
+
+    const handleFinishAssignment = async () => {
+        try {
+            setIsSubmitting(true);
+            await submissionService.finishAssignment(assignment.id);
+
+            // Show Success Modal
+            setShowConfetti(true);
+
+            // Navigate after delay
+            setTimeout(() => {
+                setShowConfetti(false);
+                navigate('/student/dashboard');
+            }, 3000);
+
+        } catch (error) {
+            console.error("Failed to finish assignment:", error);
+            alert("Error finishing assignment: " + error.message);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
 
     return (
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
             {/* Completed Banner */}
-            {isCompleted && (
-                <div className="bg-green-100 border-b border-green-200 px-4 py-2 text-green-800 text-sm font-medium flex items-center justify-center gap-2">
-                    <CheckCircle className="w-4 h-4" />
-                    Assignment Completed! You cannot submit changes anymore.
+            {/* Completed Banner */}
+            {isReadOnly && (
+                <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-amber-800 text-sm font-medium flex items-center justify-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" />
+                    This assignment has been submitted and is now read-only.
                 </div>
             )}
 
             {/* 1. HEADER */}
-            <header className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0">
+            <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 z-20 shadow-sm flex-shrink-0">
                 <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 py-1 pr-2 rounded transition-colors" onClick={handleBackClick}>
-                        <div className="bg-gray-100 p-1 rounded">
-                            <ChevronLeft className="w-4 h-4 text-gray-600" />
-                        </div>
-                        <span className="font-semibold text-sm text-gray-700">Back</span>
-                    </div>
-                    <div className="h-4 w-px bg-gray-200" />
-                    <h1 className="font-bold text-sm text-gray-900 flex items-center gap-2">
-                        {assignment.title}
-                        <span className="text-[10px] font-medium text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                            {assignment.difficulty || "Medium"}
-                        </span>
-                        <span className="text-[10px] font-medium text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">
-                            {Math.floor(totalTimeAllowed / 60)} min
-                        </span>
-                    </h1>
-                    <div className="h-4 w-px bg-gray-200" />
-                    {/* Timer Display */}
-                    {!isCompleted && (
-                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-md border border-gray-200">
-                            <Clock className="w-4 h-4 text-gray-600" />
-                            <span className={`font-mono text-sm font-medium ${timeRemaining <= 300 ? 'text-red-600' : 'text-gray-900'}`}>
-                                {formatTime(timeRemaining)} remaining
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={handleBackClick}
+                    >
+                        <ChevronLeft className="w-5 h-5 text-gray-600" />
+                    </Button>
+                    <div>
+                        <h1 className="font-bold text-sm text-gray-900 leading-none mb-1">
+                            {assignment.title}
+                        </h1>
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span className={`px-1.5 py-0.5 rounded border ${assignment.difficulty === 'Hard' ? 'bg-red-50 border-red-100 text-red-700' :
+                                assignment.difficulty === 'Medium' ? 'bg-amber-50 border-amber-100 text-amber-700' :
+                                    'bg-green-50 border-green-100 text-green-700'
+                                }`}>
+                                {assignment.difficulty || "Medium"}
                             </span>
-                            <div className={`w-2 h-2 rounded-full ${isTimerRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`} />
+                            <span>•</span>
+                            <Clock className="w-3 h-3" />
+                            <span className={timeRemaining < 300 ? "text-red-600 font-bold" : ""}>
+                                {formatTime(timeRemaining)}
+                            </span>
                         </div>
-                    )}
+                    </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    <Button variant="ghost" size="sm" className="h-8 text-gray-500 hover:text-gray-900">
-                        <Settings className="w-4 h-4" />
-                    </Button>
-                    <div className="h-4 w-px bg-gray-200 mx-1" />
+                {/* Question Palette / Navigation */}
+                <QuestionPalette
+                    currentQuestionIndex={currentQuestionIndex}
+                    totalQuestions={totalQuestions}
+                    onSelectQuestion={(idx) => {
+                        saveToDrafts(currentQuestionIndex, code);
+                        setCurrentQuestionIndex(idx);
+                        setOutput(null);
+                    }}
+                    onNext={handleNextQuestion}
+                    onPrev={handlePrevQuestion}
+                />
+
+                <div className="flex items-center gap-3">
                     <Button
                         variant="secondary"
                         size="sm"
                         onClick={handleRunCode}
-                        disabled={isRunning || isSubmitting || isCompleted}
-                        className="h-8 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 border-0 font-medium text-xs gap-2"
+                        disabled={isRunning || isSubmitting}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 h-9"
                     >
-                        {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                        Run Code
+                        {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                        Run
                     </Button>
-                    <Button
-                        size="sm"
-                        onClick={handleSubmit}
-                        disabled={isRunning || isSubmitting || isCompleted}
-                        className="h-8 px-5 bg-green-600 hover:bg-green-700 text-white font-medium text-xs gap-2 shadow-sm"
-                    >
-                        {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                        Submit
-                    </Button>
+                    {/* Submit / Next Button Logic */}
+                    {/* Submit / Next Button Logic */}
+                    {completedQuestions.has(currentQuestionIndex) ? (
+                        <div className="flex items-center gap-2">
+                            {/* Allow Retry */}
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleSubmit}
+                                disabled={isRunning || isSubmitting || isReadOnly}
+                                className="h-9 shadow-sm gap-2"
+                            >
+                                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                                Retry
+                            </Button>
+
+                            {currentQuestionIndex < totalQuestions - 1 ? (
+                                <Button
+                                    size="sm"
+                                    onClick={handleNextQuestion}
+                                    className="bg-green-600 hover:bg-green-700 text-white h-9 shadow-sm gap-2"
+                                >
+                                    Next Question <ChevronDown className="w-4 h-4 -rotate-90" />
+                                </Button>
+                            ) : (
+                                <Button
+                                    size="sm"
+                                    onClick={handleFinishAssignment}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white h-9 shadow-sm gap-2"
+                                >
+                                    Finish Assignment <CheckCircle2 className="w-4 h-4" />
+                                </Button>
+                            )}
+                        </div>
+                    ) : (
+                        <Button
+                            size="sm"
+                            onClick={handleSubmit}
+                            disabled={isRunning || isSubmitting || isReadOnly}
+                            className="bg-green-600 hover:bg-green-700 text-white h-9 shadow-sm"
+                        >
+                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
+                            Submit
+                        </Button>
+                    )}
                 </div>
             </header>
 
             {/* 2. MAIN WORKSPACE */}
-            <div className="h-[calc(100vh-3rem)] w-full overflow-hidden flex">
-                {/* LEFT PANEL: Description - FIXED WIDTH */}
-                <div className="w-[30%] min-w-[300px] max-w-[500px] bg-white border-r border-gray-200 flex flex-col">
-                    <div className="bg-gray-50 border-b border-gray-200 px-3 h-10 flex items-center flex-shrink-0">
-                        <FileText className="w-4 h-4 mr-2 text-gray-600" />
-                        <span className="text-sm font-medium text-gray-700">Description</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-5">
-                        <h2 className="text-lg font-bold text-gray-900 mb-3">{currentQuestion.title}</h2>
-                        <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">
-                            {currentQuestion.description || assignment.description}
-                        </p>
+            <div className="flex-1 w-full overflow-hidden flex">
+                {/* LEFT PANEL: Description */}
+                <div className="w-[35%] min-w-[300px] max-w-[600px] bg-white border-r border-gray-200 flex flex-col h-full">
+                    <div className="flex-1 overflow-y-auto p-6">
+                        <div className="mb-6">
+                            <h2 className="text-xl font-bold text-gray-900 mb-2">
+                                {currentQuestionIndex + 1}. {currentQuestion.title}
+                            </h2>
+                            <Separator className="my-4" />
+                            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                {currentQuestion.description || assignment.description}
+                            </div>
+                        </div>
 
-                        {/* Hint Section */}
-                        {currentQuestion.hint && (
-                            <div className="mt-6 border-t border-gray-200 pt-4">
-                                <button
-                                    onClick={() => setShowHint(!showHint)}
-                                    className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700 transition-colors mb-3"
-                                >
-                                    <Lightbulb className="w-4 h-4" />
-                                    {showHint ? 'Hide Hint' : 'Show Hint'}
-                                </button>
-
-                                {showHint && (
-                                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                                        <div className="flex items-start gap-3">
-                                            <Lightbulb className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                                            <div>
-                                                <h4 className="font-semibold text-amber-900 mb-1">Hint</h4>
-                                                <p className="text-sm text-amber-800">{currentQuestion.hint}</p>
-                                            </div>
+                        {/* Test Cases Preview (Optional) */}
+                        <div className="mt-6">
+                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Example Test Cases</h3>
+                            <div className="space-y-3">
+                                {testCases.slice(0, 2).map((tc, idx) => (
+                                    <div key={idx} className="bg-gray-50 rounded-lg p-3 text-xs font-mono border border-gray-200">
+                                        <div className="grid grid-cols-2 gap-2 mb-1">
+                                            <span className="text-gray-500">Input:</span>
+                                            <span className="text-gray-900">{tc.input}</span>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <span className="text-gray-500">Output:</span>
+                                            <span className="text-gray-900">{tc.expected_output || tc.output}</span>
                                         </div>
                                     </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {currentQuestion.hint && (
+                            <div className="mt-8 border-t border-gray-100 pt-4">
+                                <button
+                                    onClick={() => setShowHint(!showHint)}
+                                    className="flex items-center gap-2 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+                                >
+                                    <Lightbulb className="w-4 h-4" />
+                                    {showHint ? 'Hide Hint' : 'Need a Hint?'}
+                                </button>
+                                {showHint && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: 5 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className="mt-3 bg-amber-50 text-amber-900 p-3 rounded-md text-sm border border-amber-100"
+                                    >
+                                        {currentQuestion.hint}
+                                    </motion.div>
                                 )}
                             </div>
                         )}
@@ -698,11 +859,12 @@ const StudentWorkspace = () => {
                                     onValueChange={code => setCode(code)}
                                     highlight={code => highlight(code, languageConfig[selectedLanguage].prismLang)}
                                     padding={20}
+                                    disabled={isReadOnly}
                                     style={{
                                         fontFamily: '"Fira Code", "Fira Mono", monospace',
                                         fontSize: 14,
-                                        backgroundColor: '#2d2d2d',
-                                        color: '#f8f8f2',
+                                        backgroundColor: isReadOnly ? '#1e1e1e' : '#2d2d2d',
+                                        color: isReadOnly ? '#aaa' : '#f8f8f2',
                                         minHeight: '100%'
                                     }}
                                     className="min-h-full"
@@ -747,15 +909,17 @@ const StudentWorkspace = () => {
                                 <div className="space-y-4">
                                     {/* Status */}
                                     <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                                        <div className="flex items-center gap-2">
-                                            {output.status === 'success' ? (
-                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                            ) : (
-                                                <XCircle className="w-4 h-4 text-red-600" />
-                                            )}
-                                            <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'}`}>
-                                                {output.message}
-                                            </span>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex items-center gap-2">
+                                                {output.status === 'success' ? (
+                                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                ) : (
+                                                    <XCircle className="w-4 h-4 text-red-600" />
+                                                )}
+                                                <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'}`}>
+                                                    {output.message}
+                                                </span>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -917,7 +1081,7 @@ const StudentWorkspace = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
-        </div>
+        </div >
     );
 };
 

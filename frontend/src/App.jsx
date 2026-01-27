@@ -107,7 +107,7 @@ function App() {
           <Route path="/register" element={<RegisterForm />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password/:uid/:token" element={<ResetPassword />} />
-          
+
           {/* Test Route - Remove in production */}
           <Route path="/test-runner" element={<CodeRunnerTest />} />
 
@@ -154,7 +154,7 @@ function App() {
             }
           />
           <Route
-            path="/teacher/grading/submission/:id"
+            path="/teacher/grading/assignment/:assignmentId/student/:studentId"
             element={
               <ProtectedRoute requiredRole="teacher">
                 <GradingInterface />
