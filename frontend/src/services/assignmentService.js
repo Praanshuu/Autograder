@@ -51,4 +51,9 @@ export const assignmentService = {
   createQuestion: async (questionData) => {
     return await api.post(API_CONFIG.ENDPOINTS.ASSIGNMENTS.QUESTIONS, questionData);
   },
+
+  // Update Question
+  updateQuestion: async (questionId, questionData) => {
+    return await api.put(API_CONFIG.ENDPOINTS.ASSIGNMENTS.QUESTION_DETAIL(questionId), questionData);
+  },
 };

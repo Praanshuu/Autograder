@@ -2,15 +2,53 @@ import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Responsive
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../ui/card";
 
 export default function PerformanceMatrix({ submissions }) {
-    // Filter out null scores for the chart
-    const data = submissions
-        .filter(s => s.final_score !== null && s.time_spent !== null)
-        .map(s => ({
+    // 1. Group by student to find "best" submission per student
+    const studentBestSub = {};
+
+    submissions.forEach(sub => {
+        if (sub.final_score === null || sub.time_spent === null) return;
+        
+        const studentId = sub.student?.id || sub.student_id;
+        if (!studentId) return;
+
+        const currentBest = studentBestSub[studentId];
+
+        if (!currentBest) {
+            studentBestSub[studentId] = sub;
+            return;
+        }
+
+        // Priority Logic: Graded > Submitted > Others
+        const statusPriority = { 'graded': 3, 'submitted': 2, 'in_progress': 1 };
+        const newPriority = statusPriority[sub.status] || 0;
+        const oldPriority = statusPriority[currentBest.status] || 0;
+
+        if (newPriority > oldPriority) {
+            studentBestSub[studentId] = sub;
+        } else if (newPriority === oldPriority) {
+            // Break tie with higher score
+            if (sub.final_score > currentBest.final_score) {
+                studentBestSub[studentId] = sub;
+            }
+        }
+    });
+
+    const data = Object.values(studentBestSub).map(s => {
+        const student = s.student || {};
+        const fullName = student.first_name 
+            ? `${student.first_name} ${student.last_name || ''}`.trim()
+            : null;
+
+        return {
             x: s.time_spent,
-            y: s.final_score,
-            name: s.student?.first_name ? `${s.student.first_name} ${s.student.last_name || ''}` : `Student ${s.student_id}`,
-            status: s.status
-        }));
+            y: Math.round(s.final_score),
+            name: fullName || student.username || `Student ${student.id || 'Unknown'}`,
+            email: student.email || '',
+            studentId: student.id || student.username,
+            status: s.status,
+            original: s
+        };
+    });
 
     return (
         <Card className="h-full">
@@ -32,10 +70,19 @@ export default function PerformanceMatrix({ submissions }) {
                             if (active && payload && payload.length) {
                                 const data = payload[0].payload;
                                 return (
-                                    <div className="bg-white p-3 border rounded shadow-lg text-sm">
-                                        <p className="font-bold">{data.name}</p>
-                                        <p>Score: <span className={data.y >= 70 ? "text-green-600" : "text-red-600"}>{data.y}%</span></p>
-                                        <p>Time: {data.x} mins</p>
+                                    <div className="bg-white p-3 border rounded shadow-lg text-sm z-50">
+                                        <p className="font-bold text-gray-900">{data.name}</p>
+                                        <p className="text-xs text-gray-500 mb-2">{data.email} {data.studentId && `(${data.studentId})`}</p>
+                                        <div className="space-y-1">
+                                            <p className="flex justify-between gap-4">
+                                                <span className="text-gray-600">Score:</span>
+                                                <span className={`font-semibold ${data.y >= 70 ? "text-green-600" : "text-red-600"}`}>{data.y}%</span>
+                                            </p>
+                                            <p className="flex justify-between gap-4">
+                                                <span className="text-gray-600">Time:</span>
+                                                <span className="font-medium">{data.x} mins</span>
+                                            </p>
+                                        </div>
                                     </div>
                                 );
                             }

@@ -35,7 +35,7 @@ export default function StudentAssignments() {
     const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState("all");
+    const [activeTab, setActiveTab] = useState("active");
     const [classFilter, setClassFilter] = useState("all");
     const [showStartConfirmation, setShowStartConfirmation] = useState(false);
     const [selectedAssignment, setSelectedAssignment] = useState(null);
@@ -79,31 +79,62 @@ export default function StudentAssignments() {
         setSelectedAssignment(null);
     };
 
+    // Helper for relative time
+    const getRelativeTime = (dateString) => {
+        if (!dateString) return null;
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffTime = date - now;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) return { text: `Ended ${Math.abs(diffDays)} days ago`, color: "text-gray-500 bg-gray-100 border-gray-200" };
+        if (diffDays === 0) return { text: "Due today", color: "text-amber-700 bg-amber-50 border-amber-200" };
+        if (diffDays === 1) return { text: "Due tomorrow", color: "text-emerald-700 bg-emerald-50 border-emerald-200" };
+        return { text: `Due in ${diffDays} days`, color: "text-indigo-700 bg-indigo-50 border-indigo-200" };
+    };
+
     // Filter Logic
     const filteredAssignments = assignments.filter(item => {
-        // 1. Search
         const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase());
-
-        // 2. Class Filter
         const matchesClass = classFilter === "all" || item.class_id?.toString() === classFilter;
 
-        // 3. Status Filter (Mock logic for now, needing 'is_submitted' flag from backend)
-        // Ideally backend provides 'status' or we derive it from 'submissions' list if available
-        // For now, let's assume 'status' field exists or we default to 'pending'
-        let status = "pending";
-        if (item.is_submitted) status = "submitted";
-        if (item.is_graded) status = "graded";
+        const now = new Date();
+        const dueDate = item.due_date ? new Date(item.due_date) : null;
+        const isEnded = dueDate && dueDate < now;
+        const isSubmitted = item.is_submitted;
 
-        const matchesStatus = statusFilter === "all" || status === statusFilter;
+        let matchesTab = true;
+        if (activeTab === "active") {
+            // Active = Not ended AND Not submitted (To Do)
+            matchesTab = !isEnded && !isSubmitted;
+        } else {
+            // Past = Ended OR Submitted (Completed)
+            matchesTab = isEnded || isSubmitted;
+        }
 
-        return matchesSearch && matchesClass && matchesStatus;
+        return matchesSearch && matchesClass && matchesTab;
     });
+
+    // Counts
+    const counts = {
+        active: assignments.filter(a => {
+            const d = a.due_date ? new Date(a.due_date) : null;
+            const isEnded = d && d < new Date();
+            const isSubmitted = a.is_submitted;
+            return !isEnded && !isSubmitted;
+        }).length,
+        past: assignments.filter(a => {
+            const d = a.due_date ? new Date(a.due_date) : null;
+            const isEnded = d && d < new Date();
+            const isSubmitted = a.is_submitted;
+            return isEnded || isSubmitted;
+        }).length
+    };
 
     const getStatusBadge = (item) => {
         if (item.is_graded) return <Badge className="bg-green-100 text-green-700 hover:bg-green-200 border-green-200">Graded</Badge>;
         if (item.is_submitted) return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-200">Submitted</Badge>;
 
-        // Check if overdue
         const isOverdue = new Date(item.due_date) < new Date();
         if (isOverdue) return <Badge variant="destructive">Missing</Badge>;
 
@@ -120,53 +151,64 @@ export default function StudentAssignments() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">All Assignments</h1>
+                        <h1 className="text-2xl font-bold text-gray-900">My Assignments</h1>
                         <p className="text-gray-500">Track and manage your coding tasks</p>
                     </div>
                 </div>
 
-                {/* Filters */}
-                <Card>
-                    <CardContent className="p-4">
-                        <div className="flex flex-col md:flex-row gap-4">
-                            <div className="relative flex-1">
-                                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                                <Input
-                                    placeholder="Search assignments..."
-                                    className="pl-9"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                            <div className="w-full md:w-48">
-                                <Select value={classFilter} onValueChange={setClassFilter}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="All Classes" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Classes</SelectItem>
-                                        {classes.map(c => (
-                                            <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="w-full md:w-48">
-                                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="All Status" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="all">All Status</SelectItem>
-                                        <SelectItem value="pending">To Do</SelectItem>
-                                        <SelectItem value="submitted">Submitted</SelectItem>
-                                        <SelectItem value="graded">Graded</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                {/* Filters & Tabs */}
+                <div className="flex flex-col gap-6">
+                    {/* Tabs */}
+                    <div className="flex items-center space-x-1 rounded-xl bg-gray-100 p-1 w-fit">
+                        {['active', 'past'].map((tab) => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                className={`
+                                    flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200
+                                    ${activeTab === tab
+                                        ? "bg-white text-indigo-600 shadow-sm ring-1 ring-black/5"
+                                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-200/50"
+                                    }
+                                `}
+                            >
+                                <span className="capitalize">{tab}</span>
+                                <span className={`
+                                    px-2 py-0.5 rounded-md text-[10px] font-bold
+                                    ${activeTab === tab ? "bg-indigo-50 text-indigo-700" : "bg-gray-200 text-gray-600"}
+                                `}>
+                                    {counts[tab] || 0}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Search & Class Filter */}
+                    <div className="flex gap-4">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                            <Input
+                                placeholder="Search assignments..."
+                                className="pl-9 bg-white"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
                         </div>
-                    </CardContent>
-                </Card>
+                        <div className="w-48">
+                            <Select value={classFilter} onValueChange={setClassFilter}>
+                                <SelectTrigger className="bg-white">
+                                    <SelectValue placeholder="All Classes" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Classes</SelectItem>
+                                    {classes.map(c => (
+                                        <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+                </div>
 
                 {/* List */}
                 {loading ? (
@@ -174,80 +216,87 @@ export default function StudentAssignments() {
                         <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
                     </div>
                 ) : filteredAssignments.length === 0 ? (
-                    <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                        <div className="p-3 bg-gray-100 rounded-full w-fit mx-auto mb-4">
+                    <div className="text-center py-20 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
+                        <div className="p-4 bg-white rounded-full w-fit mx-auto mb-4 shadow-sm">
                             <Filter className="w-6 h-6 text-gray-400" />
                         </div>
-                        <h3 className="text-lg font-medium text-gray-900">No assignments found</h3>
+                        <h3 className="text-lg font-semibold text-gray-900">No {activeTab} assignments</h3>
                         <p className="text-gray-500 max-w-sm mx-auto mt-2">
-                            Try adjusting your search or filters to see more results.
+                            You're all caught up! Check back later for new tasks.
                         </p>
-                        <Button
-                            variant="link"
-                            onClick={() => { setSearchTerm(""); setStatusFilter("all"); setClassFilter("all") }}
-                            className="mt-2 text-indigo-600"
-                        >
-                            Clear Filters
-                        </Button>
+                        {searchTerm && (
+                            <Button
+                                variant="link"
+                                onClick={() => { setSearchTerm(""); setClassFilter("all") }}
+                                className="mt-4 text-indigo-600 font-medium"
+                            >
+                                Clear Search Filters
+                            </Button>
+                        )}
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 gap-4">
-                        {filteredAssignments.map((assignment) => (
-                            <motion.div
-                                key={assignment.id}
-                                layout
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                            >
-                                <Card className="hover:shadow-md transition-shadow group cursor-pointer overflow-hidden border-l-4 border-l-transparent hover:border-l-indigo-600">
-                                    <div onClick={(e) => handleStartAssignment(assignment, e)} className="block">
-                                        <CardContent className="p-6 flex flex-col md:flex-row md:items-center gap-6">
-                                            {/* Date Box */}
-                                            <div className="flex flex-row md:flex-col items-center md:items-start gap-2 md:gap-0 min-w-[100px]">
-                                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Due</span>
-                                                <div className="font-medium text-gray-900">
-                                                    {new Date(assignment.due_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                                </div>
-                                                <div className="text-xs text-gray-400">
-                                                    {new Date(assignment.due_date).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
-                                                </div>
-                                            </div>
+                        {filteredAssignments.map((assignment) => {
+                            const timeStatus = getRelativeTime(assignment.due_date);
+                            return (
+                                <motion.div
+                                    key={assignment.id}
+                                    layout
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                >
+                                    <Card className={`hover:shadow-md transition-shadow group cursor-pointer overflow-hidden border-l-4 ${assignment.is_submitted ? "border-l-green-500 hover:border-l-green-600" : "border-l-transparent hover:border-l-indigo-600"
+                                        }`}>
+                                        <div onClick={(e) => handleStartAssignment(assignment, e)} className="block">
+                                            <CardContent className="p-6 flex flex-col md:flex-row md:items-center gap-6">
 
-                                            {/* Divider */}
-                                            <div className="hidden md:block w-px h-10 bg-gray-100" />
+                                                {/* Details */}
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-3 mb-2">
+                                                        <h3 className="font-bold text-lg text-gray-900 group-hover:text-indigo-600 transition-colors">
+                                                            {assignment.title}
+                                                        </h3>
+                                                        {getStatusBadge(assignment)}
+                                                    </div>
 
-                                            {/* Details */}
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="font-bold text-lg text-gray-900 group-hover:text-indigo-600 transition-colors">
-                                                        {assignment.title}
-                                                    </h3>
-                                                    {getStatusBadge(assignment)}
-                                                </div>
-                                                <div className="flex items-center gap-4 text-sm text-gray-500">
-                                                    <span className="flex items-center gap-1">
-                                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                                        {assignment.class_name || "Class"}
-                                                    </span>
-                                                    <span className="flex items-center gap-1">
-                                                        <AlertCircle className="w-3.5 h-3.5" />
-                                                        {assignment.difficulty || "Medium"}
-                                                    </span>
-                                                    <span>• {assignment.points} pts</span>
-                                                </div>
-                                            </div>
+                                                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-500">
+                                                        <span className="flex items-center gap-1.5 font-medium text-gray-700">
+                                                            <CheckCircle2 className="w-4 h-4 text-gray-400" />
+                                                            {assignment.class_name || "Class"}
+                                                        </span>
 
-                                            {/* Action */}
-                                            <div className="flex items-center gap-4">
-                                                <Button variant="ghost" size="icon" className="text-gray-400 group-hover:text-indigo-600 group-hover:bg-indigo-50">
-                                                    <ArrowRight className="w-5 h-5" />
-                                                </Button>
-                                            </div>
-                                        </CardContent>
-                                    </div>
-                                </Card>
-                            </motion.div>
-                        ))}
+                                                        {timeStatus ? (
+                                                            <span className={`flex items-center gap-1.5 px-2 py-0.5 rounded border text-xs font-semibold ${timeStatus.color}`}>
+                                                                <Clock className="w-3.5 h-3.5" />
+                                                                {timeStatus.text}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="flex items-center gap-1.5">
+                                                                <Clock className="w-3.5 h-3.5" />
+                                                                No deadline
+                                                            </span>
+                                                        )}
+
+                                                        <span className="flex items-center gap-1.5">
+                                                            <AlertCircle className="w-4 h-4 text-gray-400" />
+                                                            {assignment.difficulty || "Medium"}
+                                                        </span>
+                                                        <span>• {assignment.points} pts</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Action */}
+                                                <div className="flex items-center gap-4">
+                                                    <Button variant="ghost" size="icon" className="text-gray-400 group-hover:text-indigo-600 group-hover:bg-indigo-50">
+                                                        <ArrowRight className="w-5 h-5" />
+                                                    </Button>
+                                                </div>
+                                            </CardContent>
+                                        </div>
+                                    </Card>
+                                </motion.div>
+                            )
+                        })}
                     </div>
                 )}
             </motion.div>
@@ -267,17 +316,33 @@ export default function StudentAssignments() {
                             exit={{ scale: 0.8, opacity: 0 }}
                             className="bg-white p-8 rounded-2xl shadow-2xl text-center max-w-md w-full mx-4"
                         >
-                            <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Timer className="w-8 h-8 text-indigo-600" />
+                            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${selectedAssignment.is_submitted ? "bg-green-100" : "bg-indigo-100"
+                                }`}>
+                                {selectedAssignment.is_submitted ? (
+                                    <CheckCircle2 className="w-8 h-8 text-green-600" />
+                                ) : (
+                                    <Timer className="w-8 h-8 text-indigo-600" />
+                                )}
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Start Assignment?</h2>
-                            <p className="text-gray-500 mb-2">
-                                <strong>{selectedAssignment.title}</strong>
+
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                {selectedAssignment.is_submitted ? "View Submission?" : "Start Assignment?"}
+                            </h2>
+                            <p className="text-gray-500 mb-2 font-semibold">
+                                {selectedAssignment.title}
                             </p>
-                            <p className="text-gray-500 mb-6">
-                                Once you start, the timer will begin and you can only exit by submitting your solution.
-                                Are you ready to begin?
-                            </p>
+
+                            {selectedAssignment.is_submitted ? (
+                                <p className="text-gray-500 mb-6">
+                                    You have already submitted this assignment. You can view your code in read-only mode.
+                                </p>
+                            ) : (
+                                <p className="text-gray-500 mb-6">
+                                    Once you start, the timer will begin and you can only exit by submitting your solution.
+                                    Are you ready to begin?
+                                </p>
+                            )}
+
                             <div className="flex gap-3">
                                 <Button
                                     variant="outline"
@@ -288,9 +353,12 @@ export default function StudentAssignments() {
                                 </Button>
                                 <Button
                                     onClick={handleConfirmStart}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
+                                    className={`flex-1 text-white ${selectedAssignment.is_submitted
+                                        ? "bg-green-600 hover:bg-green-700"
+                                        : "bg-indigo-600 hover:bg-indigo-700"
+                                        }`}
                                 >
-                                    Start Assignment
+                                    {selectedAssignment.is_submitted ? "View Submission" : "Start Assignment"}
                                 </Button>
                             </div>
                         </motion.div>

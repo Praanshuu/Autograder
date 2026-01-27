@@ -84,6 +84,30 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
+    def update(self, request, *args, **kwargs):
+        # Handle 'class_obj_id' from frontend -> 'module' for backend
+        class_id = request.data.get('class_obj_id')
+        if class_id and 'module' not in request.data:
+            from classes.models import Module, Class
+            try:
+                class_obj = Class.objects.get(id=class_id)
+                module, _ = Module.objects.get_or_create(
+                    class_obj=class_obj,
+                    defaults={'title': 'Assignments', 'order_index': 0}
+                )
+                request.data['module'] = module.id
+            except Class.DoesNotExist:
+                return Response(
+                    {'message': 'Invalid Class ID'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Ensure 'type' is set
+        if 'type' not in request.data:
+            request.data['type'] = 'assignment'
+
+        return super().update(request, *args, **kwargs)
+
     def perform_create(self, serializer):
         assignment = serializer.save()
         
@@ -101,6 +125,32 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     )
                 except Question.DoesNotExist:
                     pass # Ignore invalid question IDs
+
+    def perform_update(self, serializer):
+        assignment = serializer.save()
+        
+        # Handle question_ids linkage update
+        # Check explicit None vs empty list if we want to support clearing, 
+        # but frontend sends [] if empty.
+        # We only update if 'question_ids' key is present in request.
+        if 'question_ids' in self.request.data:
+            question_ids = self.request.data.get('question_ids', [])
+            from .models import AssignmentQuestion, Question
+            
+            # Clear existing questions
+            AssignmentQuestion.objects.filter(assignment=assignment).delete()
+            
+            # Re-link new questions
+            for index, q_id in enumerate(question_ids):
+                try:
+                    question = Question.objects.get(id=q_id)
+                    AssignmentQuestion.objects.create(
+                        assignment=assignment,
+                        question=question,
+                        order=index
+                    )
+                except Question.DoesNotExist:
+                    pass
     
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):

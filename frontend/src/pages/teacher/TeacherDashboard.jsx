@@ -26,61 +26,82 @@ const itemVariants = {
 };
 
 const ClassCard = ({ cl }) => {
-    // Determine gradient based on ID or name for consistent look
-    // Fallback gradients if not provided by backend
-    const gradients = [
-        "bg-gradient-to-r from-blue-600 to-indigo-600",
-        "bg-gradient-to-r from-emerald-600 to-teal-600",
-        "bg-gradient-to-r from-orange-600 to-red-600",
-        "bg-gradient-to-r from-purple-600 to-pink-600",
+    // Unique color accent based on class ID
+    const colors = [
+        "bg-indigo-600",
+        "bg-emerald-600",
+        "bg-rose-600",
+        "bg-amber-600",
+        "bg-cyan-600",
+        "bg-violet-600"
     ];
-    // Simple hash to pick a color
-    const colorIndex = (cl.id || 0) % gradients.length;
-    const bgPattern = gradients[colorIndex];
+    const accentColor = colors[(cl.id || 0) % colors.length];
 
     return (
-        <motion.div variants={itemVariants}>
-            <Card className="overflow-hidden hover:shadow-lg transition-shadow duration-300 h-full flex flex-col border-0 shadow-md">
-                <div className={`h-24 ${bgPattern} relative p-4 flex flex-col justify-between`}>
-                    <div className="flex justify-between items-start text-white">
-                        <Link to={`/teacher/class/${cl.id}`} className="hover:underline">
-                            <h3 className="text-xl font-bold leading-tight tracking-tight">{cl.name}</h3>
-                        </Link>
-                        <Button variant="ghost" size="icon" className="text-white hover:bg-black/20 hover:text-white h-8 w-8">
-                            <MoreVertical className="w-5 h-5" />
-                        </Button>
-                    </div>
-                    <p className="text-blue-50 text-sm font-medium opacity-90">{cl.section || "Term 1"}</p>
-                </div>
+        <motion.div variants={itemVariants} className="h-full">
+            <Link to={`/teacher/class/${cl.id}`} className="block h-full group">
+                <Card className="h-full flex flex-col overflow-hidden border border-gray-200 transition-all duration-300 hover:shadow-xl hover:border-gray-300 hover:-translate-y-1">
+                    <div className="flex h-full">
+                        {/* Colored Side Accent */}
+                        <div className={`w-1.5 ${accentColor} group-hover:w-3 transition-all duration-300`} />
 
-                <CardContent className="p-4 flex-1 flex flex-col gap-4 mt-2">
-                    <div className="flex items-center justify-between text-muted-foreground text-sm font-medium">
-                        <div className="flex items-center gap-2">
-                            <Users className="w-4 h-4 text-gray-400" />
-                            <span>{cl.student_count || 0} Students</span>
+                        <div className="flex-1 flex flex-col">
+                            <CardContent className="p-6 flex-1">
+                                <div className="flex justify-between items-start mb-4">
+                                    <div>
+                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">{cl.section || "TERM 1"}</p>
+                                        <h3 className="text-xl font-bold text-gray-900 leading-tight group-hover:text-indigo-600 transition-colors">
+                                            {cl.name}
+                                        </h3>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                </div>
+
+                                <div className="space-y-3 mt-6">
+                                    <div className="flex items-center text-sm text-gray-600">
+                                        <div className="bg-gray-100 p-1.5 rounded-md mr-3">
+                                            <Users className="w-4 h-4 text-gray-500" />
+                                        </div>
+                                        <span className="font-medium">{cl.student_count || 0}</span>
+                                        <span className="text-gray-400 ml-1">Students enrolled</span>
+                                    </div>
+
+                                    <div className="flex items-center text-sm text-gray-600">
+                                        <div className="bg-gray-100 p-1.5 rounded-md mr-3">
+                                            <Loader2 className="w-4 h-4 text-gray-500" />
+                                        </div>
+                                        <span className="font-medium">{cl.assignment_count || 0}</span>
+                                        <span className="text-gray-400 ml-1">Active assignments</span>
+                                    </div>
+                                </div>
+                            </CardContent>
+
+                            {/* Footer Area with Action or Status */}
+                            <div className="p-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
+                                {cl.has_pending_grading ? (
+                                    <div className="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                                        </span>
+                                        Grading Pending
+                                    </div>
+                                ) : (
+                                    <div className="text-xs text-gray-400 font-medium px-2">
+                                        All caught up
+                                    </div>
+                                )}
+
+                                <span className="text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 flex items-center">
+                                    OPEN CLASS →
+                                </span>
+                            </div>
                         </div>
-                        <span>{cl.assignment_count || 0} Active Assignments</span>
                     </div>
-
-                    {/* Pending grading indicator - TODO: Add verified logic */}
-                    {cl.has_pending_grading && (
-                        <div className="mt-auto pt-3 border-t">
-                            <p className="text-amber-600 text-sm font-semibold flex items-center gap-2">
-                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-                                Grading pending
-                            </p>
-                        </div>
-                    )}
-                </CardContent>
-
-                <CardFooter className="px-4 py-3 bg-gray-50/50 border-t flex justify-end">
-                    <Button variant="link" className="text-indigo-600 font-semibold p-0 h-auto" asChild>
-                        <Link to={`/teacher/class/${cl.id}`}>
-                            OPEN CLASS
-                        </Link>
-                    </Button>
-                </CardFooter>
-            </Card>
+                </Card>
+            </Link>
         </motion.div>
     );
 };

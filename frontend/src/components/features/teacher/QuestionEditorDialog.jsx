@@ -144,14 +144,25 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
                                             />
                                         </div>
                                     </div>
-                                    <div className="grid gap-1">
-                                        <Label className="text-xs text-gray-500">Explanation (Optional)</Label>
-                                        <Input
-                                            value={tc.explanation || ""}
-                                            onChange={(e) => updateTestCase(i, 'explanation', e.target.value)}
-                                            className="text-sm"
-                                            placeholder="Why is this the output?"
-                                        />
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs text-gray-500">Explanation</Label>
+                                            <Input
+                                                value={tc.explanation || ""}
+                                                onChange={(e) => updateTestCase(i, 'explanation', e.target.value)}
+                                                className="text-sm"
+                                                placeholder="Why is this the output?"
+                                            />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs text-gray-500">Concept / Tag</Label>
+                                            <Input
+                                                value={tc.concept || ""}
+                                                onChange={(e) => updateTestCase(i, 'concept', e.target.value)}
+                                                className="text-sm"
+                                                placeholder="e.g. Edge Case, Time Complexity"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
                                 <Button

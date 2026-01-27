@@ -21,13 +21,16 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
     is_graded = serializers.SerializerMethodField()
     feedback_tags = serializers.SerializerMethodField()
     assignment_id = serializers.UUIDField(source='assignment_question.assignment.id', read_only=True)
+    assignment_title = serializers.CharField(source='assignment_question.assignment.title', read_only=True)
     code_content = serializers.CharField(source='source_code', read_only=True)
+    time_spent = serializers.SerializerMethodField()
 
     class Meta:
         model = SubmissionAttempt
         fields = ['id', 'assignment_question', 'question', 'attempt_number', 'status', 
                   'test_results', 'created_at', 'student', 'final_score', 'is_graded', 
-                  'feedback_tags', 'assignment_id', 'manual_score', 'feedback_text', 'code_content']
+                  'feedback_tags', 'assignment_id', 'assignment_title', 'manual_score', 'feedback_text', 
+                  'code_content', 'time_spent']
 
     def get_question(self, obj):
         from assignments.serializers import QuestionSerializer
@@ -53,16 +56,6 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
             
         return round((passed / total) * 100)
 
-    code_content = serializers.CharField(source='source_code', read_only=True)
-    time_spent = serializers.SerializerMethodField()
-
-    class Meta:
-        model = SubmissionAttempt
-        fields = ['id', 'assignment_question', 'question', 'attempt_number', 'status', 
-                  'test_results', 'created_at', 'student', 'final_score', 'is_graded', 
-                  'feedback_tags', 'assignment_id', 'manual_score', 'feedback_text', 
-                  'code_content', 'time_spent']
-
     def get_time_spent(self, obj):
         # Fetch draft progress to get time spent
         progress = AssignmentProgress.objects.filter(
@@ -71,10 +64,6 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
         ).first()
         return progress.time_spent if progress else 0
 
-    def get_question(self, obj):
-        from assignments.serializers import QuestionSerializer
-        return QuestionSerializer(obj.assignment_question.question).data
-    
     def get_is_graded(self, obj):
         return obj.status in ['success', 'fail']
 

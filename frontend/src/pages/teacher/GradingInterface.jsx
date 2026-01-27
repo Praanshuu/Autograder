@@ -200,9 +200,9 @@ export default function GradingInterface() {
                             `}
                             >
                                 <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isDirty ? 'bg-amber-500' : // Orange dot for unsaved changes
-                                        item.status === 'success' ? 'bg-green-500' :
-                                            item.status === 'fail' ? 'bg-red-500' :
-                                                'bg-gray-300'
+                                    item.status === 'success' ? 'bg-green-500' :
+                                        item.status === 'fail' ? 'bg-red-500' :
+                                            'bg-gray-300'
                                     }`} />
                                 <div>
                                     <p className={`text-sm font-medium ${selectedQuestionId === item.question.id ? 'text-indigo-900' : 'text-gray-700'}`}>
@@ -280,9 +280,19 @@ export default function GradingInterface() {
                                                                 <div key={i} className={`p-3 rounded-lg border text-sm space-y-2 ${res.status === 'pass' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
                                                                     <div className="flex items-center gap-2 font-medium">
                                                                         {res.status === 'pass' ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />}
-                                                                        <span>Test Case {i + 1}</span>
+                                                                        <span>
+                                                                            {tc.concept || `Test Case ${i + 1}`}
+                                                                        </span>
+                                                                        {tc.concept && <span className="text-xs font-normal text-gray-500 px-2 border-l ml-2">Test Case {i + 1}</span>}
+
                                                                         <span className="uppercase text-xs font-bold opacity-70 ml-auto">{res.status}</span>
                                                                     </div>
+
+                                                                    {tc.explanation && (
+                                                                        <div className="text-xs text-gray-600 italic border-l-2 border-gray-300 pl-2 py-0.5 mb-2">
+                                                                            "{tc.explanation}"
+                                                                        </div>
+                                                                    )}
 
                                                                     <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
                                                                         <div>

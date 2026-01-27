@@ -40,8 +40,11 @@ export default function ErrorHeatmap({ questions }) {
                                         className={`p-3 rounded-lg border flex flex-col gap-3 ${statusColor} transition-all hover:shadow-sm`}
                                     >
                                         <div className="flex justify-between items-start gap-2">
-                                            <span className="text-sm font-medium leading-tight">
-                                                {tc.name}
+                                            <span
+                                                className="text-sm font-medium leading-tight truncate"
+                                                title={tc.name} // Show full name on hover
+                                            >
+                                                {tc.concept || tc.name}
                                             </span>
                                             {icon}
                                         </div>

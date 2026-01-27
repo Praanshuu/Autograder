@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 
 import StudentLayout from '../../components/layout/StudentLayout';
 import { assignmentService } from '../../services/assignmentService';
+import { submissionService } from '../../services/submissionService';
 import { Button } from '../../components/ui/button';
 import JoinClassDialog from '../../components/features/student/JoinClassDialog';
 import RiveDashboardCharacter from '../../components/features/student/RiveDashboardCharacter';
@@ -37,6 +38,7 @@ const ProgressBar = ({ progress, className = "" }) => (
 const StudentDashboard = () => {
     const navigate = useNavigate();
     const [assignments, setAssignments] = useState([]);
+    const [recentActivity, setRecentActivity] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
@@ -46,43 +48,65 @@ const StudentDashboard = () => {
 
     const fetchAssignments = async () => {
         try {
-            setLoading(true);
             const response = await assignmentService.getAssignments();
             const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
             setAssignments(data);
         } catch (err) {
             console.error("Failed to load assignments", err);
             setError("Could not load your assignments.");
-        } finally {
-            setLoading(false);
         }
     };
 
-    const handleJoinSuccess = () => {
-        fetchAssignments();
-        setSidebarRefreshKey(prev => prev + 1);
-    };
+    const fetchRecentActivity = async () => {
+        try {
+            const response = await submissionService.getSubmissions();
+            const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+            // Sort by created_at desc
+            data.sort((a, b) => new Date(b.created_at || b.submitted_at) - new Date(a.created_at || a.submitted_at));
 
-    const handleStartAssignment = (assignment) => {
-        setSelectedAssignment(assignment);
-        setShowStartConfirmation(true);
-    };
-
-    const handleConfirmStart = () => {
-        if (selectedAssignment) {
-            navigate(`/student/workspace/${selectedAssignment.id}`);
+            // Filter unique assignments to avoid spam
+            const unique = [];
+            const seen = new Set();
+            for (const item of data) {
+                const aid = item.assignment_id || item.assignment;
+                if (aid && !seen.has(aid)) {
+                    seen.add(aid);
+                    unique.push(item);
+                }
+            }
+            setRecentActivity(unique.slice(0, 5));
+        } catch (err) {
+            console.error("Failed to load activity", err);
         }
-        setShowStartConfirmation(false);
-        setSelectedAssignment(null);
     };
 
     useEffect(() => {
-        fetchAssignments();
+        const init = async () => {
+            setLoading(true);
+            await Promise.all([fetchAssignments(), fetchRecentActivity()]);
+            setLoading(false);
+        };
+        init();
     }, []);
 
-    // Derived State
-    const activeAssignment = assignments.find(a => !a.completed) || assignments[0];
-    const upNext = assignments.filter(a => a.id !== activeAssignment?.id).slice(0, 3);
+    const handleJoinSuccess = () => {
+        fetchAssignments();
+        fetchRecentActivity();
+        setSidebarRefreshKey(prev => prev + 1);
+    };
+
+    // Derived State: Sort by urgency (excluding submitted)
+    const sortedAssignments = [...assignments]
+        .filter(a => !a.is_submitted)
+        .sort((a, b) => {
+            // Sort by due date (earliest first). Null due dates go last.
+            if (!a.due_date) return 1;
+            if (!b.due_date) return -1;
+            return new Date(a.due_date) - new Date(b.due_date);
+        });
+
+    const activeAssignment = sortedAssignments[0];
+    const upNext = sortedAssignments.slice(1, 4);
 
     // Placeholder stats until we have a real submission history API
     const MOMENTUM_STATS = [
@@ -309,6 +333,38 @@ const StudentDashboard = () => {
                                 </div>
                             </div>
                         </motion.div>
+
+                        {/* 6. Recent Activity */}
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.5, delay: 0.4 }}
+                            className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm"
+                        >
+                            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-indigo-500" /> Recent Activity
+                            </h3>
+
+                            <div className="space-y-4">
+                                {recentActivity.length > 0 ? recentActivity.map((activity, i) => (
+                                    <div key={i} className="flex items-start gap-3">
+                                        <div className="mt-1 p-1.5 bg-green-50 rounded-full">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-gray-900">
+                                                Submitted <span className="font-bold">{activity.assignment_title || "Assignment"}</span>
+                                            </p>
+                                            <p className="text-xs text-gray-400">
+                                                {new Date(activity.submitted_at || activity.created_at).toLocaleDateString()}
+                                            </p>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <p className="text-sm text-gray-400 text-center py-4 italic">No recent activity yet</p>
+                                )}
+                            </div>
+                        </motion.div>
                     </div>
                 </div>
 
@@ -335,18 +391,18 @@ const StudentDashboard = () => {
                                     <strong>{selectedAssignment.title}</strong>
                                 </p>
                                 <p className="text-gray-500 mb-6">
-                                    Once you start, the timer will begin and you can only exit by submitting your solution. 
+                                    Once you start, the timer will begin and you can only exit by submitting your solution.
                                     Are you ready to begin?
                                 </p>
                                 <div className="flex gap-3">
-                                    <Button 
-                                        variant="outline" 
+                                    <Button
+                                        variant="outline"
                                         onClick={() => setShowStartConfirmation(false)}
                                         className="flex-1"
                                     >
                                         Cancel
                                     </Button>
-                                    <Button 
+                                    <Button
                                         onClick={handleConfirmStart}
                                         className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
                                     >

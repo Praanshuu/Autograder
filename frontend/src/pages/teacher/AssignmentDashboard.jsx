@@ -449,12 +449,27 @@ export default function AssignmentDashboard() {
                                                                 if (questionSubs.length === 0) return [];
 
                                                                 const tcStats = {};
+                                                                
+                                                                // Helper to get concept from assignment data
+                                                                const getConcept = (idx) => {
+                                                                    if (currentQuestion?.testCases && currentQuestion.testCases[idx]) {
+                                                                        return currentQuestion.testCases[idx].concept || `Test Case ${idx + 1}`;
+                                                                    }
+                                                                    return `Test Case ${idx + 1}`;
+                                                                };
 
                                                                 questionSubs.forEach(sub => {
                                                                     if (sub.test_results) {
                                                                         sub.test_results.forEach((res, idx) => {
                                                                             const key = idx;
-                                                                            if (!tcStats[key]) tcStats[key] = { passes: 0, total: 0, name: `Test Case ${idx + 1}` };
+                                                                            if (!tcStats[key]) {
+                                                                                tcStats[key] = { 
+                                                                                    passes: 0, 
+                                                                                    total: 0, 
+                                                                                    name: getConcept(idx),
+                                                                                    concept: getConcept(idx) // Pass concept specifically
+                                                                                };
+                                                                            }
 
                                                                             tcStats[key].total++;
                                                                             if (res.status === 'pass') tcStats[key].passes++;
@@ -465,6 +480,7 @@ export default function AssignmentDashboard() {
                                                                 return Object.values(tcStats).map((stat, i) => ({
                                                                     id: i,
                                                                     name: stat.name,
+                                                                    concept: stat.concept,
                                                                     passRate: stat.total > 0 ? Math.round((stat.passes / stat.total) * 100) : 0
                                                                 }));
                                                             })()

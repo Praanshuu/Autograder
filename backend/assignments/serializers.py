@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Assignment, Question, AssignmentQuestion, ContentItem
 from classes.serializers import ClassSerializer
 from users.serializers import UserSerializer
+from submissions.models import GradebookEntry
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -46,6 +47,8 @@ class AssignmentSerializer(serializers.ModelSerializer):
     points = serializers.IntegerField(source='points_total', read_only=True)
     
     total_students = serializers.SerializerMethodField()
+    is_submitted = serializers.SerializerMethodField()
+    is_graded = serializers.SerializerMethodField()
     
     class_id = serializers.UUIDField(source='module.class_obj.id', read_only=True)
 
@@ -54,9 +57,31 @@ class AssignmentSerializer(serializers.ModelSerializer):
         # Include fields from ContentItem (inherited) and Assignment
         fields = ['id', 'title', 'description', 'due_date', 'is_published', 
                   'mode', 'points_total', 'points', 'difficulty', 'config', 'questions', 
-                  'module', 'class_name', 'class_id', 'total_students']
-        read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students']
+                  'module', 'class_name', 'class_id', 'total_students', 'is_submitted', 'is_graded']
+        read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students', 'is_submitted', 'is_graded']
 
     def get_total_students(self, obj):
         # Count students enrolled in the class linked to this assignment's module
         return obj.module.class_obj.enrollments.filter(role='student').count()
+
+    def get_is_submitted(self, obj):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if not user or not user.is_authenticated or user.role != 'student':
+            return False
+            
+        return GradebookEntry.objects.filter(
+            student=user,
+            content_item=obj,
+            status__in=['submitted', 'graded']
+        ).exists()
+
+    def get_is_graded(self, obj):
+        user = self.context.get('request').user if self.context.get('request') else None
+        if not user or not user.is_authenticated or user.role != 'student':
+            return False
+            
+        return GradebookEntry.objects.filter(
+            student=user,
+            content_item=obj,
+            status='graded'
+        ).exists()

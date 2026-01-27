@@ -28,6 +28,7 @@ export const API_CONFIG = {
       PUBLISH: (id) => `/assignments/${id}/publish/`,
       CLOSE: (id) => `/assignments/${id}/close/`,
       QUESTIONS: '/assignments/questions/',
+      QUESTION_DETAIL: (id) => `/assignments/questions/${id}/`,
     },
     // Submissions
     SUBMISSIONS: {

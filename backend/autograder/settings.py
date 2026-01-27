@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'submissions',
     'analytics',
     'notifications',
+    'gamification',
     'anymail',
     'storages',
 ]
