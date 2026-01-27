@@ -50,7 +50,8 @@ export default function AssignmentDashboard() {
 
     // Data State
     const [assignment, setAssignment] = useState(null);
-    const [submissions, setSubmissions] = useState([]);
+    const [studentsSummary, setStudentsSummary] = useState([]); // Aggregated student data
+    const [submissions, setSubmissions] = useState([]); // Raw submissions (kept for Analytics)
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
@@ -66,10 +67,15 @@ export default function AssignmentDashboard() {
                 const assignResponse = await assignmentService.getAssignment(id);
                 setAssignment(assignResponse.data);
 
-                // 2. Fetch Submissions
+                // 2. Fetch Aggregated Student Summary (For Table)
+                const summaryRes = await submissionService.getAssignmentSummary(id);
+                setStudentsSummary(summaryRes.data);
+
+                // 3. Fetch Raw Submissions (For Analytics)
                 const subResponse = await submissionService.getAssignmentSubmissions(id);
                 const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
                 setSubmissions(subData);
+
                 setError(null);
             } catch (err) {
                 console.error("Failed to load dashboard data:", err);
@@ -84,33 +90,41 @@ export default function AssignmentDashboard() {
 
     // Derived Stats
     const totalStudents = assignment?.total_students || 0;
-    const submittedCount = submissions.length;
-    const gradedCount = submissions.filter(s => s.is_graded).length;
+    const submittedCount = studentsSummary.filter(s => s.status === 'submitted').length;
+    const gradedCount = studentsSummary.filter(s => s.status === 'graded').length;
 
     // Calculate Average Score
-    const scores = submissions.filter(s => s.final_score !== null).map(s => s.final_score);
-    const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : 0;
+    const scores = studentsSummary.filter(s => s.final_score > 0).map(s => s.final_score); // Filter 0s if needed, or include
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+
+
 
     // Calculate Highest/Lowest
     const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
     const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
     const completionRate = totalStudents > 0 ? Math.round((submittedCount / totalStudents) * 100) : 0;
 
-    // Filter Logic
-    const filteredSubmissions = submissions.filter(sub => {
-        const studentName = sub.student?.first_name ? `${sub.student.first_name} ${sub.student.last_name}` : sub.student?.email || "Unknown";
+    // Filter Logic (Students)
+    const filteredStudents = studentsSummary.filter(item => {
+        const s = item.student;
+        const studentName = s?.first_name ? `${s.first_name} ${s.last_name}` : s?.email || "Unknown";
         const matchesSearch = studentName.toLowerCase().includes(searchTerm.toLowerCase());
 
-        let status = "To Grade";
-        if (sub.is_graded) status = "Graded";
-        // Simple mapping for now
+        let status = item.status === 'processed' ? 'To Grade' : 'Submitted'; // Default mapping if simpler
+        if (item.status === 'graded') status = 'Graded';
+        if (item.status === 'in_progress') status = 'In Progress';
+        if (item.status === 'submitted') status = 'Submitted';
 
-        const matchesStatus = filterStatus === "All" || status === filterStatus;
+        // Simple mapping for filter UI (which has "All", "Graded", "To Grade")
+        // "Submitted" implies "To Grade" usually
+        const displayStatus = (item.status === 'submitted') ? 'To Grade' : (item.status === 'graded' ? 'Graded' : item.status);
+
+        const matchesStatus = filterStatus === "All" || displayStatus === filterStatus;
         return matchesSearch && matchesStatus;
     });
 
     const currentQuestion = selectedQuestion && assignment?.questions
-        ? assignment.questions.find(q => q.id === selectedQuestion)
+        ? assignment.questions.find(q => q.question.id === selectedQuestion)?.question
         : null;
 
     if (loading) {
@@ -219,8 +233,8 @@ export default function AssignmentDashboard() {
                                     <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
                                 </CardHeader>
                                 <CardContent>
-                                    <div className="text-2xl font-bold">{highestScore}</div>
-                                    <p className="text-xs text-muted-foreground">Lowest: {lowestScore}</p>
+                                    <div className="text-2xl font-bold">{Math.round(highestScore)}</div>
+                                    <p className="text-xs text-muted-foreground">Lowest: {Math.round(lowestScore)}</p>
                                 </CardContent>
                             </Card>
                         </div>
@@ -259,44 +273,43 @@ export default function AssignmentDashboard() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {filteredSubmissions.length > 0 ? (
-                                            filteredSubmissions.map((sub) => (
-                                                <TableRow key={sub.id}>
+                                        {filteredStudents.length > 0 ? (
+                                            filteredStudents.map((item) => (
+                                                <TableRow key={item.student.username}>
                                                     <TableCell className="font-medium">
                                                         <div className="flex items-center gap-2">
                                                             <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold uppercase">
-                                                                {sub.student?.first_name?.[0] || sub.student?.email?.[0] || "?"}
+                                                                {item.student.first_name?.[0] || item.student.email?.[0] || "?"}
                                                             </div>
                                                             <div>
                                                                 <div className="text-sm font-medium">
-                                                                    {sub.student?.first_name ? `${sub.student.first_name} ${sub.student.last_name}` : "Student"}
+                                                                    {item.student.first_name ? `${item.student.first_name} ${item.student.last_name}` : item.student.username}
                                                                 </div>
-                                                                <div className="text-xs text-gray-500">{sub.student?.email}</div>
+                                                                <div className="text-xs text-gray-500">{item.student.email}</div>
                                                             </div>
                                                         </div>
                                                     </TableCell>
                                                     <TableCell>
-                                                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${sub.is_graded ? "bg-green-50 text-green-700 border-green-200" :
-                                                            "bg-amber-50 text-amber-700 border-amber-200"
+                                                        <span className={`px-2 py-1 rounded-full text-xs font-medium border ${item.status === 'graded' ? "bg-green-50 text-green-700 border-green-200" :
+                                                            item.status === 'submitted' ? "bg-blue-50 text-blue-700 border-blue-200" :
+                                                                "bg-amber-50 text-amber-700 border-amber-200"
                                                             }`}>
-                                                            {sub.is_graded ? "Graded" : "To Grade"}
+                                                            {item.status.replace('_', ' ')}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="text-xs text-gray-500">
-                                                        {sub.created_at ? new Date(sub.created_at).toLocaleDateString() : "-"}
+                                                        {item.updated_at ? new Date(item.updated_at).toLocaleDateString() : "-"}
                                                     </TableCell>
                                                     <TableCell className="text-right font-bold">
-                                                        {(() => {
-                                                            if (!sub.test_results || sub.test_results.length === 0) return "-";
-                                                            const passed = sub.test_results.filter(r => r.status === 'pass').length;
-                                                            const total = sub.test_results.length;
-                                                            return `${Math.round((passed / total) * 100)}%`;
-                                                        })()}
+                                                        {(item.status === 'submitted' || item.status === 'graded') ? `${Math.round(item.final_score)}` : "-"}
+                                                        <span className="text-xs text-gray-400 block font-normal">
+                                                            Progress: {item.questions_completed} / {item.total_questions}
+                                                        </span>
                                                     </TableCell>
                                                     <TableCell className="text-right">
                                                         <Button size="sm" variant="outline" asChild>
-                                                            <Link to={`/teacher/grading/submission/${sub.id}`}>
-                                                                View
+                                                            <Link to={`/teacher/grading/assignment/${assignment.id}/student/${item.student.id}`}>
+                                                                Grade
                                                             </Link>
                                                         </Button>
                                                     </TableCell>
@@ -333,10 +346,10 @@ export default function AssignmentDashboard() {
                                                 key={q.id}
                                                 variant="outline"
                                                 className="h-auto py-4 px-6 flex flex-col items-start gap-1 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left"
-                                                onClick={() => setSelectedQuestion(q.id)}
+                                                onClick={() => setSelectedQuestion(q.question.id)}
                                             >
                                                 <span className="font-bold text-gray-900">Question {idx + 1}</span>
-                                                <span className="text-xs text-gray-500 line-clamp-1">{q.title}</span>
+                                                <span className="text-xs text-gray-500 line-clamp-1">{q.question.title}</span>
                                             </Button>
                                         ))}
                                     </div>
@@ -376,6 +389,7 @@ export default function AssignmentDashboard() {
                                                             ? "This assignment is currently active. Graphs and insights will populate automatically as students submit their work."
                                                             : "No graded submissions were found for this question."}
                                                     </p>
+
                                                     {questionSubs.length > 0 && (
                                                         <p className="text-xs text-amber-600 font-medium bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
                                                             {questionSubs.length} pending submissions waiting to be graded
@@ -429,17 +443,30 @@ export default function AssignmentDashboard() {
                                                             title: "Concept Mastery",
                                                             avgScore: Math.round(avgScore),
                                                             testCases: (() => {
-                                                                const total = validSubs.length;
-                                                                const basicPass = validSubs.filter(s => s.final_score > 20).length;
-                                                                const edgePass = validSubs.filter(s => s.final_score > 60).length;
-                                                                const optPass = validSubs.filter(s => s.final_score > 90).length;
+                                                                const questionId = currentQuestion?.id;
+                                                                const questionSubs = validSubs.filter(s => s.question?.id === questionId);
 
-                                                                return [
-                                                                    { id: 1, name: "Basic Input/Output", passRate: Math.round((basicPass / total) * 100) },
-                                                                    { id: 2, name: "Boundary Conditions", passRate: Math.round((edgePass / total) * 100) },
-                                                                    { id: 3, name: "Time Complexity & Optimization", passRate: Math.round((optPass / total) * 100) },
-                                                                    { id: 4, name: "Memory Usage Constraints", passRate: Math.round((optPass / total) * 90) }
-                                                                ];
+                                                                if (questionSubs.length === 0) return [];
+
+                                                                const tcStats = {};
+
+                                                                questionSubs.forEach(sub => {
+                                                                    if (sub.test_results) {
+                                                                        sub.test_results.forEach((res, idx) => {
+                                                                            const key = idx;
+                                                                            if (!tcStats[key]) tcStats[key] = { passes: 0, total: 0, name: `Test Case ${idx + 1}` };
+
+                                                                            tcStats[key].total++;
+                                                                            if (res.status === 'pass') tcStats[key].passes++;
+                                                                        });
+                                                                    }
+                                                                });
+
+                                                                return Object.values(tcStats).map((stat, i) => ({
+                                                                    id: i,
+                                                                    name: stat.name,
+                                                                    passRate: stat.total > 0 ? Math.round((stat.passes / stat.total) * 100) : 0
+                                                                }));
                                                             })()
                                                         }]}
                                                     />
@@ -484,5 +511,3 @@ export default function AssignmentDashboard() {
         </TeacherLayout >
     );
 }
-
-

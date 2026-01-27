@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
+
 import {
     MoveLeft,
     CheckCircle2,
@@ -7,256 +8,354 @@ import {
     Play,
     Save,
     ChevronRight,
-    ChevronLeft,
     TerminalSquare,
     History,
-    Loader2
+    Loader2,
+    FileCode2,
+    AlertCircle
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
 import { Textarea } from "../../components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 import { submissionService } from "../../services/submissionService";
 import LearningTrajectory from "../../components/features/analytics/LearningTrajectory";
 
 export default function GradingInterface() {
-    const { id } = useParams();
-    const [submission, setSubmission] = useState(null);
+    const { assignmentId, studentId } = useParams();
+    const navigate = useNavigate();
+
+    // Data State
+    const [report, setReport] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const [manualScore, setManualScore] = useState(0);
-    const [feedback, setFeedback] = useState("");
+    // UI State
+    const [selectedQuestionId, setSelectedQuestionId] = useState(null);
+    // gradesMap: { [questionId]: { score: number, feedback: string, submissionId: number, isDirty: boolean } }
+    const [gradesMap, setGradesMap] = useState({});
+    const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        const fetchSubmission = async () => {
+        const fetchReport = async () => {
             try {
                 setLoading(true);
-                const response = await submissionService.getSubmission(id);
-                const data = response.data;
-                setSubmission(data);
-                setManualScore(data.manual_score !== null ? data.manual_score : (data.final_score || 0));
-                setFeedback(data.feedback_text || "");
+                const response = await submissionService.getStudentReport(assignmentId, studentId);
+                setReport(response.data);
+
+                // Initialize gradesMap
+                const initialMap = {};
+                response.data.forEach(item => {
+                    if (item.submission) {
+                        initialMap[item.question.id] = {
+                            score: item.submission.manual_score !== null ? item.submission.manual_score : (item.submission.final_score || 0),
+                            feedback: item.submission.feedback_text || "",
+                            submissionId: item.submission.id,
+                            isDirty: false
+                        };
+                    }
+                });
+                setGradesMap(initialMap);
+
+                // Select first question by default if available
+                if (response.data && response.data.length > 0) {
+                    setSelectedQuestionId(response.data[0].question.id);
+                }
             } catch (err) {
-                console.error("Failed to load submission:", err);
-                setError("Failed to load submission.");
+                console.error("Failed to load student report:", err);
+                setError("Failed to load data.");
             } finally {
                 setLoading(false);
             }
         };
-        fetchSubmission();
-    }, [id]);
+        fetchReport();
+    }, [assignmentId, studentId]);
 
-    const handleRunTests = () => {
-        // Mock running tests
-        alert("Running Autograder... (Mock)");
+    // Helpers to update temporary state
+    const updateScore = (val) => {
+        if (!selectedQuestionId) return;
+        setGradesMap(prev => ({
+            ...prev,
+            [selectedQuestionId]: {
+                ...prev[selectedQuestionId],
+                score: val,
+                isDirty: true
+            }
+        }));
     };
+
+    const updateFeedback = (val) => {
+        if (!selectedQuestionId) return;
+        setGradesMap(prev => ({
+            ...prev,
+            [selectedQuestionId]: {
+                ...prev[selectedQuestionId],
+                feedback: val,
+                isDirty: true
+            }
+        }));
+    };
+
+    // No longer need this effect to set local manualScore/feedback state
+    // We derive values directly from gradesMap in render
 
     const handleSave = async () => {
+        // Find all dirty entries
+        const dirtyEntries = Object.entries(gradesMap).filter(([_, data]) => data.isDirty);
+
+        if (dirtyEntries.length === 0) {
+            // Nothing to save, just go back
+            navigate(`/teacher/assignment/${assignmentId}`);
+            return;
+        }
+
         try {
-            console.log("Saving Grade:", { id, manualScore, feedback });
-            await submissionService.gradeSubmission(id, {
-                manual_score: manualScore,
-                feedback_text: feedback
-            });
-            alert("Grade saved successfully!");
+            setSaving(true);
+
+            // Execute all saves concurrently
+            await Promise.all(dirtyEntries.map(([qId, data]) => {
+                if (!data.submissionId) return Promise.resolve();
+                return submissionService.gradeSubmission(data.submissionId, {
+                    manual_score: data.score,
+                    feedback_text: data.feedback
+                });
+            }));
+
+            // navigate to dashboard
+            navigate(`/teacher/assignment/${assignmentId}`);
         } catch (err) {
-            console.error("Failed to save grade:", err);
-            alert("Failed to save grade.");
+            console.error("Failed to save grades:", err);
+            alert("Failed to save some grades. Please try again.");
+        } finally {
+            setSaving(false);
         }
     };
+
+    const currentItem = report.find(item => item.question.id === selectedQuestionId);
+    const submission = currentItem?.submission;
+
+    // Derived values for current inputs
+    const currentGradeData = selectedQuestionId && gradesMap[selectedQuestionId]
+        ? gradesMap[selectedQuestionId]
+        : { score: 0, feedback: "" };
 
     if (loading) {
         return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-indigo-600" /></div>;
     }
 
-    if (error || !submission) {
-        return <div className="p-8 text-center text-red-500">{error || "Submission not found"}</div>;
+    if (error) {
+        return <div className="p-8 text-center text-red-500">{error}</div>;
     }
 
     return (
         <div className="h-screen flex flex-col bg-gray-50">
-            {/* Top Bar - Simplified for Focus */}
-            <header className="h-16 bg-white border-b px-4 flex items-center justify-between shrink-0 z-10">
+            {/* Top Bar */}
+            <header className="h-16 bg-white border-b px-4 flex items-center justify-between shrink-0 z-10 shadow-sm">
                 <div className="flex items-center gap-4">
                     <Button variant="ghost" size="icon" asChild>
-                        <Link to={`/teacher/assignment/${submission.assignment_id}`}> {/* Back to Assignment */}
+                        <Link to={`/teacher/assignment/${assignmentId}`}>
                             <MoveLeft className="w-5 h-5" />
                         </Link>
                     </Button>
                     <div>
-                        <h1 className="text-lg font-bold text-gray-900">{submission.student?.username || "Student"}</h1>
-                        <p className="text-xs text-gray-500">Submission Time: {new Date(submission.created_at).toLocaleString()}</p>
+                        <h1 className="text-lg font-bold text-gray-900">Grading Student</h1>
+                        <p className="text-xs text-gray-500 flex items-center gap-2">
+                            Assignment ID: {assignmentId.slice(0, 8)}... <span className="text-gray-300">|</span> Student ID: {studentId.slice(0, 8)}...
+                        </p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button variant="outline" className="gap-2" onClick={handleRunTests}>
-                        <Play className="w-4 h-4 text-green-600" />
-                        Rerun Tests
-                    </Button>
-                    <Button onClick={handleSave} className="gap-2">
-                        <Save className="w-4 h-4" />
-                        Save Grade
-                    </Button>
+                    {submission && (
+                        <Button onClick={handleSave} className="gap-2" disabled={saving}>
+                            {saving ? <Loader2 className="animate-spin w-4 h-4" /> : <Save className="w-4 h-4" />}
+                            Save Grade
+                        </Button>
+                    )}
                 </div>
             </header>
 
             {/* Main Content - Split Pane */}
             <div className="flex-1 flex overflow-hidden">
-                {/* Left Pane: Code Viewer */}
-                <div className="flex-1 bg-gray-900 text-gray-100 overflow-auto p-4 font-mono text-sm relative">
-                    <div className="absolute top-4 right-4 text-xs bg-gray-800 px-2 py-1 rounded text-gray-400">
-                        main.py
+
+                {/* 1. Sidebar: Question List */}
+                <div className="w-64 bg-white border-r flex flex-col overflow-y-auto">
+                    <div className="p-4 border-b bg-gray-50">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Questions</span>
                     </div>
-                    <pre className="counter-reset: line">
-                        <code>
-                            {/* Fetch actual code content if not in submission object, might need to fetch blob */}
-                            {/* Assuming for now we rely on what we have, or mock it if missing */}
-                            {"# Code viewer placeholder - need to fetch code blob"}
-                        </code>
-                    </pre>
+                    {report.map((item, idx) => {
+                        const isDirty = gradesMap[item.question.id]?.isDirty;
+                        const scoreToShow = gradesMap[item.question.id]?.score;
+
+                        return (
+                            <button
+                                key={item.question.id}
+                                onClick={() => setSelectedQuestionId(item.question.id)}
+                                className={`p-4 text-left border-b hover:bg-gray-50 transition-colors flex items-start gap-3
+                                ${selectedQuestionId === item.question.id ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : 'border-l-4 border-l-transparent'}
+                            `}
+                            >
+                                <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${isDirty ? 'bg-amber-500' : // Orange dot for unsaved changes
+                                        item.status === 'success' ? 'bg-green-500' :
+                                            item.status === 'fail' ? 'bg-red-500' :
+                                                'bg-gray-300'
+                                    }`} />
+                                <div>
+                                    <p className={`text-sm font-medium ${selectedQuestionId === item.question.id ? 'text-indigo-900' : 'text-gray-700'}`}>
+                                        {item.question.title} {isDirty && <span className="text-amber-600 text-[10px] font-bold ml-1">(Unsaved)</span>}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-1 line-clamp-1">
+                                        Q{idx + 1} • {item.submission ? `${scoreToShow}/100` : 'Not Attempted'}
+                                    </p>
+                                </div>
+                            </button>
+                        )
+                    })}
                 </div>
 
-                {/* Right Pane: Grading Tools */}
-                <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-20">
-                    <Tabs defaultValue="autograder" className="flex-1 flex flex-col">
-                        <div className="border-b px-4">
-                            <TabsList className="w-full justify-start h-12 bg-transparent p-0 gap-4">
-                                <TabsTrigger value="autograder" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
-                                    Autograder
-                                </TabsTrigger>
-                                <TabsTrigger value="manual" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
-                                    Rubric
-                                </TabsTrigger>
-                                <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0 flex items-center gap-2">
-                                    <History className="w-3.5 h-3.5" />
-                                    History
-                                </TabsTrigger>
-                            </TabsList>
-                        </div>
+                {/* 2. Main Area */}
+                {currentItem ? (
+                    submission ? (
+                        <>
+                            {/* Code Viewer (Center) */}
+                            <div className="flex-1 bg-gray-900 text-gray-100 overflow-auto p-4 font-mono text-sm relative">
+                                <div className="absolute top-4 right-4 text-xs bg-gray-800 px-2 py-1 rounded text-gray-400 flex items-center gap-2">
+                                    <FileCode2 className="w-3 h-3" />
+                                    {submission.language || "python"}
+                                </div>
+                                <pre className="counter-reset: line">
+                                    <code>
+                                        {submission.code_content || "# No code provided"}
+                                    </code>
+                                </pre>
+                            </div>
 
-                        <div className="flex-1 overflow-auto p-4">
-                            <TabsContent value="autograder" className="mt-0 space-y-4">
-                                <Card>
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium flex justify-between">
-                                            <span>Test Suite Results</span>
-                                            <span className="text-green-600 font-bold">{submission.autoGradeScore}% Passed</span>
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="space-y-3">
-                                        {/* Mock Test Cases */}
-                                        <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
-                                            <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="text-sm font-medium text-green-900">Test Case 1: Basic Input</p>
-                                                <p className="text-xs text-green-700 mt-1">Input: `1, 2` &rarr; Output: `3`</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
-                                            <CheckCircle2 className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="text-sm font-medium text-green-900">Test Case 2: Zeroes</p>
-                                                <p className="text-xs text-green-700 mt-1">Input: `0, 0` &rarr; Output: `0`</p>
-                                            </div>
-                                        </div>
-                                        {submission.autoGradeScore < 100 && (
-                                            <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
-                                                <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-                                                <div>
-                                                    <p className="text-sm font-medium text-red-900">Test Case 3: Large Numbers</p>
-                                                    <p className="text-xs text-red-700 mt-1">Expected: `1000` &rarr; Got: `Error`</p>
+                            {/* Grading Tools (Right) */}
+                            <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-20">
+                                <Tabs defaultValue="autograder" className="flex-1 flex flex-col">
+                                    <div className="border-b px-4">
+                                        <TabsList className="w-full justify-start h-12 bg-transparent p-0 gap-4">
+                                            <TabsTrigger value="autograder" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
+                                                Autograder
+                                            </TabsTrigger>
+                                            <TabsTrigger value="manual" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
+                                                Rubric
+                                            </TabsTrigger>
+                                            <TabsTrigger value="history" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0 flex items-center gap-2">
+                                                <History className="w-3.5 h-3.5" />
+                                                History
+                                            </TabsTrigger>
+                                        </TabsList>
+                                    </div>
+
+                                    <div className="flex-1 overflow-auto p-4">
+                                        <TabsContent value="autograder" className="mt-0 space-y-4">
+                                            <Card>
+                                                <CardHeader className="pb-3">
+                                                    <CardTitle className="text-sm font-medium flex justify-between">
+                                                        <span>Test Suite Results</span>
+                                                        <span className={submission.status === 'success' ? "text-green-600 font-bold" : "text-red-600 font-bold"}>
+                                                            {submission.status.toUpperCase()}
+                                                        </span>
+                                                    </CardTitle>
+                                                </CardHeader>
+                                                <CardContent className="space-y-3">
+                                                    {(() => {
+                                                        // Merge comparison logic
+                                                        const testCases = currentItem.question.test_cases || [];
+                                                        const results = submission.test_results || [];
+
+                                                        // Fallback if no test cases defined in question
+                                                        if (testCases.length === 0 && results.length === 0) {
+                                                            return <p className="text-sm text-gray-500">No test results available.</p>;
+                                                        }
+
+                                                        return results.map((res, i) => {
+                                                            const tc = testCases[i] || {};
+                                                            return (
+                                                                <div key={i} className={`p-3 rounded-lg border text-sm space-y-2 ${res.status === 'pass' ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                                                                    <div className="flex items-center gap-2 font-medium">
+                                                                        {res.status === 'pass' ? <CheckCircle2 className="w-4 h-4 text-green-600" /> : <XCircle className="w-4 h-4 text-red-600" />}
+                                                                        <span>Test Case {i + 1}</span>
+                                                                        <span className="uppercase text-xs font-bold opacity-70 ml-auto">{res.status}</span>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                                                                        <div>
+                                                                            <span className="font-semibold text-gray-500 block">Input:</span>
+                                                                            <code className="bg-white/50 px-1 py-0.5 rounded block whitespace-pre-wrap">{tc.input || "N/A"}</code>
+                                                                        </div>
+                                                                        <div>
+                                                                            <span className="font-semibold text-gray-500 block">Expected:</span>
+                                                                            <code className="bg-white/50 px-1 py-0.5 rounded block whitespace-pre-wrap">{tc.output || "N/A"}</code>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {res.status !== 'pass' && (
+                                                                        <div className="mt-2 pt-2 border-t border-red-200/50">
+                                                                            <span className="font-semibold text-red-700 block text-xs">Actual Output:</span>
+                                                                            <code className="bg-white/50 px-1 py-0.5 rounded block whitespace-pre-wrap text-xs font-mono">{res.actual_output || res.error_message || "(Empty)"}</code>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        });
+                                                    })()}
+                                                </CardContent>
+                                            </Card>
+                                        </TabsContent>
+
+                                        <TabsContent value="manual" className="mt-0 space-y-6">
+                                            <div className="space-y-4">
+                                                <div className="space-y-2">
+                                                    <Label>Score Override</Label>
+                                                    <div className="flex items-center gap-4">
+                                                        <Input
+                                                            type="number"
+                                                            value={currentGradeData.score}
+                                                            onChange={(e) => updateScore(e.target.value)}
+                                                            className="text-lg font-bold w-24"
+                                                        />
+                                                        <span className="text-gray-500 font-medium">/ 100</span>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Feedback</Label>
+                                                    <Textarea
+                                                        placeholder="Leave a comment..."
+                                                        className="h-40"
+                                                        value={currentGradeData.feedback}
+                                                        onChange={(e) => updateFeedback(e.target.value)}
+                                                    />
                                                 </div>
                                             </div>
-                                        )}
-                                    </CardContent>
-                                </Card>
+                                        </TabsContent>
 
-                                <Card>
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                            <TerminalSquare className="w-4 h-4" />
-                                            Execution Output
-                                        </CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <div className="bg-black text-green-400 font-mono text-xs p-3 rounded-lg overflow-x-auto">
-                                            <span>&gt; Running tests...</span><br />
-                                            <span>&gt; Test 1 passed (2ms)</span><br />
-                                            <span>&gt; Test 2 passed (1ms)</span><br />
-                                            {submission.autoGradeScore < 100 && <span>&gt; Test 3 FAILED (Timeout)<br /></span>}
-                                            <span>&gt; Done.</span>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            </TabsContent>
-
-                            <TabsContent value="manual" className="mt-0 space-y-6">
-                                <div className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label>Final Score Override</Label>
-                                        <div className="flex items-center gap-4">
-                                            <Input
-                                                type="number"
-                                                value={manualScore}
-                                                onChange={(e) => setManualScore(e.target.value)}
-                                                className="text-lg font-bold w-24"
-                                            />
-                                            <span className="text-gray-500 font-medium">/ 100</span>
-                                        </div>
-                                        <p className="text-xs text-gray-500">
-                                            Autograder gave {submission.autoGradeScore}%. You can override this based on code review.
-                                        </p>
+                                        <TabsContent value="history">
+                                            <div className="p-8 text-center text-gray-500 border border-dashed rounded bg-gray-50">
+                                                No history available.
+                                            </div>
+                                        </TabsContent>
                                     </div>
-
-                                    <div className="space-y-2">
-                                        <Label>Teacher Feedback</Label>
-                                        <Textarea
-                                            placeholder="Leave a comment for the student..."
-                                            className="h-40"
-                                            value={feedback}
-                                            onChange={(e) => setFeedback(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-                            </TabsContent>
-
-                            <TabsContent value="history" className="mt-0 space-y-4">
-                                {submission.history ? (
-                                    <LearningTrajectory
-                                        data={submission.history}
-                                        studentName={submission.studentName}
-                                    />
-                                ) : (
-                                    <div className="p-8 text-center text-gray-500 bg-gray-50 rounded-lg border border-dashed">
-                                        <History className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                        <p>No history data available for this student.</p>
-                                    </div>
-                                )}
-
-                                <Card>
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium">Teacher Notes</CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <p className="text-sm text-gray-600 hidden">
-                                            Private notes about this student's progress...
-                                        </p>
-                                        <Textarea
-                                            placeholder="Private notes (only visible to teachers)..."
-                                            className="min-h-[100px] text-sm"
-                                        />
-                                    </CardContent>
-                                </Card>
-                            </TabsContent>
+                                </Tabs>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center bg-gray-100 text-gray-500">
+                            <AlertCircle className="w-12 h-12 mb-4 opacity-50" />
+                            <h2 className="text-xl font-semibold">Not Attempted</h2>
+                            <p>The student has not submitted code for this question yet.</p>
                         </div>
-                    </Tabs>
-                </div>
+                    )
+                ) : (
+                    <div className="flex-1 flex items-center justify-center bg-gray-50">
+                        <Loader2 className="animate-spin text-indigo-600" />
+                    </div>
+                )}
             </div>
         </div>
     );
