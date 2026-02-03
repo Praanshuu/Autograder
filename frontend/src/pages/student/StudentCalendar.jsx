@@ -1,12 +1,44 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import StudentLayout from "../../components/layout/StudentLayout";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, BookOpen, AlertCircle } from "lucide-react";
-import { MOCK_EVENTS } from "../../mocks/calendar";
+import { assignmentService } from "../../services/assignmentService";
 
 export default function StudentCalendar() {
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [events, setEvents] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Load assignments and convert to calendar events
+    useEffect(() => {
+        const loadEvents = async () => {
+            try {
+                setLoading(true);
+                const response = await assignmentService.getStudentAssignments();
+                
+                if (response.success && response.data) {
+                    // Convert assignments to calendar events
+                    const calendarEvents = response.data.map(assignment => ({
+                        id: assignment.id,
+                        title: assignment.title,
+                        date: new Date(assignment.due_date),
+                        type: assignment.type || 'Assignment',
+                        classId: assignment.module?.class_obj?.id,
+                        className: assignment.module?.class_obj?.name || 'Unknown Class'
+                    }));
+                    setEvents(calendarEvents);
+                }
+            } catch (error) {
+                console.error('Failed to load calendar events:', error);
+                setEvents([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadEvents();
+    }, []);
 
     const getDaysInMonth = (date) => {
         const year = date.getFullYear();
@@ -34,7 +66,7 @@ export default function StudentCalendar() {
     };
 
     const getEventsForDay = (day) => {
-        return MOCK_EVENTS.filter(event => {
+        return events.filter(event => {
             const eventDate = new Date(event.date);
             return eventDate.getDate() === day &&
                 eventDate.getMonth() === currentDate.getMonth() &&
@@ -44,7 +76,7 @@ export default function StudentCalendar() {
 
     const getUpcomingAssignments = () => {
         const today = new Date();
-        return MOCK_EVENTS
+        return events
             .filter(event => new Date(event.date) >= today)
             .sort((a, b) => new Date(a.date) - new Date(b.date))
             .slice(0, 5);
@@ -53,7 +85,7 @@ export default function StudentCalendar() {
     const getDueSoon = () => {
         const today = new Date();
         const threeDaysFromNow = new Date(today.getTime() + (3 * 24 * 60 * 60 * 1000));
-        return MOCK_EVENTS
+        return events
             .filter(event => {
                 const eventDate = new Date(event.date);
                 return eventDate >= today && eventDate <= threeDaysFromNow;

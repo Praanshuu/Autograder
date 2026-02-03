@@ -124,4 +124,24 @@ export const submissionService = {
   getStudentReport: async (assignmentId, studentId) => {
     return await api.get(`/submissions/progress/student-report/?assignment_id=${assignmentId}&student_id=${studentId}`);
   },
+
+  // Points and Performance Methods
+  getPointsSummary: async () => {
+    return await api.get('/submissions/progress/points-summary/');
+  },
+
+  getAssignmentProgressWithPoints: async (assignmentId) => {
+    return await api.get(`/submissions/progress/assignment-progress-with-points/?assignment_id=${assignmentId}`);
+  },
+
+  // Gradebook Methods
+  getGradebookSummary: async () => {
+    return await api.get('/submissions/gradebook/student-summary/');
+  },
+
+  getGradebookEntries: async (params = {}) => {
+    const queryParams = new URLSearchParams(params).toString();
+    const url = queryParams ? `/submissions/gradebook/?${queryParams}` : '/submissions/gradebook/';
+    return await api.get(url);
+  },
 };

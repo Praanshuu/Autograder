@@ -1,0 +1,350 @@
+/* Mobile Responsiveness for Gamification Features */
+
+/* Base responsive utilities */
+@media (max-width: 640px) {
+  /* Leaderboard Widget Mobile Styles */
+  .leaderboard-widget {
+    padding: 1rem;
+  }
+  
+  .leaderboard-entry {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+  
+  .leaderboard-entry-header {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    align-items: center;
+  }
+  
+  .leaderboard-entry-details {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    font-size: 0.875rem;
+    color: #6B7280;
+  }
+  
+  /* Points Display Mobile Styles */
+  .points-display-breakdown {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .points-display-main {
+    padding: 1rem;
+  }
+  
+  .points-display-total {
+    font-size: 2rem;
+  }
+  
+  /* Achievement Badges Mobile Styles */
+  .achievement-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+  }
+  
+  .achievement-badge {
+    aspect-ratio: 1;
+    padding: 0.5rem;
+  }
+  
+  .achievement-badge-text {
+    font-size: 0.75rem;
+    line-height: 1;
+    text-align: center;
+  }
+  
+  .achievement-notification {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+    z-index: 50;
+  }
+  
+  /* Analytics Dashboard Mobile Styles */
+  .analytics-stats-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .analytics-chart-container {
+    height: 250px;
+  }
+  
+  .analytics-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .analytics-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .analytics-tab-list {
+    display: flex;
+    min-width: max-content;
+    padding: 0 1rem;
+  }
+  
+  .analytics-tab-trigger {
+    white-space: nowrap;
+    min-width: 120px;
+  }
+  
+  /* Concept Mastery Mobile Styles */
+  .concept-mastery-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  
+  .concept-mastery-card {
+    padding: 0.75rem;
+  }
+  
+  /* Student Analytics Dashboard Mobile */
+  .student-analytics-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .student-analytics-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .student-analytics-timeframe {
+    width: 100%;
+    max-width: 200px;
+  }
+  
+  /* Class Analytics Dashboard Mobile */
+  .class-analytics-filters {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .class-analytics-search {
+    width: 100%;
+  }
+  
+  .class-analytics-selects {
+    display: flex;
+    gap: 0.5rem;
+    width: 100%;
+  }
+  
+  .class-analytics-select {
+    flex: 1;
+  }
+  
+  .student-card {
+    padding: 0.75rem;
+  }
+  
+  .student-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  
+  .student-card-info {
+    width: 100%;
+  }
+  
+  .student-card-metrics {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .student-card-expanded {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  
+  /* Problem Analytics Mobile */
+  .problem-analytics-grid {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+  
+  .problem-card {
+    padding: 0.75rem;
+  }
+  
+  .problem-card-metrics {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    font-size: 0.875rem;
+  }
+  
+  /* Touch-friendly interactions */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  .touch-button {
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+  }
+  
+  /* Improved scrolling for mobile */
+  .mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .mobile-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Modal and dialog adjustments */
+  .mobile-dialog {
+    margin: 1rem;
+    max-height: calc(100vh - 2rem);
+    width: calc(100vw - 2rem);
+    max-width: none;
+  }
+  
+  .mobile-dialog-content {
+    max-height: calc(100vh - 4rem);
+    overflow-y: auto;
+  }
+  
+  /* Progress rings mobile adjustment */
+  .progress-ring-container {
+    scale: 0.8;
+  }
+  
+  /* Chart responsiveness */
+  .mobile-chart {
+    height: 200px !important;
+  }
+  
+  .mobile-chart .recharts-text {
+    font-size: 10px;
+  }
+  
+  /* Notification positioning */
+  .mobile-notification {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    right: 1rem;
+    max-width: none;
+    z-index: 50;
+  }
+}
+
+/* Tablet styles */
+@media (min-width: 641px) and (max-width: 1024px) {
+  .achievement-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .analytics-stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .concept-mastery-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .problem-analytics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .student-card-expanded {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Large screen optimizations */
+@media (min-width: 1025px) {
+  .achievement-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+  
+  .analytics-stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  .concept-mastery-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  
+  .problem-analytics-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Accessibility improvements for mobile */
+@media (max-width: 640px) {
+  /* Larger touch targets */
+  button, .clickable {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Better focus indicators */
+  button:focus, .clickable:focus {
+    outline: 2px solid #3B82F6;
+    outline-offset: 2px;
+  }
+  
+  /* Improved text readability */
+  .mobile-text-sm {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+  
+  .mobile-text-xs {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+}
+
+/* Dark mode support for mobile */
+@media (max-width: 640px) and (prefers-color-scheme: dark) {
+  .achievement-badge {
+    border-color: #374151;
+  }
+  
+  .student-card {
+    background-color: #1F2937;
+    border-color: #374151;
+  }
+  
+  .problem-card {
+    background-color: #1F2937;
+    border-color: #374151;
+  }
+}
+
+/* Reduced motion for mobile users who prefer it */
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) {
+  .achievement-notification {
+    animation: none;
+  }
+  
+  .progress-ring circle {
+    transition: none;
+  }
+  
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

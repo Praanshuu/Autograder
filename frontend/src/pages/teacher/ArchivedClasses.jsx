@@ -1,9 +1,10 @@
 import { Archive, MoreVertical, SlidersHorizontal, Search, RotateCcw } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
-import { ARCHIVED_CLASSES } from "../../mocks/classes";
+import { classService } from "../../services/classService";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/card";
@@ -82,6 +83,27 @@ const ArchivedClassCard = ({ cl }) => (
 );
 
 export default function ArchivedClasses() {
+    const [archivedClasses, setArchivedClasses] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const loadArchivedClasses = async () => {
+            try {
+                setLoading(true);
+                // For now, we'll show an empty state since we don't have archived classes in the API
+                // In the future, this would call: const response = await classService.getArchivedClasses();
+                setArchivedClasses([]);
+            } catch (error) {
+                console.error('Failed to load archived classes:', error);
+                setArchivedClasses([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadArchivedClasses();
+    }, []);
+
     return (
         <TeacherLayout>
             <motion.div
@@ -120,7 +142,7 @@ export default function ArchivedClasses() {
                 </div>
 
                 {/* Content Grid */}
-                {ARCHIVED_CLASSES.length === 0 ? (
+                {archivedClasses.length === 0 ? (
                     <motion.div
                         className="flex flex-col items-center justify-center py-24 px-4 bg-white rounded-xl border border-dashed border-gray-200"
                         initial={{ opacity: 0, scale: 0.95 }}
@@ -142,7 +164,7 @@ export default function ArchivedClasses() {
                         initial="hidden"
                         animate="show"
                     >
-                        {ARCHIVED_CLASSES.map((cl) => (
+                        {archivedClasses.map((cl) => (
                             <ArchivedClassCard key={cl.id} cl={cl} />
                         ))}
                     </motion.div>

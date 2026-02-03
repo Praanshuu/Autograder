@@ -15,18 +15,18 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "../../ui/dialog";
-import { MOCK_EVENTS } from "../../../mocks/calendar";
+import { assignmentService } from "../../../services/assignmentService";
 import { classService } from "../../../services/classService";
 
 export default function StreamTab() {
     const { classId } = useParams();
     const [classData, setClassData] = useState(null);
+    const [upcomingWork, setUpcomingWork] = useState([]);
     const [isAnnouncing, setIsAnnouncing] = useState(false);
     const [announcementText, setAnnouncementText] = useState("");
     const [editingPostId, setEditingPostId] = useState(null);
     const [editText, setEditText] = useState("");
 
-    // Fetch class details
     // Fetch class details
     useEffect(() => {
         const fetchClassDetails = async () => {
@@ -41,22 +41,30 @@ export default function StreamTab() {
         fetchClassDetails();
     }, [classId]);
 
-    // Filter events for this class
-    // Note: In a real app, you might fetch this based on the ID.
-    // For now, we show all events if no specific filtering logic matches, or strict filter.
-    // Let's assume classId matches the 'classId' string in MOCK_EVENTS.
-    // If classId is undefined (e.g. testing), we might fallback.
-    const upcomingWork = MOCK_EVENTS.filter(event =>
-        // Strict equality if IDs are strings, or loose if mixed. 
-        // MOCK_EVENTS has IDs as strings "1". Routes use "1".
-        event.classId === classId
-    ).map(event => ({
-        id: event.id,
-        title: event.title,
-        // Format date simply for the UI "Due ..."
-        due: event.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        type: event.type
-    }));
+    // Fetch upcoming assignments for this class
+    useEffect(() => {
+        const fetchUpcomingWork = async () => {
+            if (!classId) return;
+            try {
+                const response = await assignmentService.getClassAssignments(classId);
+                if (response.success && response.data) {
+                    const upcomingAssignments = response.data
+                        .filter(assignment => new Date(assignment.due_date) >= new Date())
+                        .map(assignment => ({
+                            id: assignment.id,
+                            title: assignment.title,
+                            due: new Date(assignment.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            type: assignment.type || 'Assignment'
+                        }));
+                    setUpcomingWork(upcomingAssignments);
+                }
+            } catch (error) {
+                console.error("Failed to fetch upcoming work", error);
+                setUpcomingWork([]);
+            }
+        };
+        fetchUpcomingWork();
+    }, [classId]);
 
     const [posts, setPosts] = useState([
         {

@@ -27,10 +27,8 @@ import Editor from 'react-simple-code-editor';
 import { highlight, languages } from 'prismjs/components/prism-core';
 import 'prismjs/components/prism-clike';
 import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-javascript';
 import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-c';
-import 'prismjs/components/prism-cpp';
 import 'prismjs/themes/prism-tomorrow.css'; // Dark theme for code
 import { Separator } from "../../components/ui/separator";
 // import { Panel, Group } from "react-resizable-panels"; // Pro feature disabled for now
@@ -39,6 +37,7 @@ import { Separator } from "../../components/ui/separator";
 import { assignmentService } from "../../services/assignmentService";
 import { submissionService } from "../../services/submissionService";
 import QuestionPalette from "../../components/workspace/QuestionPalette";
+import { PointsDisplay } from "../../components/features/gamification";
 
 const StudentWorkspace = () => {
     const { assignmentId } = useParams();
@@ -73,7 +72,7 @@ const StudentWorkspace = () => {
     const timerIntervalRef = useRef(null);
     const lastUpdateRef = useRef(Date.now());
 
-    // Language configuration
+    // Language configuration - Limited to 3 languages supported by dynamic analyzer
     const languageConfig = {
         python: {
             name: "Python 3",
@@ -82,26 +81,12 @@ const StudentWorkspace = () => {
             icon: "🐍",
             prismLang: languages.python
         },
-        javascript: {
-            name: "JavaScript",
-            extension: "js",
-            defaultCode: "",
-            icon: "🟨",
-            prismLang: languages.javascript
-        },
         java: {
             name: "Java",
             extension: "java",
             defaultCode: "",
             icon: "☕",
             prismLang: languages.java
-        },
-        cpp: {
-            name: "C++",
-            extension: "cpp",
-            defaultCode: "",
-            icon: "⚡",
-            prismLang: languages.cpp
         },
         c: {
             name: "C",
@@ -676,6 +661,16 @@ const StudentWorkspace = () => {
                 />
 
                 <div className="flex items-center gap-3">
+                    {/* Compact Points Display */}
+                    <div className="hidden sm:block">
+                        <PointsDisplay 
+                            compact={true} 
+                            showHistory={false} 
+                            showBreakdown={false}
+                            className="border-0 shadow-none bg-transparent p-0"
+                        />
+                    </div>
+                    
                     <Button
                         variant="secondary"
                         size="sm"

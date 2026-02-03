@@ -23,6 +23,7 @@ import { submissionService } from '../../services/submissionService';
 import { Button } from '../../components/ui/button';
 import JoinClassDialog from '../../components/features/student/JoinClassDialog';
 import RiveDashboardCharacter from '../../components/features/student/RiveDashboardCharacter';
+import { LeaderboardWidget, PointsDisplay, AchievementBadges } from '../../components/features/gamification';
 
 // --- Components ---
 
@@ -95,6 +96,19 @@ const StudentDashboard = () => {
         setSidebarRefreshKey(prev => prev + 1);
     };
 
+    const handleStartAssignment = (assignment) => {
+        setSelectedAssignment(assignment);
+        setShowStartConfirmation(true);
+    };
+
+    const handleConfirmStart = () => {
+        if (selectedAssignment) {
+            navigate(`/student/workspace/${selectedAssignment.id}`);
+        }
+        setShowStartConfirmation(false);
+        setSelectedAssignment(null);
+    };
+
     // Derived State: Sort by urgency (excluding submitted)
     const sortedAssignments = [...assignments]
         .filter(a => !a.is_submitted)
@@ -146,19 +160,8 @@ const StudentDashboard = () => {
                             Join Class
                         </Button>
 
-                        <div className="flex gap-4">
-                            {MOMENTUM_STATS.map((stat, idx) => (
-                                <div key={idx} className="flex flex-col items-center bg-white border border-gray-100 shadow-sm rounded-xl px-4 py-2 hover:shadow-md transition-shadow">
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <div className={`p-1.5 rounded-full ${stat.bg}`}>
-                                            <stat.icon className={`w-3.5 h-3.5 ${stat.color}`} />
-                                        </div>
-                                        <span className="text-xl font-bold text-gray-900">{stat.value}</span>
-                                    </div>
-                                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{stat.label}</span>
-                                </div>
-                            ))}
-                        </div>
+                        {/* Gamification Stats - Replace placeholder with real data */}
+                        <PointsDisplay compact={true} showBreakdown={false} className="border-0 shadow-sm" />
                     </div>
                 </header>
 
@@ -305,6 +308,33 @@ const StudentDashboard = () => {
 
                     {/* RIGHT COLUMN: Skills & Coaching */}
                     <div className="space-y-8">
+                        {/* Gamification Widgets */}
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.5, delay: 0.2 }}
+                        >
+                            <LeaderboardWidget 
+                                type="global" 
+                                limit={5} 
+                                compact={true}
+                                className="shadow-lg shadow-gray-100/50"
+                            />
+                        </motion.div>
+
+                        <motion.div
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ duration: 0.5, delay: 0.25 }}
+                        >
+                            <AchievementBadges 
+                                showProgress={true}
+                                limit={6}
+                                compact={true}
+                                className="shadow-lg shadow-gray-100/50"
+                            />
+                        </motion.div>
+
                         {/* 5. AI Coach / Next Skill */}
                         <motion.div
                             initial={{ opacity: 0, x: 20 }}

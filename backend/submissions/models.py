@@ -86,6 +86,7 @@ class GradebookEntry(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='grades')
     content_item = models.ForeignKey(ContentItem, on_delete=models.CASCADE)
     final_score = models.FloatField(default=0.0)
+    points_earned = models.IntegerField(default=0)  # Points earned from gamification system
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
     updated_at = models.DateTimeField(auto_now=True)
     

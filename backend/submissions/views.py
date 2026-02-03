@@ -5,9 +5,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from .models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
-from .serializers import SubmissionAttemptSerializer, AssignmentProgressSerializer
+from .serializers import SubmissionAttemptSerializer, AssignmentProgressSerializer, GradebookEntrySerializer
 from .services import execute_code
 from assignments.models import AssignmentQuestion, ContentItem
+from gamification.points_calculator import PointsCalculator
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,14 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         # Execute Code
         # aq.question.test_cases is JSON now
         test_cases = aq.question.test_cases
-        language = 'python' # TODO: Get from request or config
+        language = request.data.get('language', 'python')  # Get language from request
+        
+        # Validate language support
+        supported_languages = ['python', 'c', 'java']
+        if language.lower() not in supported_languages:
+            return Response({
+                'message': f'Unsupported language: {language}. Supported languages: {", ".join(supported_languages)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # We need to adapt the execute_code service to handle the JSON test cases
         # Structure is list of dicts: {'input': '', 'output': ''}
@@ -73,11 +81,12 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             
             # Save Results
             passed_count = 0
+            test_results_data = []
             for idx, res in enumerate(results):
                 status_res = res.get('status', 'fail')
                 if status_res == 'pass': passed_count += 1
                 
-                TestResult.objects.create(
+                test_result = TestResult.objects.create(
                     attempt=attempt,
                     test_case_id=str(idx),
                     status=status_res,
@@ -85,6 +94,12 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
                     actual_output=res.get('console_output', ''),
                     error_message=res.get('error_message', '')
                 )
+                
+                # Collect test results for points calculation
+                test_results_data.append({
+                    'status': status_res,
+                    'score': test_result.score
+                })
             
             # Determine final status
             if passed_count == len(results) and len(results) > 0:
@@ -93,6 +108,9 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
                 attempt.status = 'fail'
             
             attempt.save()
+            
+            # Award points for assignment submission
+            self._award_assignment_points(attempt, test_results_data)
             
             # Auto-update gradebook
             self._update_gradebook(request.user, aq.assignment)
@@ -118,6 +136,13 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         
         if not code:
              return Response({'message': 'Missing code'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate language support
+        supported_languages = ['python', 'c', 'java']
+        if language.lower() not in supported_languages:
+            return Response({
+                'message': f'Unsupported language: {language}. Supported languages: {", ".join(supported_languages)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
              
         try:
             results = execute_code(code, language, test_cases)
@@ -126,7 +151,7 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             for r in results:
                 formatted_results.append({
                     'actual_output': r.get('console_output'),
-                    'expected_output': r.get('test_case', {}).get('output') if isinstance(r.get('test_case'), dict) else '',
+                    'expected_output': r.get('test_case', {}).get('expected_output') if isinstance(r.get('test_case'), dict) else '',
                     'passed': r.get('status') == 'pass',
                     'error': r.get('error_message') if r.get('status') in ['error', 'timeout'] else None,
                     'status': r.get('status'),
@@ -175,12 +200,14 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         Recalculate total score for assignment and update gradebook.
         Logic: Weighted by number of test cases (Total Passed / Total Tests).
         If Manual Score is present, it counts as (Score% * NumTests) passed.
+        Now also includes points information from the gamification system.
         """
         aqs = AssignmentQuestion.objects.filter(assignment=assignment)
         total_questions = aqs.count()
         
         sum_question_percentages = 0
         questions_counted = 0
+        total_points_earned = 0
         
         for aq in aqs:
             # Get latest attempt
@@ -211,6 +238,26 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
                     # No tests, no manual score. Default to 0? Or 100 if submitted? 
                     # Usually 0 if purely auto-graded until manual grade comes in.
                     question_score = 0
+                    
+                # Calculate points earned for this question
+                try:
+                    test_results_data = []
+                    for test_result in latest.test_results.all():
+                        test_results_data.append({
+                            'status': test_result.status,
+                            'score': test_result.score
+                        })
+                    
+                    if test_results_data:
+                        calculator = PointsCalculator()
+                        question_points = calculator.calculate_assignment_points(
+                            test_results=test_results_data,
+                            attempt_number=latest.attempt_number,
+                            assignment_question=aq
+                        )
+                        total_points_earned += question_points
+                except Exception as e:
+                    logger.error(f"Error calculating points for gradebook: {e}")
             else:
                 # No attempt
                 question_score = 0
@@ -227,6 +274,11 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         content_item = ContentItem.objects.get(id=assignment.id)
         entry, _ = GradebookEntry.objects.get_or_create(student=student, content_item=content_item)
         entry.final_score = final_assignment_score
+        entry.points_earned = total_points_earned  # Store points in gradebook
+        
+        # Log points information
+        if total_points_earned > 0:
+            logger.info(f"Assignment {assignment.id} for {student.username}: {total_points_earned} points earned")
         
         # Check for Manual Grading Status
         # If any question has a manual score, mark the whole assignment as 'graded' (or partially graded?)
@@ -244,6 +296,33 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         # But here we are just updating score. 
             
         entry.save()
+
+    def _award_assignment_points(self, submission_attempt, test_results_data):
+        """
+        Award points for assignment submissions using the gamification system.
+        
+        Args:
+            submission_attempt: The SubmissionAttempt instance
+            test_results_data: List of test result dictionaries
+        """
+        try:
+            calculator = PointsCalculator()
+            points_awarded = calculator.calculate_and_award_assignment_points(
+                submission_attempt=submission_attempt,
+                test_results=test_results_data
+            )
+            
+            if points_awarded > 0:
+                logger.info(
+                    f"Awarded {points_awarded} assignment points to {submission_attempt.student.username} "
+                    f"for {submission_attempt.assignment_question}"
+                )
+                
+        except Exception as e:
+            logger.error(
+                f"Error awarding assignment points for submission {submission_attempt.id}: {e}",
+                exc_info=True
+            )
 
 
 class AssignmentProgressViewSet(viewsets.ModelViewSet):
@@ -351,6 +430,55 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
             'started_at': progress.started_at
         })
 
+    @action(detail=False, methods=['get'], url_path='points-summary')
+    def get_points_summary(self, request):
+        """
+        Get points summary for the current user.
+        Shows total points, assignment points, and recent point earnings.
+        """
+        try:
+            from gamification.points_calculator import PointsCalculator
+            calculator = PointsCalculator()
+            points_summary = calculator.get_user_points_summary(request.user)
+            
+            # Get recent assignment submissions with points
+            recent_submissions = SubmissionAttempt.objects.filter(
+                student=request.user,
+                status__in=['success', 'fail']
+            ).order_by('-created_at')[:10]
+            
+            recent_points = []
+            for submission in recent_submissions:
+                test_results_data = []
+                for test_result in submission.test_results.all():
+                    test_results_data.append({
+                        'status': test_result.status,
+                        'score': test_result.score
+                    })
+                
+                if test_results_data:
+                    points = calculator.calculate_assignment_points(
+                        test_results=test_results_data,
+                        attempt_number=submission.attempt_number,
+                        assignment_question=submission.assignment_question
+                    )
+                    
+                    recent_points.append({
+                        'assignment_question': submission.assignment_question.question.title,
+                        'points_earned': points,
+                        'submitted_at': submission.created_at,
+                        'status': submission.status
+                    })
+            
+            return Response({
+                'points_summary': points_summary,
+                'recent_assignment_points': recent_points
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting points summary: {e}")
+            return Response({'error': 'Failed to get points summary'}, status=500)
+
     @action(detail=False, methods=['post'], url_path='finish-assignment')
     def finish_assignment(self, request):
         assignment_id = request.data.get('assignment_id')
@@ -400,6 +528,84 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
              
         except Exception as e:
              return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='assignment-progress-with-points')
+    def get_assignment_progress_with_points(self, request):
+        """
+        Get assignment progress including points information.
+        Shows completion status, scores, and points earned for each question.
+        """
+        assignment_id = request.query_params.get('assignment_id')
+        if not assignment_id:
+            return Response({'message': 'Missing assignment_id'}, status=400)
+        
+        try:
+            from gamification.points_calculator import PointsCalculator
+            calculator = PointsCalculator()
+            
+            # Get assignment questions
+            aqs = AssignmentQuestion.objects.filter(assignment_id=assignment_id).select_related('question').order_by('order')
+            
+            progress_data = []
+            total_points_earned = 0
+            
+            for aq in aqs:
+                # Get latest submission
+                latest = SubmissionAttempt.objects.filter(
+                    student=request.user,
+                    assignment_question=aq
+                ).order_by('-created_at').first()
+                
+                question_data = {
+                    'question_id': aq.question.id,
+                    'assignment_question_id': aq.id,
+                    'title': aq.question.title,
+                    'status': 'not_attempted',
+                    'score': 0,
+                    'points_earned': 0,
+                    'attempt_count': 0
+                }
+                
+                if latest:
+                    question_data['status'] = latest.status
+                    question_data['attempt_count'] = latest.attempt_number
+                    
+                    # Calculate score
+                    test_cases = aq.question.test_cases or []
+                    if test_cases and latest.test_results.exists():
+                        passed = latest.test_results.filter(status='pass').count()
+                        question_data['score'] = (passed / len(test_cases)) * 100
+                    
+                    # Calculate points
+                    test_results_data = []
+                    for test_result in latest.test_results.all():
+                        test_results_data.append({
+                            'status': test_result.status,
+                            'score': test_result.score
+                        })
+                    
+                    if test_results_data:
+                        points = calculator.calculate_assignment_points(
+                            test_results=test_results_data,
+                            attempt_number=latest.attempt_number,
+                            assignment_question=aq
+                        )
+                        question_data['points_earned'] = points
+                        total_points_earned += points
+                
+                progress_data.append(question_data)
+            
+            return Response({
+                'assignment_id': assignment_id,
+                'questions': progress_data,
+                'total_points_earned': total_points_earned,
+                'total_questions': len(progress_data),
+                'completed_questions': len([q for q in progress_data if q['status'] == 'success'])
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting assignment progress with points: {e}")
+            return Response({'error': str(e)}, status=500)
 
     @action(detail=False, methods=['get'], url_path='summary')
     def get_assignment_summary(self, request):
@@ -527,3 +733,117 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
             })
             
         return Response(report)
+
+
+class GradebookViewSet(viewsets.ReadOnlyModelViewSet):
+    """ViewSet for gradebook entries with points information"""
+    serializer_class = GradebookEntrySerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        queryset = GradebookEntry.objects.select_related('student', 'content_item')
+        
+        if user.role == 'student':
+            # Students can only see their own grades
+            queryset = queryset.filter(student=user)
+        elif user.role == 'teacher':
+            # Teachers can see all grades, optionally filtered by class
+            class_id = self.request.query_params.get('class_id')
+            if class_id:
+                # Filter by class enrollment (assuming there's a way to get class students)
+                # This would need to be implemented based on your class/enrollment system
+                pass
+        
+        return queryset.order_by('-updated_at')
+    
+    @action(detail=False, methods=['get'], url_path='student-summary')
+    def student_summary(self, request):
+        """Get summary of student's grades and points"""
+        try:
+            from gamification.points_calculator import PointsCalculator
+            calculator = PointsCalculator()
+            
+            # Get user's gradebook entries
+            entries = GradebookEntry.objects.filter(student=request.user).select_related('content_item')
+            
+            # Calculate totals
+            total_assignments = entries.count()
+            total_score = sum(entry.final_score for entry in entries) / total_assignments if total_assignments > 0 else 0
+            total_assignment_points = sum(entry.points_earned for entry in entries)
+            
+            # Get overall points summary
+            points_summary = calculator.get_user_points_summary(request.user)
+            
+            # Get recent entries
+            recent_entries = entries.order_by('-updated_at')[:5]
+            
+            return Response({
+                'summary': {
+                    'total_assignments': total_assignments,
+                    'average_score': round(total_score, 2),
+                    'total_assignment_points': total_assignment_points,
+                    'overall_points': points_summary
+                },
+                'recent_entries': GradebookEntrySerializer(recent_entries, many=True).data
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting student summary: {e}")
+            return Response({'error': 'Failed to get student summary'}, status=500)
+    
+    @action(detail=False, methods=['get'], url_path='class-summary')
+    def class_summary(self, request):
+        """Get class-wide gradebook summary with points (teachers only)"""
+        if request.user.role != 'teacher':
+            return Response({'error': 'Permission denied'}, status=403)
+        
+        try:
+            assignment_id = request.query_params.get('assignment_id')
+            if not assignment_id:
+                return Response({'message': 'Missing assignment_id'}, status=400)
+            
+            # Get gradebook entries for this assignment
+            entries = GradebookEntry.objects.filter(
+                content_item_id=assignment_id
+            ).select_related('student').order_by('student__last_name', 'student__first_name')
+            
+            class_data = []
+            total_points = 0
+            total_score = 0
+            
+            for entry in entries:
+                student_data = {
+                    'student': {
+                        'id': entry.student.id,
+                        'username': entry.student.username,
+                        'first_name': entry.student.first_name,
+                        'last_name': entry.student.last_name,
+                        'email': entry.student.email
+                    },
+                    'final_score': entry.final_score,
+                    'points_earned': entry.points_earned,
+                    'status': entry.status,
+                    'updated_at': entry.updated_at
+                }
+                class_data.append(student_data)
+                total_points += entry.points_earned
+                total_score += entry.final_score
+            
+            avg_score = total_score / len(entries) if entries else 0
+            avg_points = total_points / len(entries) if entries else 0
+            
+            return Response({
+                'assignment_id': assignment_id,
+                'students': class_data,
+                'class_statistics': {
+                    'total_students': len(entries),
+                    'average_score': round(avg_score, 2),
+                    'average_points': round(avg_points, 2),
+                    'total_points_awarded': total_points
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error getting class summary: {e}")
+            return Response({'error': str(e)}, status=500)

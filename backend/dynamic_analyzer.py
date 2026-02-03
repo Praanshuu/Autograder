@@ -100,6 +100,11 @@ class DynamicAnalyzer:
         t.join(EXECUTION_TIMEOUT_SECONDS)
 
         if t.is_alive():
+            # Force kill the container if it's still running
+            try:
+                container.kill()
+            except Exception:
+                pass
             return None, "", "Execution timed out."
 
         if err_ref[0]:
@@ -228,9 +233,10 @@ sys.exit(1 if error_occurred else 0)
                 detach=True,
                 volumes=volume_mount,
                 working_dir=CONTAINER_WORKING_DIR,
-                mem_limit="4096m",
+                mem_limit="256m",
                 network_disabled=True,
                 pids_limit=1024,
+                remove=True,  # Auto-remove container when it stops
             )
 
             input_target = f"{CONTAINER_TEMP_DIR}/{INPUT_FILE_NAME}"
@@ -246,10 +252,13 @@ sys.exit(1 if error_occurred else 0)
             cmd = ["bash", "-lc", f"python3 -u {runner_target}"]
             return self._exec_with_timeout(container, cmd)
 
+        except Exception as e:
+            return None, "", f"Container runtime error: {str(e)}"
         finally:
             if container:
                 try:
-                    container.remove(force=True)
+                    container.kill()
+                    # Container will be auto-removed due to remove=True
                 except Exception:
                     pass
 
@@ -270,9 +279,10 @@ sys.exit(1 if error_occurred else 0)
                 detach=True,
                 volumes=volume_mount,
                 working_dir=CONTAINER_WORKING_DIR,
-                mem_limit="4096m",
+                mem_limit="256m",
                 network_disabled=True,
                 pids_limit=1024,
+                remove=True,  # Auto-remove container when it stops
             )
 
             container_src = f"{CONTAINER_WORKING_DIR}/{code_path.name}"
@@ -332,10 +342,13 @@ sys.exit(1 if error_occurred else 0)
 
             return results
 
+        except Exception as e:
+            return [{"name": "error", "status": "error", "error": f"Container runtime error: {str(e)}"}]
         finally:
             if container:
                 try:
-                    container.remove(force=True)
+                    container.kill()
+                    # Container will be auto-removed due to remove=True
                 except Exception:
                     pass
 
@@ -353,9 +366,10 @@ sys.exit(1 if error_occurred else 0)
                 detach=True,
                 volumes=volume_mount,
                 working_dir=CONTAINER_WORKING_DIR,
-                mem_limit="4096m",
+                mem_limit="256m",
                 network_disabled=True,
                 pids_limit=1024,
+                remove=True,  # Auto-remove container when it stops
             )
 
             container_src = f"{CONTAINER_WORKING_DIR}/{code_path.name}"
@@ -414,10 +428,13 @@ sys.exit(1 if error_occurred else 0)
 
             return results
 
+        except Exception as e:
+            return [{"name": "error", "status": "error", "error": f"Container runtime error: {str(e)}"}]
         finally:
             if container:
                 try:
-                    container.remove(force=True)
+                    container.kill()
+                    # Container will be auto-removed due to remove=True
                 except Exception:
                     pass
 

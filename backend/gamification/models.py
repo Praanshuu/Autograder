@@ -2,6 +2,9 @@ import uuid
 from django.db import models
 from django.conf import settings
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.db import transaction
+from django.utils import timezone
+from typing import List, Dict, Optional
 
 
 class PracticeQuestion(models.Model):
@@ -35,6 +38,79 @@ class PracticeQuestion(models.Model):
     
     def __str__(self):
         return f"{self.title} ({self.difficulty})"
+    
+    def get_difficulty_multiplier(self):
+        """Get the point multiplier based on difficulty level"""
+        multipliers = {
+            'easy': 1.0,
+            'medium': 1.5,
+            'hard': 2.0
+        }
+        return multipliers.get(self.difficulty, 1.0)
+    
+    def calculate_base_points(self):
+        """Calculate base points for this question based on difficulty"""
+        base_points = 100  # Base points for any practice question
+        return int(base_points * self.get_difficulty_multiplier())
+    
+    def calculate_points_with_bonuses(self, attempt_number=1, execution_time_ms=None):
+        """
+        Calculate total points including bonuses for first attempt and speed
+        
+        Args:
+            attempt_number: The attempt number (1 for first attempt)
+            execution_time_ms: Execution time in milliseconds for speed bonus
+            
+        Returns:
+            int: Total points including bonuses
+        """
+        points = self.calculate_base_points()
+        
+        # First attempt bonus (25% of base points)
+        if attempt_number == 1:
+            first_attempt_bonus = int(points * 0.25)
+            points += first_attempt_bonus
+        
+        # Speed bonus based on difficulty (if execution time provided)
+        if execution_time_ms is not None:
+            speed_bonus = self.calculate_speed_bonus(execution_time_ms)
+            points += speed_bonus
+        
+        return points
+    
+    def calculate_speed_bonus(self, execution_time_ms):
+        """
+        Calculate speed bonus based on execution time and difficulty
+        
+        Args:
+            execution_time_ms: Execution time in milliseconds
+            
+        Returns:
+            int: Speed bonus points
+        """
+        # Expected time thresholds by difficulty (in milliseconds)
+        expected_times = {
+            'easy': 5000,    # 5 seconds
+            'medium': 10000, # 10 seconds  
+            'hard': 15000    # 15 seconds
+        }
+        
+        expected_time = expected_times.get(self.difficulty, 10000)
+        
+        # Award speed bonus if completed in less than 50% of expected time
+        if execution_time_ms < expected_time * 0.5:
+            return 20  # Fixed speed bonus
+        
+        return 0
+    
+    def get_expected_completion_time(self):
+        """Get expected completion time in seconds based on difficulty"""
+        times = {
+            'easy': 300,    # 5 minutes
+            'medium': 900,  # 15 minutes
+            'hard': 1800    # 30 minutes
+        }
+        return times.get(self.difficulty, 900)
 
 
 class PracticeQuestionLibrary(models.Model):
@@ -214,6 +290,360 @@ class StudentAnalytics(models.Model):
     
     def __str__(self):
         return f"{self.student.username} Analytics"
+    def __str__(self):
+        return f"{self.student.username} Analytics"
+
+
+class LeaderboardManager:
+    """
+    Manager for leaderboard operations including ranking calculation and caching.
+    
+    This class handles:
+    - Ranking calculation with tie-breaking logic
+    - Global and class-specific leaderboards
+    - Cached leaderboard data for performance
+    - Real-time updates on point changes
+    """
+    
+    @staticmethod
+    def calculate_global_leaderboard() -> List[Dict]:
+        """
+        Calculate global leaderboard rankings based on total points.
+        
+        Returns:
+            List[Dict]: List of user rankings with tie-breaking
+        """
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        # Get all users with points, ordered by total points (desc), then by last_updated (asc) for tie-breaking
+        users_with_points = UserPoints.objects.select_related('user').order_by(
+            '-total_points', 'last_updated'
+        )
+        
+        rankings = []
+        current_rank = 1
+        
+        for i, user_points in enumerate(users_with_points):
+            # Handle ties - users with same points get same rank
+            if i > 0 and user_points.total_points < users_with_points[i-1].total_points:
+                current_rank = i + 1
+            
+            # Count completed problems
+            completed_problems = PracticeProgress.objects.filter(
+                student=user_points.user,
+                is_completed=True
+            ).count()
+            
+            rankings.append({
+                'user': user_points.user,
+                'rank': current_rank,
+                'total_points': user_points.total_points,
+                'practice_points': user_points.practice_points,
+                'assignment_points': user_points.assignment_points,
+                'completed_problems': completed_problems,
+                'last_updated': user_points.last_updated
+            })
+        
+        return rankings
+    
+    @staticmethod
+    def calculate_class_leaderboard(class_id: str) -> List[Dict]:
+        """
+        Calculate class-specific leaderboard rankings.
+        
+        Args:
+            class_id: UUID of the class
+            
+        Returns:
+            List[Dict]: List of user rankings for the class
+        """
+        from classes.models import Class, Enrollment
+        
+        try:
+            class_obj = Class.objects.get(id=class_id)
+            # Get students enrolled in this class
+            class_students = [
+                enrollment.user for enrollment in 
+                Enrollment.objects.filter(class_obj=class_obj, role='student').select_related('user')
+            ]
+        except Class.DoesNotExist:
+            return []
+        
+        # Get points for students in this class
+        student_points = UserPoints.objects.filter(
+            user__in=class_students
+        ).select_related('user').order_by('-total_points', 'last_updated')
+        
+        rankings = []
+        current_rank = 1
+        
+        for i, user_points in enumerate(student_points):
+            # Handle ties
+            if i > 0 and user_points.total_points < student_points[i-1].total_points:
+                current_rank = i + 1
+            
+            # Count completed problems
+            completed_problems = PracticeProgress.objects.filter(
+                student=user_points.user,
+                is_completed=True
+            ).count()
+            
+            rankings.append({
+                'user': user_points.user,
+                'rank': current_rank,
+                'total_points': user_points.total_points,
+                'practice_points': user_points.practice_points,
+                'assignment_points': user_points.assignment_points,
+                'completed_problems': completed_problems,
+                'last_updated': user_points.last_updated,
+                'class_id': class_id
+            })
+        
+        return rankings
+    
+    @staticmethod
+    @transaction.atomic
+    def update_global_leaderboard():
+        """
+        Update the cached global leaderboard entries.
+        This should be called when user points change.
+        """
+        from .realtime_service import realtime_service
+        
+        # Store old rankings for comparison
+        old_rankings = {
+            entry.user_id: entry.rank 
+            for entry in LeaderboardEntry.objects.filter(leaderboard_type='global')
+        }
+        
+        # Clear existing global leaderboard entries
+        LeaderboardEntry.objects.filter(leaderboard_type='global').delete()
+        
+        # Calculate new rankings
+        rankings = LeaderboardManager.calculate_global_leaderboard()
+        
+        # Create new leaderboard entries
+        leaderboard_entries = []
+        for ranking in rankings:
+            leaderboard_entries.append(
+                LeaderboardEntry(
+                    user=ranking['user'],
+                    rank=ranking['rank'],
+                    total_points=ranking['total_points'],
+                    completed_problems=ranking['completed_problems'],
+                    leaderboard_type='global'
+                )
+            )
+        
+        # Bulk create for performance
+        LeaderboardEntry.objects.bulk_create(leaderboard_entries)
+        
+        # Broadcast real-time updates
+        # Notify users of rank changes
+        for ranking in rankings:
+            user_id = ranking['user'].id
+            new_rank = ranking['rank']
+            old_rank = old_rankings.get(user_id)
+            
+            if old_rank and old_rank != new_rank:
+                realtime_service.notify_rank_change(
+                    user=ranking['user'],
+                    old_rank=old_rank,
+                    new_rank=new_rank,
+                    leaderboard_type='global'
+                )
+        
+        # Broadcast leaderboard update
+        leaderboard_data = LeaderboardManager.get_leaderboard_page('global', None, 1, 20)
+        realtime_service.broadcast_leaderboard_update('global', data=leaderboard_data)
+        
+        return len(leaderboard_entries)
+    
+    @staticmethod
+    @transaction.atomic
+    def update_class_leaderboard(class_id: str):
+        """
+        Update the cached class leaderboard entries.
+        
+        Args:
+            class_id: UUID of the class to update
+        """
+        from .realtime_service import realtime_service
+        
+        # Store old rankings for comparison
+        old_rankings = {
+            entry.user_id: entry.rank 
+            for entry in LeaderboardEntry.objects.filter(
+                leaderboard_type='class',
+                class_id=class_id
+            )
+        }
+        
+        # Clear existing class leaderboard entries
+        LeaderboardEntry.objects.filter(
+            leaderboard_type='class',
+            class_id=class_id
+        ).delete()
+        
+        # Calculate new rankings
+        rankings = LeaderboardManager.calculate_class_leaderboard(class_id)
+        
+        # Create new leaderboard entries
+        leaderboard_entries = []
+        for ranking in rankings:
+            leaderboard_entries.append(
+                LeaderboardEntry(
+                    user=ranking['user'],
+                    rank=ranking['rank'],
+                    total_points=ranking['total_points'],
+                    completed_problems=ranking['completed_problems'],
+                    leaderboard_type='class',
+                    class_id=class_id
+                )
+            )
+        
+        # Bulk create for performance
+        LeaderboardEntry.objects.bulk_create(leaderboard_entries)
+        
+        # Broadcast real-time updates
+        # Notify users of rank changes
+        for ranking in rankings:
+            user_id = ranking['user'].id
+            new_rank = ranking['rank']
+            old_rank = old_rankings.get(user_id)
+            
+            if old_rank and old_rank != new_rank:
+                realtime_service.notify_rank_change(
+                    user=ranking['user'],
+                    old_rank=old_rank,
+                    new_rank=new_rank,
+                    leaderboard_type='class',
+                    class_id=class_id
+                )
+        
+        # Broadcast leaderboard update
+        leaderboard_data = LeaderboardManager.get_leaderboard_page('class', class_id, 1, 20)
+        realtime_service.broadcast_leaderboard_update('class', class_id=class_id, data=leaderboard_data)
+        
+        return len(leaderboard_entries)
+    
+    @staticmethod
+    def get_user_rank(user, leaderboard_type='global', class_id=None) -> Optional[Dict]:
+        """
+        Get a specific user's rank and nearby competitors.
+        
+        Args:
+            user: User object
+            leaderboard_type: 'global' or 'class'
+            class_id: Required for class leaderboards
+            
+        Returns:
+            Dict with user rank and nearby competitors, or None if not found
+        """
+        try:
+            # Get user's leaderboard entry
+            user_entry = LeaderboardEntry.objects.get(
+                user=user,
+                leaderboard_type=leaderboard_type,
+                class_id=class_id
+            )
+            
+            # Get nearby competitors (3 above and 3 below)
+            nearby_entries = LeaderboardEntry.objects.filter(
+                leaderboard_type=leaderboard_type,
+                class_id=class_id,
+                rank__gte=max(1, user_entry.rank - 3),
+                rank__lte=user_entry.rank + 3
+            ).select_related('user').order_by('rank')
+            
+            return {
+                'user_rank': user_entry.rank,
+                'user_points': user_entry.total_points,
+                'user_problems': user_entry.completed_problems,
+                'nearby_competitors': [
+                    {
+                        'rank': entry.rank,
+                        'user': entry.user,
+                        'points': entry.total_points,
+                        'problems': entry.completed_problems,
+                        'is_current_user': entry.user == user
+                    }
+                    for entry in nearby_entries
+                ]
+            }
+            
+        except LeaderboardEntry.DoesNotExist:
+            return None
+    
+    @staticmethod
+    def get_leaderboard_page(leaderboard_type='global', class_id=None, page=1, page_size=20) -> Dict:
+        """
+        Get a paginated leaderboard.
+        
+        Args:
+            leaderboard_type: 'global' or 'class'
+            class_id: Required for class leaderboards
+            page: Page number (1-based)
+            page_size: Number of entries per page
+            
+        Returns:
+            Dict with leaderboard data and pagination info
+        """
+        # Calculate offset
+        offset = (page - 1) * page_size
+        
+        # Get leaderboard entries
+        queryset = LeaderboardEntry.objects.filter(
+            leaderboard_type=leaderboard_type,
+            class_id=class_id
+        ).select_related('user').order_by('rank')
+        
+        total_entries = queryset.count()
+        entries = queryset[offset:offset + page_size]
+        
+        return {
+            'entries': [
+                {
+                    'rank': entry.rank,
+                    'user': entry.user,
+                    'points': entry.total_points,
+                    'problems': entry.completed_problems,
+                    'updated_at': entry.updated_at
+                }
+                for entry in entries
+            ],
+            'pagination': {
+                'current_page': page,
+                'page_size': page_size,
+                'total_entries': total_entries,
+                'total_pages': (total_entries + page_size - 1) // page_size,
+                'has_next': offset + page_size < total_entries,
+                'has_previous': page > 1
+            }
+        }
+    
+    @staticmethod
+    def update_leaderboards_for_user(user):
+        """
+        Update leaderboards when a user's points change.
+        This is more efficient than recalculating entire leaderboards.
+        
+        Args:
+            user: User whose points changed
+        """
+        # Update global leaderboard
+        LeaderboardManager.update_global_leaderboard()
+        
+        # Update class leaderboards for classes the user belongs to
+        from classes.models import Class, Enrollment
+        user_classes = Class.objects.filter(
+            enrollments__user=user,
+            enrollments__role='student'
+        )
+        
+        for class_obj in user_classes:
+            LeaderboardManager.update_class_leaderboard(str(class_obj.id))
 
 
 class LeaderboardEntry(models.Model):

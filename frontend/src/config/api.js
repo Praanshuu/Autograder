@@ -2,6 +2,10 @@
 export const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_BASE_URL || '/api',
   TIMEOUT: 10000, // 10 seconds
+  
+  // WebSocket Configuration
+  WS_BASE_URL: import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000',
+  
   ENDPOINTS: {
     // Authentication
     AUTH: {
@@ -47,6 +51,19 @@ export const API_CONFIG = {
       DETAIL: (id) => `/notifications/${id}/`,
       MARK_READ: (id) => `/notifications/${id}/mark_read/`,
       MARK_ALL_READ: '/notifications/mark_all_read/',
+    },
+    // Gamification
+    GAMIFICATION: {
+      PRACTICE_QUESTIONS: '/gamification/practice-questions/',
+      PRACTICE_QUESTION_DETAIL: (id) => `/gamification/practice-questions/${id}/`,
+      PRACTICE_SUBMISSIONS: '/gamification/practice-submissions/',
+      PRACTICE_PROGRESS: '/gamification/practice-progress/',
+      PRACTICE_LIBRARY: '/gamification/practice-library/',
+      PRACTICE_ANALYTICS: '/gamification/practice-analytics/',
+      POINTS: '/gamification/points/',
+      ACHIEVEMENTS: '/gamification/achievements/',
+      LEADERBOARD: '/gamification/leaderboard/',
+      ANALYTICS: '/gamification/analytics/',
     },
   },
 };

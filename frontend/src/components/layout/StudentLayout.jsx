@@ -125,6 +125,12 @@ export default function StudentLayout({ children, refreshTrigger = 0 }) {
                             active={location.pathname === "/student/assignments"}
                         />
                         <SidebarItem
+                            icon={Code2}
+                            label="Practice"
+                            href="/student/practice"
+                            active={location.pathname === "/student/practice"}
+                        />
+                        <SidebarItem
                             icon={Calendar}
                             label="Calendar"
                             href="/student/calendar"

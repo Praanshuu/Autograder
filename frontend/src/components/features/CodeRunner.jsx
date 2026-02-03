@@ -155,9 +155,8 @@ const CodeRunner = () => {
                   className="px-3 py-1 border border-gray-300 rounded-md text-sm"
                 >
                   <option value="python">Python</option>
-                  <option value="javascript">JavaScript</option>
                   <option value="java">Java</option>
-                  <option value="cpp">C++</option>
+                  <option value="c">C</option>
                 </select>
                 <Button
                   onClick={runCode}

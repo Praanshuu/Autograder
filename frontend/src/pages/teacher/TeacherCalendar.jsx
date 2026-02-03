@@ -1,12 +1,44 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import TeacherLayout from "../../components/layout/TeacherLayout";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { ChevronLeft, ChevronRight, Plus, Calendar as CalendarIcon, Clock } from "lucide-react";
-import { MOCK_EVENTS } from "../../mocks/calendar";
+import { assignmentService } from "../../services/assignmentService";
 
 export default function TeacherCalendar() {
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [events, setEvents] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    // Load assignments and convert to calendar events
+    useEffect(() => {
+        const loadEvents = async () => {
+            try {
+                setLoading(true);
+                const response = await assignmentService.getTeacherAssignments();
+                
+                if (response.success && response.data) {
+                    // Convert assignments to calendar events
+                    const calendarEvents = response.data.map(assignment => ({
+                        id: assignment.id,
+                        title: assignment.title,
+                        date: new Date(assignment.due_date),
+                        type: assignment.type || 'Assignment',
+                        classId: assignment.module?.class_obj?.id,
+                        className: assignment.module?.class_obj?.name || 'Unknown Class'
+                    }));
+                    setEvents(calendarEvents);
+                }
+            } catch (error) {
+                console.error('Failed to load calendar events:', error);
+                setEvents([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        loadEvents();
+    }, []);
 
     const getDaysInMonth = (date) => {
         const year = date.getFullYear();
@@ -34,7 +66,7 @@ export default function TeacherCalendar() {
     };
 
     const getEventsForDay = (day) => {
-        return MOCK_EVENTS.filter(event => {
+        return events.filter(event => {
             const eventDate = new Date(event.date);
             return eventDate.getDate() === day &&
                 eventDate.getMonth() === currentDate.getMonth() &&
@@ -138,7 +170,7 @@ export default function TeacherCalendar() {
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="flex-1 overflow-y-auto p-4 space-y-4">
-                                {MOCK_EVENTS
+                                {events
                                     .sort((a, b) => new Date(a.date) - new Date(b.date))
                                     .slice(0, 10) // Show top 10 upcoming
                                     .map(event => (
@@ -152,18 +184,20 @@ export default function TeacherCalendar() {
                                                     <h4 className="text-sm font-semibold text-gray-900 line-clamp-1 group-hover:text-indigo-600 transition-colors">
                                                         {event.title}
                                                     </h4>
-                                                    {/* <span className="text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border">
-                                                    {event.type}
-                                                </span> */}
                                                 </div>
                                                 <p className="text-xs text-gray-500 mt-0.5">{event.className}</p>
                                                 <div className="flex items-center gap-1.5 mt-1.5">
                                                     <Clock className="w-3 h-3 text-gray-400" />
-                                                    <span className="text-xs text-gray-400">10:00 AM</span>
+                                                    <span className="text-xs text-gray-400">Due Date</span>
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
+                                {events.length === 0 && !loading && (
+                                    <p className="text-sm text-gray-500 text-center py-4">
+                                        No upcoming events
+                                    </p>
+                                )}
                             </CardContent>
                         </Card>
                     </div>

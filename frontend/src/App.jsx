@@ -24,6 +24,7 @@ import GradingInterface from "./pages/teacher/GradingInterface";
 import Settings from "./pages/teacher/Settings";
 import AllAssignments from "./pages/teacher/AllAssignments";
 import TeacherCalendar from "./pages/teacher/TeacherCalendar";
+import PracticeQuestionManager from "./pages/teacher/PracticeQuestionManager";
 
 // Student Pages
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -32,6 +33,8 @@ import StudentAssignments from "./pages/student/StudentAssignments";
 import StudentClassPage from "./pages/student/StudentClassPage";
 import StudentCalendar from "./pages/student/StudentCalendar";
 import StudentPerformance from "./pages/student/StudentPerformance";
+import StudentPractice from "./pages/student/StudentPractice";
+import PracticeWorkspace from "./components/features/student/PracticeWorkspace";
 
 /* -----------------------------
    Landing Page
@@ -185,6 +188,14 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/teacher/practice"
+            element={
+              <ProtectedRoute requiredRole="teacher">
+                <PracticeQuestionManager />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Student Routes */}
           <Route
@@ -232,6 +243,22 @@ function App() {
             element={
               <ProtectedRoute requiredRole="student">
                 <StudentPerformance />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/practice"
+            element={
+              <ProtectedRoute requiredRole="student">
+                <StudentPractice />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/student/practice/:questionId"
+            element={
+              <ProtectedRoute requiredRole="student">
+                <PracticeWorkspace />
               </ProtectedRoute>
             }
           />

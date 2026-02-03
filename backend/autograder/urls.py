@@ -24,7 +24,16 @@ def api_root(request):
             'submissions': '/api/submissions/submissions/',
             'code_execution': '/api/code/run/',
             'grading': '/api/grading/',
-            'notifications': '/api/notifications/'
+            'notifications': '/api/notifications/',
+            'gamification': {
+                'practice_questions': '/api/gamification/practice-questions/',
+                'practice_submissions': '/api/gamification/practice-submissions/',
+                'practice_library': '/api/gamification/practice-library/',
+                'points': '/api/gamification/api/points/',
+                'achievements': '/api/gamification/api/achievements/',
+                'leaderboard': '/api/gamification/api/leaderboard/',
+                'analytics': '/api/gamification/api/analytics/'
+            }
         },
         'documentation': 'See README.md for API documentation'
     })
@@ -40,6 +49,7 @@ urlpatterns = [
     # path('api/code/', include('submissions.urls')),
     # path('api/grading/', include('submissions.urls')),
     path('api/notifications/', include('notifications.urls')),
+    path('api/gamification/', include('gamification.urls')),
 ]
 
 # Serve media files in development

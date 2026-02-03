@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { authService } from '../services/authService.js';
+import websocketService from '../services/websocketService.js';
+import { tokenManager } from '../utils/tokenManager.js';
 
 // Initial state
 const initialState = {
@@ -95,14 +97,22 @@ export const AuthProvider = ({ children }) => {
               type: AUTH_ACTIONS.SET_USER,
               payload: { user: response.data.user },
             });
+            
+            // Set WebSocket authentication token
+            const token = tokenManager.getAccessToken();
+            if (token) {
+              websocketService.setAuthToken(token);
+            }
           } else {
             // Token might be invalid, clear it
             authService.logout();
+            websocketService.clearAuth();
             dispatch({ type: AUTH_ACTIONS.LOGOUT });
           }
         } catch (error) {
           console.error('Error initializing auth:', error);
           authService.logout();
+          websocketService.clearAuth();
           dispatch({ type: AUTH_ACTIONS.LOGOUT });
         }
       } else {
@@ -125,6 +135,13 @@ export const AuthProvider = ({ children }) => {
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
           payload: { user: response.data.user },
         });
+        
+        // Set WebSocket authentication token
+        const token = tokenManager.getAccessToken();
+        if (token) {
+          websocketService.setAuthToken(token);
+        }
+        
         return { success: true, user: response.data.user };
       } else {
         dispatch({
@@ -155,6 +172,13 @@ export const AuthProvider = ({ children }) => {
           type: AUTH_ACTIONS.LOGIN_SUCCESS,
           payload: { user: response.data.user },
         });
+        
+        // Set WebSocket authentication token
+        const token = tokenManager.getAccessToken();
+        if (token) {
+          websocketService.setAuthToken(token);
+        }
+        
         return { success: true, user: response.data.user };
       } else {
         dispatch({
@@ -176,6 +200,7 @@ export const AuthProvider = ({ children }) => {
   // Logout function
   const logout = () => {
     authService.logout();
+    websocketService.clearAuth();
     dispatch({ type: AUTH_ACTIONS.LOGOUT });
   };
 

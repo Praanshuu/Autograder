@@ -75,3 +75,15 @@ class AssignmentProgressSerializer(serializers.ModelSerializer):
     class Meta:
         model = AssignmentProgress
         fields = ['assignment_question', 'current_code', 'time_spent', 'last_updated']
+
+
+class GradebookEntrySerializer(serializers.ModelSerializer):
+    """Serializer for gradebook entries including points information"""
+    student = UserSerializer(read_only=True)
+    content_item_title = serializers.CharField(source='content_item.title', read_only=True)
+    content_item_type = serializers.CharField(source='content_item.content_type', read_only=True)
+    
+    class Meta:
+        model = GradebookEntry
+        fields = ['id', 'student', 'content_item', 'content_item_title', 'content_item_type',
+                  'final_score', 'points_earned', 'status', 'updated_at']

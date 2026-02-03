@@ -145,6 +145,70 @@ class CodeExecutor:
                     return f"Use of '{pattern}' is not allowed for security reasons"
         
         return None
+    
+    def _auto_fix_python_code(self, code: str) -> str:
+        """
+        Auto-fix common student mistakes in Python code:
+        1. Function defined but never called
+        2. Missing main execution
+        """
+        import re
+        
+        # Check if code only defines functions but has no main execution
+        lines = code.strip().split('\n')
+        
+        # Look for function definitions
+        function_defs = []
+        has_main_code = False
+        
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('def ') and ':' in stripped:
+                # Extract function name
+                match = re.match(r'def\s+(\w+)\s*\(', stripped)
+                if match:
+                    function_defs.append(match.group(1))
+            elif (stripped and 
+                  not stripped.startswith('#') and 
+                  not stripped.startswith('def ') and 
+                  not stripped.startswith(' ') and 
+                  not stripped.startswith('\t') and 
+                  stripped != 'pass' and
+                  not line.startswith('    ') and  # Not indented (inside function)
+                  not line.startswith('\t')):     # Not indented (inside function)
+                # This is main-level code (not inside a function)
+                has_main_code = True
+        
+        # If we have function definitions but no main code, try to auto-fix
+        if function_defs and not has_main_code:
+            logger.info(f"Auto-fixing code: found functions {function_defs} but no main execution")
+            
+            # Look for common patterns and try to call the function
+            # Pattern 1: Single function that looks like it should be called
+            if len(function_defs) == 1:
+                func_name = function_defs[0]
+                
+                # Check if function has input() calls - if so, call it without parameters
+                if 'input()' in code:
+                    # Find the function definition to see how many parameters it needs
+                    func_def_pattern = rf'def\s+{func_name}\s*\(([^)]*)\)'
+                    match = re.search(func_def_pattern, code)
+                    if match:
+                        params = match.group(1).strip()
+                        if params:
+                            # Function has parameters, but since it uses input(), call with dummy values
+                            param_count = len([p.strip() for p in params.split(',') if p.strip()])
+                            dummy_args = ', '.join(['0'] * param_count)
+                            return code + f'\n\n# Auto-generated function call\n{func_name}({dummy_args})'
+                        else:
+                            # No parameters
+                            return code + f'\n\n# Auto-generated function call\n{func_name}()'
+                
+                # Check if function takes parameters that match common patterns
+                # For now, just try calling without parameters
+                return code + f'\n\n# Auto-generated function call\n{func_name}()'
+        
+        return code
   
     #sandbox
     def _create_job_directory(self) -> Path:
@@ -167,9 +231,13 @@ class CodeExecutor:
         job_dir = self._create_job_directory()
         
         try:
+            # Check if code only defines functions without calling them
+            # This is a common student mistake - fix it automatically
+            modified_code = self._auto_fix_python_code(code)
+            
             # Write code to file
             code_file = job_dir / "program.py"
-            code_file.write_text(code, encoding='utf-8')
+            code_file.write_text(modified_code, encoding='utf-8')
             
             outputs = []
             

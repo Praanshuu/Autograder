@@ -5,6 +5,8 @@ export { classService } from './classService.js';
 export { assignmentService } from './assignmentService.js';
 export { submissionService } from './submissionService.js';
 export { notificationService } from './notificationService.js';
+export { practiceService } from './practiceService.js';
+export { gamificationService } from './gamificationService.js';
 
 // Re-export utilities
 export { tokenManager } from '../utils/tokenManager.js';

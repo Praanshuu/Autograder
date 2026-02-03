@@ -14,7 +14,8 @@ import {
     Menu,
     Clock,
     CheckCircle2,
-    MessageSquare
+    MessageSquare,
+    Brain
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
@@ -124,6 +125,12 @@ export default function TeacherLayout({ children }) {
                             label="All Assignments"
                             href="/teacher/assignments" // Placeholder for a global assignment view
                             active={location.pathname === "/teacher/assignments"}
+                        />
+                        <SidebarItem
+                            icon={Brain}
+                            label="Practice Questions"
+                            href="/teacher/practice"
+                            active={location.pathname === "/teacher/practice"}
                         />
                         <SidebarItem
                             icon={Archive}
