@@ -48,7 +48,10 @@ export default function StreamTab() {
             try {
                 const response = await assignmentService.getClassAssignments(classId);
                 if (response.success && response.data) {
-                    const upcomingAssignments = response.data
+                    // Handle pagination (DRF returns { results: [...] })
+                    const assignments = Array.isArray(response.data) ? response.data : (response.data.results || []);
+
+                    const upcomingAssignments = assignments
                         .filter(assignment => new Date(assignment.due_date) >= new Date())
                         .map(assignment => ({
                             id: assignment.id,
