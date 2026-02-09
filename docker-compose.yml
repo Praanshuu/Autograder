@@ -29,9 +29,9 @@ services:
   minio:
     image: minio/minio
     container_name: autograder_minio
-    ports:
-      - "9002:9000"
-      - "9003:9001"
+      ports:
+      - "9012:9000"
+      - "9013:9012"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
