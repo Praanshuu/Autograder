@@ -224,7 +224,16 @@ export default function MarksTab() {
                                             <TableCell key={assign.id} className="p-0 text-center border-l border-gray-100 hover:border-indigo-300 relative">
                                                 <div className={`flex items-center justify-center w-full h-16 ${getGradeColor(grade)}`}>
                                                     {grade !== undefined ? (
-                                                        <span className="text-lg font-mono font-medium tracking-tight">{grade}</span>
+                                                        <div className="flex flex-col">
+                                                            <span className="text-lg font-mono font-medium tracking-tight">
+                                                                {((grade / 100) * assign.points).toFixed(1)}
+                                                            </span>
+                                                            {!heatmapMode && (
+                                                                <span className="text-[10px] text-gray-400 font-normal">
+                                                                    /{assign.points}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     ) : (
                                                         <span className="text-gray-300">-</span>
                                                     )}

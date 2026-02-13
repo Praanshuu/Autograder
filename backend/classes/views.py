@@ -6,11 +6,14 @@ from django.db.models import Count, Q
 from .models import Class, Enrollment, Module
 from .serializers import ClassSerializer, EnrollmentSerializer
 from django.contrib.auth import get_user_model
-from submissions.models import GradebookEntry
+from submissions.models import GradebookEntry, SubmissionAttempt
 from core.permissions import IsTeacher
-from assignments.models import Assignment
+from assignments.models import Assignment, AssignmentQuestion
 
 User = get_user_model()
+from django.core.mail import send_mail
+from django.conf import settings
+from notifications.models import Notification
 
 
 class ClassViewSet(viewsets.ModelViewSet):
@@ -75,7 +78,7 @@ class ClassViewSet(viewsets.ModelViewSet):
             class_obj=class_obj,
             user=request.user,
             defaults={
-                'role': 'teacher' if request.user.role == 'teacher' else 'student',
+                'role': request.user.role if request.user.role in ['teacher', 'ta'] else 'student',
             }
         )
         
@@ -123,6 +126,114 @@ class ClassViewSet(viewsets.ModelViewSet):
             'data': people
         })
 
+    @action(detail=True, methods=['post'], url_path='add-member')
+    def add_member(self, request, pk=None):
+        """Add a member (TA or Student) by email manually"""
+        class_obj = self.get_object()
+        
+        # Only owner or teacher can add members
+        is_owner = class_obj.owner == request.user
+        is_teacher = Enrollment.objects.filter(class_obj=class_obj, user=request.user, role='teacher').exists()
+        
+        if not (is_owner or is_teacher):
+             return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        email = request.data.get('email')
+        role = request.data.get('role', 'student')
+        
+        if not email:
+            return Response({'message': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if role not in ['student', 'ta', 'teacher']:
+             return Response({'message': 'Invalid role'}, status=status.HTTP_400_BAD_REQUEST)
+             
+        user_created = False
+        users_found = User.objects.filter(email=email)
+        
+        if users_found.exists():
+            user_to_add = users_found.first()
+        else:
+            # Create new user
+            from django.utils.crypto import get_random_string
+            username = email.split('@')[0] + '_' + get_random_string(4)
+            # Ensure username is unique
+            while User.objects.filter(username=username).exists():
+                username = email.split('@')[0] + '_' + get_random_string(4)
+                
+            user_to_add = User.objects.create_user(
+                username=username,
+                email=email,
+                password=get_random_string(32), # Random complex password
+                first_name='Invited',
+                last_name='User',
+                role=role if role in ['ta', 'teacher'] else 'student' # Set initial role
+            )
+            user_created = True
+        
+        # Check if already enrolled
+        if Enrollment.objects.filter(class_obj=class_obj, user=user_to_add).exists():
+             return Response({'message': 'User already enrolled'}, status=status.HTTP_400_BAD_REQUEST)
+             
+        Enrollment.objects.create(
+            class_obj=class_obj,
+            user=user_to_add,
+            role=role
+        )
+
+        # Send Email Invitation
+        try:
+            role_display = 'Teaching Assistant' if role == 'ta' else role.capitalize()
+            
+            if user_created:
+                # Generate Password Reset Token
+                from django.contrib.auth.tokens import default_token_generator
+                from django.utils.http import urlsafe_base64_encode
+                from django.utils.encoding import force_bytes
+                
+                uid = urlsafe_base64_encode(force_bytes(user_to_add.pk))
+                token = default_token_generator.make_token(user_to_add)
+                reset_link = f"http://localhost:5173/reset-password/{uid}/{token}"
+                
+                subject = f'Welcome to Autograder - Invitation to join {class_obj.name}'
+                message = (
+                    f'Hello,\n\n'
+                    f'You have been invited to join the class "{class_obj.name}" as a {role_display}.\n\n'
+                    f'An account has been created for you. Please click the link below to set your password and log in:\n\n'
+                    f'{reset_link}\n\n'
+                    f'If you did not expect this invitation, please ignore this email.'
+                )
+            else:
+                subject = f'Invitation to join {class_obj.name}'
+                message = (
+                    f'Hello {user_to_add.first_name},\n\n'
+                    f'You have been added to the class "{class_obj.name}" as a {role_display}.\n\n'
+                    f'Log in to view your class: http://localhost:5173/login'
+                )
+
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user_to_add.email],
+                fail_silently=True,
+            )
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+
+        # Create In-App Notification
+        try:
+            Notification.objects.create(
+                user=user_to_add,
+                type='invite',
+                title=f'Added to {class_obj.name}',
+                message=f'You have been added to {class_obj.name} as a {role_display}.',
+                reference_link=f'/student/class/{class_obj.id}' if role == 'student' else f'/teacher/class/{class_obj.id}'
+            )
+        except Exception as e:
+             print(f"Failed to create notification: {e}")
+        
+        return Response({'success': True, 'message': f'Added {user_to_add.email} as {role}'})
+
     @action(detail=True, methods=['get'])
     def grades(self, request, pk=None):
         """Get gradebook data (Assignments x Students)"""
@@ -146,15 +257,15 @@ class ClassViewSet(viewsets.ModelViewSet):
         # Map: student_id -> { content_item_id: score }
         grades_map = {}
         for entry in entries:
-            s_id = entry['student_id']
-            c_id = entry['content_item_id']
+            s_id = str(entry['student_id'])
+            c_id = str(entry['content_item_id'])
             if s_id not in grades_map: grades_map[s_id] = {}
             grades_map[s_id][c_id] = entry['final_score']
             
         # 4. Construct Roster
         roster = []
         for student in students:
-            student_grades = grades_map.get(student.id, {})
+            student_grades = grades_map.get(str(student.id), {})
             roster.append({
                 'id': student.id,
                 'name': f"{student.first_name} {student.last_name}",
@@ -166,6 +277,80 @@ class ClassViewSet(viewsets.ModelViewSet):
             'assignments': assign_data,
             'roster': roster
         })
+
+    @action(detail=True, methods=['get'], url_path='student-topic-grades')
+    def student_topic_grades(self, request, pk=None):
+        """
+        Get aggregated grades by topic (tags) for a student in this class.
+        """
+        class_obj = self.get_object()
+        student_id = request.query_params.get('student_id')
+        
+        if not student_id:
+            return Response({'message': 'Student ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Verify student is enrollment in class
+        if not Enrollment.objects.filter(class_obj=class_obj, user_id=student_id, role='student').exists():
+             return Response({'message': 'Student not found in this class'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Get all attempts for this student in this class
+        # Path: Attempt -> AssignmentQuestion -> Assignment -> Module -> Class
+        attempts = SubmissionAttempt.objects.filter(
+            student_id=student_id,
+            assignment_question__assignment__module__class_obj=class_obj
+            # status='success' <-- REMOVED to include failed attempts
+        ).select_related('assignment_question__question')
+        
+        # We need "Latest Attempt" per Question to avoid counting multiple attempts for same question
+        # Group by AssignmentQuestion
+        latest_attempts = {}
+        for attempt in attempts:
+            aq_id = attempt.assignment_question_id
+            # If we haven't seen this AQ or this attempt is newer
+            if aq_id not in latest_attempts or attempt.created_at > latest_attempts[aq_id].created_at:
+                latest_attempts[aq_id] = attempt
+                
+        # Now aggregate by Tag
+        tag_stats = {} # { tag: { total_score: 0, count: 0 } }
+        
+        for attempt in latest_attempts.values():
+            question = attempt.assignment_question.question
+            tags = question.tags or [] # List of strings
+            
+            # Calculate percentage score for this attempt
+            aq = attempt.assignment_question
+            max_points = aq.custom_points if aq.custom_points is not None else 10
+            if max_points <= 0: max_points = 10
+            
+            if attempt.manual_score is not None:
+                # Normalize to 0-100
+                score = (attempt.manual_score / max_points) * 100
+            else:
+                score = 100 if attempt.status == 'success' else 0
+            
+            # Cap at 100
+            if score > 100: score = 100
+            
+            # If no tags, maybe categorize as "Uncategorized"?
+            if not tags:
+                tags = ["General"]
+                
+            for tag in tags:
+                if tag not in tag_stats:
+                    tag_stats[tag] = {'total_score': 0, 'count': 0}
+                tag_stats[tag]['total_score'] += score
+                tag_stats[tag]['count'] += 1
+                
+        # Format for response
+        results = []
+        for tag, stats in tag_stats.items():
+            results.append({
+                'topic': tag,
+                'score': round(stats['total_score'] / stats['count']),
+                'questions_count': stats['count']
+            })
+            
+        return Response(results)
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):

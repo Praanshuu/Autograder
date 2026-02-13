@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { Plus, UserPlus, MoreVertical, Mail, Trash2 } from "lucide-react";
+import { Plus, UserPlus, MoreVertical, Mail, Trash2, Shield, GraduationCap, User } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "../../ui/dropdown-menu";
 import { classService } from "../../../services/classService";
+import { useAuth } from "../../../contexts/AuthContext";
 import {
     Dialog,
     DialogContent,
@@ -12,172 +13,240 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "../../ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "../../ui/avatar";
 
 export default function PeopleTab({ classId }) {
+    const { user } = useAuth();
     const [inviteEmail, setInviteEmail] = useState("");
+    const [inviteRole, setInviteRole] = useState("student"); // 'student', 'ta', 'teacher'
     const [students, setStudents] = useState([]);
     const [teachers, setTeachers] = useState([]);
+    const [tas, setTas] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [inviteLoading, setInviteLoading] = useState(false);
+    const [inviteOpen, setInviteOpen] = useState(false);
+
+    const loadClassMembers = async () => {
+        if (!classId) return;
+
+        try {
+            setLoading(true);
+            const response = await classService.getClassPeople(classId);
+
+            if (response.success && response.data?.data) {
+                const members = response.data.data;
+                const studentMembers = members.filter(member => member.role === 'student');
+                const teacherMembers = members.filter(member => member.role === 'teacher');
+                const taMembers = members.filter(member => member.role === 'ta');
+
+                setStudents(studentMembers);
+                setTeachers(teacherMembers);
+                setTas(taMembers);
+            }
+        } catch (error) {
+            console.error('Failed to load class members:', error);
+            setStudents([]);
+            setTeachers([]);
+            setTas([]);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const loadClassMembers = async () => {
-            if (!classId) return;
-            
-            try {
-                setLoading(true);
-                const response = await classService.getClassMembers(classId);
-                
-                if (response.success && response.data) {
-                    // Separate students and teachers
-                    const studentMembers = response.data.filter(member => member.role === 'student');
-                    const teacherMembers = response.data.filter(member => member.role === 'teacher');
-                    
-                    setStudents(studentMembers);
-                    setTeachers(teacherMembers);
-                }
-            } catch (error) {
-                console.error('Failed to load class members:', error);
-                setStudents([]);
-                setTeachers([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         loadClassMembers();
     }, [classId]);
 
-    const handleInvite = () => {
-        // In a real app, this would make an API call
-        console.log("Inviting:", inviteEmail);
-        setInviteEmail(""); // Reset field
+    const handleInvite = async () => {
+        if (!inviteEmail) return;
+
+        try {
+            setInviteLoading(true);
+            const response = await classService.addMember(classId, {
+                email: inviteEmail,
+                role: inviteRole
+            });
+
+            if (response.success) {
+                // Refresh list
+                await loadClassMembers();
+                setInviteEmail("");
+                setInviteOpen(false);
+                alert("Member added successfully!");
+            } else {
+                alert(response.message || "Failed to add member");
+            }
+        } catch (error) {
+            console.error('Invite failed:', error);
+            const errorMessage = error.response?.data?.message || "Failed to invite member. User likely does not exist.";
+            alert(errorMessage);
+        } finally {
+            setInviteLoading(false);
+        }
+    };
+
+    const openInviteDialog = (role) => {
+        setInviteRole(role);
+        setInviteEmail("");
+        setInviteOpen(true);
+    };
+
+    const renderMemberRow = (member) => {
+        const isCurrentUser = user && member.id === user.id;
+
+        // Handle name splitting for initials
+        const nameParts = member.name ? member.name.split(' ') : ['?', '?'];
+        const initials = nameParts.length > 1
+            ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`
+            : nameParts[0][0] || '?';
+
+        return (
+            <div key={member.id} className={`flex items-center justify-between py-4 px-4 hover:bg-gray-50 rounded-xl transition-all border-b border-gray-100 last:border-0 group ${isCurrentUser ? 'bg-indigo-50/50 hover:bg-indigo-50' : ''}`}>
+                <div className="flex items-center gap-4">
+                    <Avatar className="h-10 w-10 border-2 border-white shadow-sm">
+                        <AvatarImage src={member.avatar_url} />
+                        <AvatarFallback className={`${isCurrentUser ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {initials}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <span className={`font-semibold text-sm ${isCurrentUser ? 'text-indigo-900' : 'text-gray-900'}`}>
+                                {member.name}
+                            </span>
+                            {isCurrentUser && (
+                                <span className="text-[10px] font-bold uppercase tracking-wider bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded">
+                                    You
+                                </span>
+                            )}
+                        </div>
+                        <p className="text-xs text-gray-500">{member.email}</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {!isCurrentUser && (
+                        <>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50">
+                                <Mail className="w-4 h-4" />
+                            </Button>
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-900">
+                                        <MoreVertical className="w-4 h-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50 gap-2">
+                                        <Trash2 className="w-4 h-4" />
+                                        Remove from class
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        </>
+                    )}
+                </div>
+            </div>
+        );
     };
 
     return (
-        <div className="max-w-4xl mx-auto space-y-12">
+        <div className="max-w-5xl mx-auto space-y-10 pb-20">
+
+            {/* Invite Dialog */}
+            <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Invite {inviteRole === 'ta' ? 'Teaching Assistant' : inviteRole === 'teacher' ? 'Teacher' : 'Student'}</DialogTitle>
+                        <DialogDescription>
+                            Enter the email address of the {inviteRole} you want to add.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                            <Input
+                                id="email"
+                                placeholder="email@school.edu"
+                                value={inviteEmail}
+                                onChange={(e) => setInviteEmail(e.target.value)}
+                            />
+                            <Button onClick={handleInvite} disabled={inviteLoading}>
+                                {inviteLoading ? "Sending Invite..." : "Send Invitation"}
+                            </Button>
+                        </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             {/* Teachers Section */}
             <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-indigo-200 pb-4">
-                    <h2 className="text-3xl font-medium text-indigo-700">Teachers</h2>
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-indigo-600 hover:bg-indigo-50">
-                                <UserPlus className="w-5 h-5" />
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                            <DialogHeader>
-                                <DialogTitle>Invite Teachers</DialogTitle>
-                                <DialogDescription>
-                                    Enter the email address of the teacher you want to invite to this class.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Input
-                                        id="email"
-                                        placeholder="teacher@school.edu"
-                                        value={inviteEmail}
-                                        onChange={(e) => setInviteEmail(e.target.value)}
-                                    />
-                                    <Button onClick={handleInvite}>Invite</Button>
-                                </div>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
+                <div className="flex items-center justify-between border-b pb-2 mb-2">
+                    <h2 className="text-2xl font-bold text-indigo-700 flex items-center gap-2">
+                        Teachers
+                    </h2>
                 </div>
-                <div className="flex items-center justify-between py-4 px-2 hover:bg-gray-50 rounded-lg transition-colors group">
-                    <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border border-indigo-200">
-                            JD
-                        </div>
-                        <span className="font-medium text-gray-900 text-sm">John Doe (You)</span>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    {teachers.map(renderMemberRow)}
+                </div>
+            </div>
+
+            {/* TAs Section */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between border-b pb-2 mb-2">
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-bold text-indigo-700">Teaching Assistants</h2>
+                        <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-100">
+                            {tas.length}
+                        </span>
                     </div>
+                    <Button variant="outline" size="sm" className="gap-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50" onClick={() => openInviteDialog('ta')}>
+                        <UserPlus className="w-4 h-4" />
+                        Invite TA
+                    </Button>
+                </div>
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    {tas.length === 0 ? (
+                        <div className="p-8 text-center text-gray-500 bg-gray-50/50">
+                            No Teaching Assistants yet. Invite one to help manage the class.
+                        </div>
+                    ) : (
+                        tas.map(renderMemberRow)
+                    )}
                 </div>
             </div>
 
             {/* Students Section */}
             <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-indigo-200 pb-4">
-                    <div className="flex items-center gap-4">
-                        <h2 className="text-3xl font-medium text-indigo-700">Students</h2>
-                        <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded-full">
-                            {students.length} students
+                <div className="flex items-center justify-between border-b pb-2 mb-2">
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-bold text-indigo-700">Students</h2>
+                        <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full border border-indigo-100">
+                            {students.length}
                         </span>
                     </div>
-                    <Dialog>
-                        <DialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-indigo-600 hover:bg-indigo-50">
-                                <UserPlus className="w-5 h-5" />
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-md">
-                            <DialogHeader>
-                                <DialogTitle>Invite Students</DialogTitle>
-                                <DialogDescription>
-                                    Enter the email address of the student you want to invite to this class.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Input
-                                        id="student-email"
-                                        placeholder="student@school.edu"
-                                        value={inviteEmail}
-                                        onChange={(e) => setInviteEmail(e.target.value)}
-                                    />
-                                    <Button onClick={handleInvite}>Invite</Button>
-                                </div>
-                            </div>
-                        </DialogContent>
-                    </Dialog>
+                    <Button variant="outline" size="sm" className="gap-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50" onClick={() => openInviteDialog('student')}>
+                        <UserPlus className="w-4 h-4" />
+                        Invite Student
+                    </Button>
                 </div>
 
-                <div className="space-y-1">
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                     {loading ? (
-                        <div className="text-center py-4">
-                            <p className="text-gray-500">Loading students...</p>
+                        <div className="text-center py-12">
+                            <p className="text-gray-500">Loading class roster...</p>
                         </div>
                     ) : students.length === 0 ? (
-                        <div className="text-center py-8">
-                            <p className="text-gray-500">No students enrolled yet</p>
-                        </div>
-                    ) : (
-                        students.map((student) => (
-                            <div key={student.user.id} className="flex items-center justify-between py-3 px-2 hover:bg-gray-50 rounded-lg transition-colors border-b border-gray-50 last:border-0 group">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center text-gray-600 font-bold border border-gray-200 text-xs">
-                                        {student.user.first_name?.[0]}{student.user.last_name?.[0]}
-                                    </div>
-                                    <div>
-                                        <span className="font-medium text-gray-900 text-sm">
-                                            {student.user.first_name} {student.user.last_name}
-                                        </span>
-                                        <p className="text-xs text-gray-500">{student.user.email}</p>
-                                    </div>
-                                </div>
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-indigo-600">
-                                        <Mail className="w-4 h-4" />
-                                    </Button>
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600">
-                                                <MoreVertical className="w-4 h-4" />
-                                            </Button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end">
-                                            <DropdownMenuItem>Email student</DropdownMenuItem>
-                                            <DropdownMenuItem className="text-red-600 gap-2">
-                                                <Trash2 className="w-4 h-4" />
-                                                Remove
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                        <div className="text-center py-12 bg-gray-50/50">
+                            <div className="mb-3 flex justify-center">
+                                <div className="w-12 h-12 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-400">
+                                    <GraduationCap className="w-6 h-6" />
                                 </div>
                             </div>
-                        ))
+                            <h3 className="text-gray-900 font-medium">No students enrolled yet</h3>
+                            <p className="text-gray-500 text-sm mt-1">Invite students to get started</p>
+                        </div>
+                    ) : (
+                        students.map(renderMemberRow)
                     )}
                 </div>
             </div>

@@ -3,6 +3,8 @@ import tempfile
 import os
 from pathlib import Path
 from django.conf import settings
+import time
+import ast
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +44,8 @@ def execute_code(code, language, test_cases):
         # Use our custom executor that captures all outputs
         results = _execute_with_output_capture(temp_file_path, language, test_cases)
         return results
-        
+
+
     except Exception as e:
         logger.error(f"Code execution failed: {e}")
         return [{
@@ -129,7 +132,7 @@ def _execute_python_with_output(analyzer, code_path, test_cases):
             expected = str(test_case.get('expected_output', '')).strip()
             
             # Run the test case
-            ec, out, err = analyzer._run_python_test_case(
+            ec, out, err, duration = analyzer._run_python_test_case(
                 Path(code_path), 
                 {'type': 'program'}, 
                 input_str
@@ -160,7 +163,7 @@ def _execute_python_with_output(analyzer, code_path, test_cases):
                 'status': status,
                 'console_output': console_output,
                 'error_message': error_message,
-                'execution_time': 0,
+                'execution_time': duration,
                 'test_case': test_case
             })
             
@@ -200,6 +203,7 @@ def _execute_python_simple(code_path, test_cases):
             
             try:
                 # Execute the script with input
+                start_time = time.time()
                 process = subprocess.run(
                     ['python3', temp_script_path],
                     input=input_str,
@@ -208,6 +212,8 @@ def _execute_python_simple(code_path, test_cases):
                     timeout=5,  # 5 second timeout
                     cwd=os.path.dirname(temp_script_path)
                 )
+                end_time = time.time()
+                duration = int((end_time - start_time) * 1000)
                 
                 if process.returncode == 0:
                     actual_output = process.stdout.strip()
@@ -220,7 +226,7 @@ def _execute_python_simple(code_path, test_cases):
                         'status': status,
                         'console_output': actual_output,
                         'error_message': process.stderr if status == 'fail' else '',
-                        'execution_time': 0,
+                        'execution_time': duration,
                         'test_case': test_case
                     })
                 else:
@@ -284,7 +290,7 @@ def _execute_c_with_output(analyzer, code_path, test_cases):
             'status': test_result.get('status', 'error'),
             'console_output': test_result.get('actual', ''),
             'error_message': test_result.get('error', ''),
-            'execution_time': 0,
+            'execution_time': test_result.get('execution_time', 0),
             'test_case': test_case_data
         }
         
@@ -318,7 +324,7 @@ def _execute_java_with_output(analyzer, code_path, test_cases):
             'status': test_result.get('status', 'error'),
             'console_output': test_result.get('actual', ''),
             'error_message': test_result.get('error', ''),
-            'execution_time': 0,
+            'execution_time': test_result.get('execution_time', 0),
             'test_case': test_case_data
         }
         
@@ -369,3 +375,54 @@ def _format_docker_results(docker_result, original_test_cases):
             'test_case': tc_data
         })
     return formatted
+
+def analyze_code_structure(code):
+    """
+    Analyze Python code structure using AST.
+    Returns a list of detected tags/keywords.
+    """
+    tags = []
+    try:
+        tree = ast.parse(code)
+        
+        # Walk the tree
+        for node in ast.walk(tree):
+            # Recursion Detection
+            if isinstance(node, ast.FunctionDef):
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call):
+                        if isinstance(child.func, ast.Name) and child.func.id == node.name:
+                            if "recursion" not in tags: tags.append("recursion")
+            
+            # Nested Loops
+            if isinstance(node, (ast.For, ast.While)):
+                for child in node.body:
+                    if isinstance(child, (ast.For, ast.While)):
+                        if "nested_loops" not in tags: tags.append("nested_loops")
+                        
+            # List Comprehension
+            if isinstance(node, ast.ListComp):
+                if "list_comprehension" not in tags: tags.append("list_comprehension")
+                
+            # Dictionary Comprehension
+            if isinstance(node, ast.DictComp):
+                if "dict_comprehension" not in tags: tags.append("dict_comprehension")
+                
+            # Set Comprehension
+            if isinstance(node, ast.SetComp):
+                if "set_comprehension" not in tags: tags.append("set_comprehension")
+                
+            # Generators
+            if isinstance(node, ast.GeneratorExp):
+                if "generator" not in tags: tags.append("generator")
+
+            # Try/Except
+            if isinstance(node, ast.Try):
+                if "error_handling" not in tags: tags.append("error_handling")
+
+    except SyntaxError:
+        tags.append("syntax_error")
+    except Exception:
+        pass
+        
+    return tags

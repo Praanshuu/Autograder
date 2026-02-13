@@ -127,6 +127,28 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     pass # Ignore invalid question IDs
 
     def perform_update(self, serializer):
+        user = self.request.user
+        instance = serializer.instance
+        
+        # Check if is_published is being changed by a non-teacher
+        if 'is_published' in serializer.validated_data:
+            new_status = serializer.validated_data['is_published']
+            
+            if new_status != instance.is_published:
+                # Verify permissions
+                class_owner = instance.module.class_obj.owner
+                is_owner = class_owner == user
+                is_teacher = Enrollment.objects.filter(
+                    class_obj=instance.module.class_obj, 
+                    user=user, 
+                    role='teacher'
+                ).exists()
+                is_admin = user.role == 'admin'
+                
+                if not (is_owner or is_teacher or is_admin):
+                    # Revert to original status
+                    serializer.validated_data['is_published'] = instance.is_published
+
         assignment = serializer.save()
         
         # Handle question_ids linkage update
@@ -158,10 +180,21 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         assignment = self.get_object()
         
         # Check authorization relative to class owner/teacher
+        # TAs (role='ta') cannot publish. Only 'teacher' or 'admin' or class owner.
         class_owner = assignment.module.class_obj.owner
-        if class_owner != request.user and request.user.role not in ['admin', 'teacher']:
+        
+        # Check credentials
+        is_owner = class_owner == request.user
+        is_teacher = Enrollment.objects.filter(
+            class_obj=assignment.module.class_obj, 
+            user=request.user, 
+            role='teacher'
+        ).exists()
+        is_admin = request.user.role == 'admin'
+        
+        if not (is_owner or is_teacher or is_admin):
              return Response(
-                {'message': 'Not authorized'},
+                {'message': 'Not authorized. Only Teachers can publish.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
@@ -175,18 +208,21 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def close(self, request, pk=None):
-        """Close an assignment (unpublish or set due date passed?)"""
-        # "Closed" state doesn't exist in boolean is_published.
-        # Maybe set is_published = False? Or we need a status Enum?
-        # Schema v3 ContentItem has is_published (Bool).
-        # Assignment has mode (Practice/Exam).
-        # Maybe "Close" means unpublish?
-        
+        """Close an assignment (unpublish)"""
         assignment = self.get_object()
         
-        if assignment.module.class_obj.owner != request.user and request.user.role != 'admin':
+        class_owner = assignment.module.class_obj.owner
+        is_owner = class_owner == request.user
+        is_teacher = Enrollment.objects.filter(
+            class_obj=assignment.module.class_obj, 
+            user=request.user, 
+            role='teacher'
+        ).exists()
+        is_admin = request.user.role == 'admin'
+        
+        if not (is_owner or is_teacher or is_admin):
             return Response(
-                {'message': 'Not authorized'},
+                {'message': 'Not authorized. Only Teachers can close assignments.'},
                 status=status.HTTP_403_FORBIDDEN
             )
         

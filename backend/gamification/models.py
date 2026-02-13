@@ -21,6 +21,7 @@ class PracticeQuestion(models.Model):
     difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES)
     category = models.CharField(max_length=100)  # e.g., "Arrays", "Recursion"
     test_cases = models.JSONField()  # Same format as existing questions
+    config = models.JSONField(default=dict, blank=True)  # runtime configuration
     starter_code = models.TextField(blank=True)
     point_value = models.IntegerField(validators=[MinValueValidator(1)])  # Points awarded for completion
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

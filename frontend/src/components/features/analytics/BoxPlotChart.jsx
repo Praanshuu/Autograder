@@ -13,7 +13,7 @@ export default function BoxPlotChart({ data }) {
 
     if (!stats) return null;
 
-    // Canvas dimensions
+    // Canvas dimensions (Logical coordinates for SVG viewBox)
     const width = 200;
     const height = 300;
     const padding = 20;
@@ -36,7 +36,7 @@ export default function BoxPlotChart({ data }) {
     const boxWidth = 80;
 
     return (
-        <Card className="col-span-1 border-indigo-100 shadow-sm">
+        <Card className="col-span-1 border-indigo-100 shadow-sm h-full">
             <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                     <div>
@@ -48,9 +48,9 @@ export default function BoxPlotChart({ data }) {
                     </div>
                 </div>
             </CardHeader>
-            <CardContent className="flex justify-center pb-6">
-                <div className="relative group">
-                    <svg width={width} height={height} className="overflow-visible">
+            <CardContent className="flex justify-center pb-6 h-full min-h-[300px]">
+                <div className="relative group w-full h-full flex items-center justify-center">
+                    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full max-h-[300px] overflow-visible" preserveAspectRatio="xMidYMid meet">
                         {/* Grid Lines (0, 25, 50, 75, 100) */}
                         {[0, 25, 50, 75, 100].map((tick) => (
                             <g key={tick}>

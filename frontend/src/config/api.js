@@ -1,11 +1,11 @@
 // API Configuration
 export const API_CONFIG = {
   BASE_URL: import.meta.env.VITE_API_BASE_URL || '/api',
-  TIMEOUT: 10000, // 10 seconds
-  
+  TIMEOUT: 30000, // 30 seconds — large analytics payloads need more time
+
   // WebSocket Configuration
   WS_BASE_URL: import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000',
-  
+
   ENDPOINTS: {
     // Authentication
     AUTH: {
@@ -38,6 +38,7 @@ export const API_CONFIG = {
     SUBMISSIONS: {
       LIST: '/submissions/attempts/',
       DETAIL: (id) => `/submissions/attempts/${id}/`,
+      ANALYTICS: '/submissions/attempts/analytics/',
       RUN_CODE: '/submissions/attempts/run/',
       GRADE: (id) => `/submissions/attempts/${id}/grade/`,
       PUBLISH: (id) => `/submissions/attempts/${id}/publish/`,

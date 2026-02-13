@@ -17,6 +17,12 @@ export const submissionService = {
     return await api.get(url);
   },
 
+  // Get lightweight analytics data for an assignment (no source code, minimal fields)
+  getAnalyticsSubmissions: async (assignmentId) => {
+    const url = `${API_CONFIG.ENDPOINTS.SUBMISSIONS.ANALYTICS}?assignment_id=${assignmentId}`;
+    return await api.get(url);
+  },
+
   // Get submission by ID
   getSubmission: async (submissionId) => {
     return await api.get(API_CONFIG.ENDPOINTS.SUBMISSIONS.DETAIL(submissionId));

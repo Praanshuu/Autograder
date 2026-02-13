@@ -10,7 +10,7 @@ class QuestionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Question
-        fields = ['id', 'title', 'slug', 'description', 'starter_code', 'reference_solution', 'test_cases']
+        fields = ['id', 'title', 'slug', 'description', 'starter_code', 'reference_solution', 'test_cases', 'tags']
 
     def create(self, validated_data):
         if 'slug' not in validated_data:

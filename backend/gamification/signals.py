@@ -585,3 +585,25 @@ def trigger_leaderboard_update_assignment(sender, instance, created, **kwargs):
             f"Error updating leaderboard for assignment submission {instance.id}: {e}",
             exc_info=True
         )
+
+
+from .models import PracticeQuestion
+
+@receiver(post_save, sender=PracticeQuestion)
+def create_default_config(sender, instance, created, **kwargs):
+    """
+    Ensure every PracticeQuestion has a default configuration.
+    This signal runs after a PracticeQuestion is saved.
+    """
+    if created or not instance.config:
+        default_config = {
+            "time_limit": 2.0,      # seconds
+            "memory_limit": 256,    # MB
+            "difficulty": instance.difficulty,
+            "allow_imports": []
+        }
+        
+        # Only update if config is empty or doesn't exist
+        if not instance.config:
+            instance.config = default_config
+            instance.save(update_fields=['config'])

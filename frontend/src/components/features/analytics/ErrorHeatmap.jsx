@@ -37,30 +37,85 @@ export default function ErrorHeatmap({ questions }) {
                                 return (
                                     <div
                                         key={tc.id}
-                                        className={`p-3 rounded-lg border flex flex-col gap-3 ${statusColor} transition-all hover:shadow-sm`}
+                                        className="p-3 rounded-lg border flex flex-col gap-3 bg-white hover:shadow-md transition-all relative group"
                                     >
                                         <div className="flex justify-between items-start gap-2">
                                             <span
                                                 className="text-sm font-medium leading-tight truncate"
-                                                title={tc.name} // Show full name on hover
+                                                title={tc.name}
                                             >
                                                 {tc.concept || tc.name}
                                             </span>
-                                            {icon}
+                                            {tc.passRate >= 85 ? (
+                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                            ) : (
+                                                <AlertTriangle className={`w-4 h-4 ${tc.passRate < 50 ? "text-red-500" : "text-amber-500"}`} />
+                                            )}
                                         </div>
 
                                         <div className="mt-auto">
-                                            <div className="flex justify-between text-xs mb-1.5 opacity-90 font-medium">
-                                                <span>Success Rate</span>
-                                                <span>{tc.passRate}%</span>
+                                            <div className="flex justify-between text-xs mb-1.5 opacity-90 font-medium text-gray-600">
+                                                <span>{tc.total} Attempts</span>
+                                                <span>{tc.passRate}% Pass</span>
                                             </div>
-                                            {/* Progress Bar */}
-                                            <div className="h-2 w-full bg-white/50 rounded-full overflow-hidden">
+
+                                            {/* Segmented Progress Bar */}
+                                            <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden flex">
+                                                {/* Pass Segment */}
                                                 <div
-                                                    className={`h-full rounded-full ${barColor}`}
+                                                    className="h-full bg-green-500"
                                                     style={{ width: `${tc.passRate}%` }}
                                                 />
+
+                                                {/* Error Segments (Top 3) */}
+                                                {tc.errorStats && tc.errorStats.slice(0, 3).map((err, idx) => {
+                                                    const width = (err.count / tc.total) * 100;
+                                                    // Assign colors based on index or type
+                                                    const colors = ["bg-red-500", "bg-orange-500", "bg-amber-500"];
+                                                    const color = colors[idx] || "bg-gray-400";
+
+                                                    return (
+                                                        <div
+                                                            key={err.type}
+                                                            className={`h-full ${color} border-l border-white/50`}
+                                                            style={{ width: `${width}%` }}
+                                                        />
+                                                    );
+                                                })}
+
+                                                {/* Remainder (Other Errors) */}
+                                                {/* Calculated implicitly by remaining space if any, or we can explicit add if needed. 
+                                                    For now, let's assume coverage is 100% of attempts (pass + errors). 
+                                                */}
                                             </div>
+
+                                            {/* Error Breakdown Mini-Badges */}
+                                            {tc.errorStats && tc.errorStats.length > 0 && (
+                                                <div className="mt-2 flex flex-wrap gap-1">
+                                                    {tc.errorStats.slice(0, 2).map(err => (
+                                                        <span key={err.type} className="text-[10px] px-1.5 py-0.5 bg-red-50 text-red-700 rounded border border-red-100 truncate max-w-[100px]">
+                                                            {err.type} ({Math.round((err.count / tc.total) * 100)}%)
+                                                        </span>
+                                                    ))}
+                                                    {tc.errorStats.length > 2 && (
+                                                        <span className="text-[10px] px-1.5 py-0.5 bg-gray-50 text-gray-600 rounded border border-gray-200">
+                                                            +{tc.errorStats.length - 2} more
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Tooltip for detailed breakdown */}
+                                        <div className="absolute opacity-0 group-hover:opacity-100 bottom-full left-0 mb-2 w-full p-2 bg-gray-900 text-white text-xs rounded shadow-lg z-10 pointer-events-none transition-opacity">
+                                            <div className="font-bold mb-1">{tc.name} Breakdown:</div>
+                                            <div>Pass: {tc.passRate}%</div>
+                                            {tc.errorStats && tc.errorStats.map(err => (
+                                                <div key={err.type} className="flex justify-between">
+                                                    <span>{err.type}:</span>
+                                                    <span>{err.count} ({Math.round((err.count / tc.total) * 100)}%)</span>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 );

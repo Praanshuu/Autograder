@@ -9,6 +9,7 @@ import math
 import os
 import tarfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -82,14 +83,18 @@ class DynamicAnalyzer:
         # strings
         return str(actual).strip() == str(expected).strip()
 
-    def _exec_with_timeout(self, container, cmd: list[str]) -> tuple[int | None, str, str]:
+    def _exec_with_timeout(self, container, cmd: list[str]) -> tuple[int | None, str, str, int]:
         exit_code_ref = [None]
         out_ref = [(b"", b"")]
         err_ref = [None]
+        duration_ref = [0]
 
         def target():
             try:
+                start = time.time()
                 ec, out = container.exec_run(cmd, demux=True)
+                end = time.time()
+                duration_ref[0] = int((end - start) * 1000)
                 exit_code_ref[0] = ec
                 out_ref[0] = out if out else (b"", b"")
             except Exception as e:
@@ -105,15 +110,15 @@ class DynamicAnalyzer:
                 container.kill()
             except Exception:
                 pass
-            return None, "", "Execution timed out."
+            return None, "", "Execution timed out.", EXECUTION_TIMEOUT_SECONDS * 1000
 
         if err_ref[0]:
-            return None, "", f"System exec error: {err_ref[0]}"
+            return None, "", f"System exec error: {err_ref[0]}", 0
 
         stdout_b, stderr_b = out_ref[0]
         stdout = (stdout_b or b"").decode("utf-8", errors="ignore").strip()
         stderr = (stderr_b or b"").decode("utf-8", errors="ignore").strip()
-        return exit_code_ref[0], stdout, stderr
+        return exit_code_ref[0], stdout, stderr, duration_ref[0]
 
     # ----------------------------
     # Python runner (program + function mode)
@@ -217,7 +222,7 @@ except Exception as e:
 sys.exit(1 if error_occurred else 0)
 """
 
-    def _run_python_test_case(self, code_path: Path, mode_config: dict, input_str: str) -> tuple[int | None, str, str]:
+    def _run_python_test_case(self, code_path: Path, mode_config: dict, input_str: str) -> tuple[int | None, str, str, int]:
         """
         Runs one test case for Python using a runner in a container.
         Keeps the same concept you already use (runner + input file per test).
@@ -295,7 +300,7 @@ sys.exit(1 if error_occurred else 0)
                 f"cp {container_src} /tmp/work/main.c; "
                 "gcc -std=c11 -O2 -pipe /tmp/work/main.c -o /tmp/work/a.out -lm",
             ]
-            ec, so, se = self._exec_with_timeout(container, build_cmd)
+            ec, so, se, _ = self._exec_with_timeout(container, build_cmd)
             if ec is None:
                 return [{"name": "build", "status": "timeout", "error": se or "Build timed out"}]
             if ec != 0:
@@ -315,20 +320,20 @@ sys.exit(1 if error_occurred else 0)
                 input_target = f"{CONTAINER_TEMP_DIR}/{INPUT_FILE_NAME}"
 
                 run_cmd = ["bash", "-lc", f"/tmp/work/a.out < {input_target}"]
-                ec, out, err = self._exec_with_timeout(container, run_cmd)
+                ec, out, err, duration = self._exec_with_timeout(container, run_cmd)
 
                 if ec is None:
-                    results.append({"name": name, "status": "timeout", "error": err or "Timed out"})
+                    results.append({"name": name, "status": "timeout", "error": err or "Timed out", "execution_time": duration})
                     continue
                 if ec != 0:
-                    results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error"})
+                    results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error", "execution_time": duration})
                     continue
 
                 actual_norm = self._normalize_output(out)
                 expected_norm = self._normalize_output(expected_str)
 
                 if self._compare_outputs(actual_norm, expected_norm):
-                    results.append({"name": name, "status": "pass"})
+                    results.append({"name": name, "status": "pass", "execution_time": duration})
                 else:
                     results.append(
                         {
@@ -337,6 +342,7 @@ sys.exit(1 if error_occurred else 0)
                             "expected": expected_str,
                             "actual": out,
                             "stderr_on_fail": err,
+                            "execution_time": duration
                         }
                     )
 
@@ -382,7 +388,7 @@ sys.exit(1 if error_occurred else 0)
                 f"cp {container_src} /tmp/work/Main.java; "
                 "javac -encoding UTF-8 -d /tmp/work /tmp/work/Main.java",
             ]
-            ec, so, se = self._exec_with_timeout(container, build_cmd)
+            ec, so, se, _ = self._exec_with_timeout(container, build_cmd)
             if ec is None:
                 return [{"name": "build", "status": "timeout", "error": se or "Build timed out"}]
             if ec != 0:
@@ -401,20 +407,20 @@ sys.exit(1 if error_occurred else 0)
                 input_target = f"{CONTAINER_TEMP_DIR}/{INPUT_FILE_NAME}"
 
                 run_cmd = ["bash", "-lc", f"java -cp /tmp/work Main < {input_target}"]
-                ec, out, err = self._exec_with_timeout(container, run_cmd)
+                ec, out, err, duration = self._exec_with_timeout(container, run_cmd)
 
                 if ec is None:
-                    results.append({"name": name, "status": "timeout", "error": err or "Timed out"})
+                    results.append({"name": name, "status": "timeout", "error": err or "Timed out", "execution_time": duration})
                     continue
                 if ec != 0:
-                    results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error"})
+                    results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error", "execution_time": duration})
                     continue
 
                 actual_norm = self._normalize_output(out)
                 expected_norm = self._normalize_output(expected_str)
 
                 if self._compare_outputs(actual_norm, expected_norm):
-                    results.append({"name": name, "status": "pass"})
+                    results.append({"name": name, "status": "pass", "execution_time": duration})
                 else:
                     results.append(
                         {
@@ -423,6 +429,7 @@ sys.exit(1 if error_occurred else 0)
                             "expected": expected_str,
                             "actual": out,
                             "stderr_on_fail": err,
+                            "execution_time": duration
                         }
                     )
 
@@ -483,20 +490,20 @@ sys.exit(1 if error_occurred else 0)
 
             print(f"  [TEST] {name} (python, mode={mode_config.get('type','program')})")
 
-            ec, out, err = self._run_python_test_case(code_path, mode_config, input_str)
+            ec, out, err, duration = self._run_python_test_case(code_path, mode_config, input_str)
 
             if ec is None:
-                results.append({"name": name, "status": "timeout", "error": err or "Timed out"})
+                results.append({"name": name, "status": "timeout", "error": err or "Timed out", "execution_time": duration})
                 continue
             if ec != 0:
-                results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error"})
+                results.append({"name": name, "status": "runtime_error", "error": err or "Runtime error", "execution_time": duration})
                 continue
 
             actual_norm = self._normalize_output(out)
             expected_norm = self._normalize_output(expected_str)
 
             if self._compare_outputs(actual_norm, expected_norm):
-                results.append({"name": name, "status": "pass"})
+                results.append({"name": name, "status": "pass", "execution_time": duration})
             else:
                 results.append(
                     {
@@ -505,6 +512,7 @@ sys.exit(1 if error_occurred else 0)
                         "expected": expected_str,
                         "actual": out,
                         "stderr_on_fail": err,
+                        "execution_time": duration
                     }
                 )
 

@@ -166,6 +166,12 @@ export default function CreateAssignment() {
             return;
         }
 
+        // TA Restriction Logic
+        if (isPublished && (user?.role === 'ta' || user?.roles?.includes('ta'))) {
+            alert("TAs cannot publish assignments. Saving as Draft.");
+            isPublished = false;
+        }
+
         setLoading(true);
         setError(null);
 
@@ -315,7 +321,8 @@ export default function CreateAssignment() {
                         <Button
                             onClick={() => handleSave(true)}
                             disabled={loading}
-                            className="gap-2 min-w-[120px]"
+                            className={`gap-2 min-w-[120px] ${user?.role === 'ta' ? 'opacity-90' : ''}`}
+                            title={user?.role === 'ta' ? "TAs will save as Draft" : "Publish Assignment"}
                         >
                             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                             Publish Assignment

@@ -45,6 +45,7 @@ class SubmissionAttempt(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     manual_score = models.FloatField(null=True, blank=True)
     feedback_text = models.TextField(blank=True)
+    detected_keywords = models.JSONField(default=list, blank=True)
     source_code = models.TextField(blank=True) # Snapshot of code at submission time
     
     class Meta:
@@ -68,6 +69,7 @@ class TestResult(models.Model):
     score = models.FloatField(default=0.0)
     actual_output = models.TextField(blank=True, default='')
     error_message = models.TextField(blank=True, default='')
+    execution_time_ms = models.IntegerField(null=True, blank=True, default=0)
     
     class Meta:
         db_table = 'test_result_details'

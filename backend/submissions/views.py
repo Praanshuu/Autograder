@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from .models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
 from .serializers import SubmissionAttemptSerializer, AssignmentProgressSerializer, GradebookEntrySerializer
-from .services import execute_code
+from .services import execute_code, analyze_code_structure
 from assignments.models import AssignmentQuestion, ContentItem
 from gamification.points_calculator import PointsCalculator
 import logging
@@ -16,12 +16,20 @@ logger = logging.getLogger(__name__)
 class SubmissionAttemptViewSet(viewsets.ModelViewSet):
     serializer_class = SubmissionAttemptSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = None
     ordering_fields = ['created_at', 'status', 'final_score', 'student__username']
     filterset_fields = ['status', 'student']
     
     def get_queryset(self):
         user = self.request.user
-        queryset = SubmissionAttempt.objects.all()
+        queryset = SubmissionAttempt.objects.select_related(
+            'assignment_question',
+            'assignment_question__assignment',
+            'assignment_question__question',
+            'student',
+        ).prefetch_related(
+            'test_results',
+        )
         
         # Filter by Assignment ID (via AssignmentQuestion)
         assignment_id = self.request.query_params.get('assignment_id')
@@ -32,6 +40,15 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(student=user)
             
         return queryset
+
+    @action(detail=False, methods=['get'], url_path='analytics')
+    def analytics(self, request):
+        """Lightweight endpoint for analytics charts — no pagination, 
+        minimal fields, much smaller response payload."""
+        from .serializers import SubmissionAnalyticsSerializer
+        queryset = self.get_queryset()
+        serializer = SubmissionAnalyticsSerializer(queryset, many=True)
+        return Response(serializer.data)
         
     def create(self, request, *args, **kwargs):
         assignment_question_id = request.data.get('assignment_question_id')
@@ -49,13 +66,21 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         # if SubmissionAttempt.objects.filter(student=request.user, assignment_question=aq, status='success').exists():
         #    return Response({'message': 'You have already successfully completed this question.'}, status=status.HTTP_400_BAD_REQUEST)
             
+        language = request.data.get('language', 'python')  # Get language from request
+        
+        # Analyze code structure
+        keywords = []
+        if language == 'python' and code:
+             keywords = analyze_code_structure(code)
+
         # Create Attempt
         attempt = SubmissionAttempt.objects.create(
             student=request.user,
             assignment_question=aq,
             attempt_number=SubmissionAttempt.objects.filter(student=request.user, assignment_question=aq).count() + 1,
             status='processing',
-            source_code=code # Save the code
+            source_code=code, # Save the code
+            detected_keywords=keywords
         )
         
         # Execute Code
@@ -92,7 +117,8 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
                     status=status_res,
                     score=1 if status_res == 'pass' else 0,
                     actual_output=res.get('console_output', ''),
-                    error_message=res.get('error_message', '')
+                    error_message=res.get('error_message', ''),
+                    execution_time_ms=res.get('execution_time', 0)
                 )
                 
                 # Collect test results for points calculation
@@ -219,14 +245,20 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             # Determine score for this question (0-100 scale)
             question_score = 0
             
+            # Get Max Points for this question
+            max_points = aq.custom_points if aq.custom_points is not None else 10 # Default to 10 if not set
+            if max_points <= 0: max_points = 10 # Prevent division by zero
+
             # aq.question.test_cases is a list of dicts
             test_cases = aq.question.test_cases or []
             num_tests = len(test_cases)
             
             if latest:
                 if latest.manual_score is not None:
-                    # Manual override (rubric score)
-                    question_score = latest.manual_score
+                    # Manual override (rubric score is in POINTS)
+                    # Normalize to 0-100 scale for aggregation
+                    question_score = (latest.manual_score / max_points) * 100
+                    if question_score > 100: question_score = 100 # Cap at 100%
                 elif num_tests > 0:
                     # Auto-calculated based on tests
                     results = latest.test_results.all()
@@ -238,6 +270,7 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
                     # No tests, no manual score. Default to 0? Or 100 if submitted? 
                     # Usually 0 if purely auto-graded until manual grade comes in.
                     question_score = 0
+
                     
                 # Calculate points earned for this question
                 try:
@@ -728,6 +761,7 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
                     'description': aq.question.description,
                     'test_cases': aq.question.test_cases
                 },
+                'max_points': aq.custom_points if aq.custom_points is not None else 10,
                 'submission': sub_data,
                 'status': latest.status if latest else 'not_attempted'
             })

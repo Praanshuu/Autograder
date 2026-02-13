@@ -7,8 +7,8 @@ export default function PerformanceMatrix({ submissions }) {
 
     submissions.forEach(sub => {
         if (sub.final_score === null || sub.time_spent === null) return;
-        
-        const studentId = sub.student?.id || sub.student_id;
+
+        const studentId = sub.student_id || sub.student?.id;
         if (!studentId) return;
 
         const currentBest = studentBestSub[studentId];
@@ -35,16 +35,16 @@ export default function PerformanceMatrix({ submissions }) {
 
     const data = Object.values(studentBestSub).map(s => {
         const student = s.student || {};
-        const fullName = student.first_name 
+        const fullName = student.first_name
             ? `${student.first_name} ${student.last_name || ''}`.trim()
             : null;
 
         return {
             x: s.time_spent,
             y: Math.round(s.final_score),
-            name: fullName || student.username || `Student ${student.id || 'Unknown'}`,
+            name: fullName || s.student_username || student.username || `Student`,
             email: student.email || '',
-            studentId: student.id || student.username,
+            studentId: s.student_id || student.id || student.username,
             status: s.status,
             original: s
         };

@@ -1,3 +1,5 @@
+import { notificationService } from "../../services/notificationService";
+import { useState, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -45,33 +47,7 @@ const SidebarItem = ({ icon: Icon, label, href, active, count }) => (
     </Link>
 );
 
-// Mock Notifications
-const NOTIFICATIONS = [
-    {
-        id: 1,
-        title: "New Submission: Introduction to React",
-        desc: "Alice Johnson submitted ahead of schedule.",
-        time: "Just now",
-        unread: true,
-        type: "submission"
-    },
-    {
-        id: 2,
-        title: "Question from Bob Smith",
-        desc: "Bob commented on 'Advanced Typescript': 'Can I use any...'",
-        time: "25 min ago",
-        unread: true,
-        type: "comment"
-    },
-    {
-        id: 3,
-        title: "Assignment Due Soon",
-        desc: "Data Structures & Algorithms - Assignment 3 is due in 1 hour.",
-        time: "1 hour ago",
-        unread: false,
-        type: "alert"
-    }
-];
+
 
 const SidebarSection = ({ title, children }) => (
     <div className="mb-6">
@@ -88,6 +64,40 @@ export default function TeacherLayout({ children }) {
     const location = useLocation();
     const navigate = useNavigate();
     const { logout, user } = useAuth();
+    const [notifications, setNotifications] = useState([]);
+
+    useEffect(() => {
+        const fetchNotifications = async () => {
+            try {
+                const res = await notificationService.getNotifications();
+                setNotifications(res.data.results || res.data || []);
+            } catch (err) {
+                console.error("Failed to fetch notifications", err);
+            }
+        };
+        fetchNotifications();
+        // Poll every minute
+        const interval = setInterval(fetchNotifications, 60000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const handleMarkAsRead = async (id) => {
+        try {
+            await notificationService.markAsRead(id);
+            setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
+        } catch (err) {
+            console.error("Failed to mark notification as read", err);
+        }
+    };
+
+    const handleMarkAllAsRead = async () => {
+        try {
+            await notificationService.markAllAsRead();
+            setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        } catch (err) {
+            console.error("Failed to mark all notifications as read", err);
+        }
+    };
 
     const handleLogout = () => {
         logout();
@@ -217,32 +227,57 @@ export default function TeacherLayout({ children }) {
                                 <DropdownMenuContent align="end" className="w-80 p-0 bg-white">
                                     <div className="p-4 border-b border-gray-100 flex items-center justify-between">
                                         <h4 className="font-semibold text-gray-900">Notifications</h4>
-                                        <span className="text-xs text-indigo-600 hover:text-indigo-700 cursor-pointer">Mark all read</span>
+                                        <span
+                                            className="text-xs text-indigo-600 hover:text-indigo-700 cursor-pointer"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleMarkAllAsRead();
+                                            }}
+                                        >
+                                            Mark all read
+                                        </span>
                                     </div>
                                     <div className="max-h-[350px] overflow-y-auto">
-                                        {NOTIFICATIONS.map((notif) => (
-                                            <DropdownMenuItem key={notif.id} className="p-4 cursor-pointer focus:bg-gray-50 border-b border-gray-50 last:border-0 items-start gap-3">
-                                                <div className={`mt-1 p-1.5 rounded-full shrink-0 ${notif.type === 'submission' ? 'bg-green-100 text-green-600' :
-                                                    notif.type === 'comment' ? 'bg-blue-100 text-blue-600' :
-                                                        'bg-orange-100 text-orange-600'
-                                                    }`}>
-                                                    {notif.type === 'submission' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
-                                                        notif.type === 'comment' ? <MessageSquare className="w-3.5 h-3.5" /> :
-                                                            <Clock className="w-3.5 h-3.5" />
-                                                    }
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <div className="flex justify-between items-start gap-2">
-                                                        <p className={`text-sm ${notif.unread ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
-                                                            {notif.title}
-                                                        </p>
-                                                        {notif.unread && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full mt-1.5" />}
+                                        {notifications.length === 0 ? (
+                                            <div className="p-4 text-center text-sm text-gray-500">No notifications</div>
+                                        ) : (
+                                            notifications.map((notif) => (
+                                                <DropdownMenuItem
+                                                    key={notif.id}
+                                                    className="p-4 cursor-pointer focus:bg-gray-50 border-b border-gray-50 last:border-0 items-start gap-3"
+                                                    onClick={(e) => {
+                                                        if (!notif.is_read) {
+                                                            e.preventDefault(); // Prevent closing if we want to just mark as read, or let it close. 
+                                                            // Let's mark as read and allow navigation/closing if it's a link.
+                                                            // But here it just marks as read.
+                                                            handleMarkAsRead(notif.id);
+                                                        }
+                                                    }}
+                                                >
+                                                    <div className={`mt-1 p-1.5 rounded-full shrink-0 ${notif.type === 'submission' ? 'bg-green-100 text-green-600' :
+                                                        notif.type === 'comment' ? 'bg-blue-100 text-blue-600' :
+                                                            notif.type === 'invite' ? 'bg-purple-100 text-purple-600' :
+                                                                'bg-orange-100 text-orange-600'
+                                                        }`}>
+                                                        {notif.type === 'submission' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                                                            notif.type === 'comment' ? <MessageSquare className="w-3.5 h-3.5" /> :
+                                                                notif.type === 'invite' ? <GraduationCap className="w-3.5 h-3.5" /> :
+                                                                    <Clock className="w-3.5 h-3.5" />
+                                                        }
                                                     </div>
-                                                    <p className="text-xs text-gray-500 line-clamp-2">{notif.desc}</p>
-                                                    <p className="text-xs text-gray-400 pt-1">{notif.time}</p>
-                                                </div>
-                                            </DropdownMenuItem>
-                                        ))}
+                                                    <div className="space-y-1">
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <p className={`text-sm ${!notif.is_read ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
+                                                                {notif.title}
+                                                            </p>
+                                                            {!notif.is_read && <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full mt-1.5" />}
+                                                        </div>
+                                                        <p className="text-xs text-gray-500 line-clamp-2">{notif.message}</p>
+                                                        <p className="text-xs text-gray-400 pt-1">{new Date(notif.created_at).toLocaleString()}</p>
+                                                    </div>
+                                                </DropdownMenuItem>
+                                            ))
+                                        )}
                                     </div>
                                     <div className="p-3 border-t border-gray-100 bg-gray-50 text-center">
                                         <Button variant="link" className="text-xs h-auto p-0 text-gray-500">View all notifications</Button>

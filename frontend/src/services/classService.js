@@ -58,4 +58,14 @@ export const classService = {
   getClassGrades: async (classId) => {
     return await api.get(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}grades/`);
   },
+
+  // Add member to class
+  addMember: async (classId, data) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}add-member/`, data);
+  },
+
+  // Get student topic grades
+  getStudentTopicGrades: async (classId, studentId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}student-topic-grades/?student_id=${studentId}`);
+  },
 };

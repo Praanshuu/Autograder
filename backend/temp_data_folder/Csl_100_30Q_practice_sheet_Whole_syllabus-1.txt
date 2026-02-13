@@ -1,0 +1,803 @@
+CSL100 Practice Sheet - Whole
+Syllabus
+
+Instructions
+
+• For each question below, create a Python file named <YourID> <question
+e.g., B25MM777 q1.py.
+• Each file must contain the specified function/class signature.
+• You may add helper functions, but the main signature must remain
+unchanged.
+• Your code will be tested against hidden cases.
+specs precisely.
+
+Follow input/output
+
+Mandatory Submission Rules
+• Do not read input from the user.
+
+No input() calls.
+
+• Return values instead of printing, unless a method explicitly
+says to print/return a string. Prefer returning strings; printing
+will not be tested unless stated.
+• Use exact function names and parameter orders.
+• Keep each question self-contained (no cross-imports).
+
+Practice Questions
+Q1. FizzBuzz (Easy)
+Filename: <YourID> q1.py
+Function:
+def fizzbuzz(n):
+"""
+Return a list from 1..n where multiples of 3 -> ’Fizz’,
+multiples of 5 -> ’Buzz’, and multiples of both -> ’
+FizzBuzz’.
+Otherwise keep the number.
+"""
+pass
+
+1
+
+Input: n: int
+Test Cases:
+
+Output:
+
+list
+
+fizzbuzz(5)
+# [1, 2, ’Fizz’, 4, ’Buzz’]
+fizzbuzz(15)
+# [1, 2, ’Fizz’, 4, ’Buzz’, ’Fizz’, 7, 8,
+# ’Fizz’, ’Buzz’, 11, ’Fizz’, 13, 14, ’FizzBuzz’]
+
+Q2. Reverse String (Easy)
+Filename: <YourID> q2.py
+Function:
+def reverse_string(s):
+"""
+Return the reversed version of ’s’ using slicing.
+"""
+pass
+
+Input: s: str
+Test Cases:
+
+Output:
+
+reverse_string("hello")
+reverse_string("Python")
+reverse_string("")
+
+str
+
+# "olleh"
+# "nohtyP"
+# ""
+
+Q3. Count Vowels (Easy)
+Filename: <YourID> q3.py
+Function:
+def count_vowels(s):
+"""
+Return the number of vowels (a,e,i,o,u) in ’s’.
+Case-insensitive.
+"""
+pass
+
+Input: s: str
+Test Cases:
+
+Output:
+
+int
+
+count_vowels("Hello World")
+count_vowels("AEIOU")
+count_vowels("Rhythm")
+
+# 3
+# 5
+# 0
+
+Q4. Prime Number Check (Medium)
+Filename: <YourID> q4.py
+Function:
+def is_prime(n):
+"""
+
+2
+
+Return True if n is prime, else False. (n > 1 and only
+divisible by 1,n)
+"""
+pass
+
+Input: n: int
+Test Cases:
+is_prime(7)
+is_prime(10)
+is_prime(1)
+is_prime(2)
+
+Output:
+
+bool
+
+# True
+# False
+# False
+# True
+
+Q5. Sum of Digits (Easy)
+Filename: <YourID> q5.py
+Function:
+def sum_digits(n):
+"""
+Return the sum of digits of non-negative integer n.
+"""
+pass
+
+Input: n: int
+Test Cases:
+sum_digits(123)
+sum_digits(90)
+sum_digits(5)
+
+Output:
+
+int
+
+# 6
+# 9
+# 5
+
+Q6. Find Max in List (Easy)
+Filename: <YourID> q6.py
+Function:
+def find_max(numbers):
+"""
+Return the largest element of ’numbers’ without using max
+().
+Return None for empty list.
+"""
+pass
+
+Input: numbers:
+Test Cases:
+
+list
+
+find_max([1, 5, 3, 9, 2])
+find_max([-10, -5, -2])
+find_max([])
+
+Output:
+# 9
+# -2
+# None
+
+Q7. Remove Duplicates (Easy)
+Filename: <YourID> q7.py
+Function:
+3
+
+int | float | None
+
+def remove_duplicates(items):
+"""
+Return a new list with unique elements from ’items’.
+Order in the result does not matter.
+"""
+pass
+
+Input: items:
+Test Cases:
+
+list
+
+Output:
+
+list
+
+remove_duplicates([1, 2, 2, 3, 1, 4])
+remove_duplicates(["a", "b", "a"])
+
+# [1,2,3,4] (any order)
+# ["a","b"] (any order)
+
+Q8. Get Odd-Indexed Elements (Easy)
+Filename: <YourID> q8.py
+Function:
+def get_odd_indices(items):
+"""
+Return elements from ’items’ that are at odd indices
+(1,3,5,...).
+"""
+pass
+
+Input: items:
+Test Cases:
+
+list
+
+Output:
+
+list
+
+get_odd_indices([10, 20, 30, 40, 50])
+get_odd_indices(["a", "b", "c"])
+
+# [20, 40]
+# ["b"]
+
+Q9. Recursive Factorial (Medium)
+Filename: <YourID> q9.py
+Function:
+def factorial_recursive(n):
+"""
+Return n! using recursion. Assume n is non-negative.
+"""
+pass
+
+Input: n: int
+Test Cases:
+
+Output:
+
+factorial_recursive(5)
+factorial_recursive(0)
+factorial_recursive(1)
+
+int
+
+# 120
+# 1
+# 1
+
+Q10. Flexible Sum (Easy)
+Filename: <YourID> q10.py
+Function:
+4
+
+def flexible_sum(*args):
+"""
+Return the sum of all positional numeric arguments.
+If no arguments, return 0.
+"""
+pass
+
+Input: *args:
+Test Cases:
+
+numbers
+
+flexible_sum(1, 2, 3)
+flexible_sum(10.5, 2.5)
+flexible_sum()
+
+Output:
+
+int | float
+
+# 6
+# 13.0
+# 0
+
+Q11. Build User Profile (Easy)
+Filename: <YourID> q11.py
+Function:
+def build_profile(first, last, **kwargs):
+"""
+Create a user profile dict with required keys
+’first_name’ and ’last_name’, plus any extra kwargs.
+"""
+pass
+
+Input: first:
+Test Cases:
+
+str, last:
+
+str, **kwargs
+
+Output:
+
+dict
+
+build_profile("John", "Doe")
+# {’first_name’: ’John’, ’last_name’: ’Doe’}
+build_profile("Jane", "Smith", age=30, city="New York")
+# {’first_name’: ’Jane’, ’last_name’: ’Smith’, ’age’: 30, ’
+city’: ’New York’}
+
+Q12. Word Frequency (Medium)
+Filename: <YourID> q12.py
+Function:
+def word_frequency(sentence):
+"""
+Return {word: count} for lowercase, space-separated ’
+sentence’
+with no punctuation. Empty string -> {}.
+"""
+pass
+
+Input: sentence:
+Test Cases:
+
+str
+
+Output:
+
+5
+
+dict
+
+word_frequency("hello world hello")
+# {’hello’: 2, ’world’: 1}
+word_frequency("go spot go")
+# {’go’: 2, ’spot’: 1}
+word_frequency("")
+# {}
+
+Q13. Set Intersection (Easy)
+Filename: <YourID> q13.py
+Function:
+def find_intersection(set1, set2):
+"""
+Return a new set with elements present in both set1 and
+set2.
+"""
+pass
+
+Input: set1:
+Test Cases:
+
+set, set2:
+
+set
+
+Output:
+
+set
+
+find_intersection({1, 2, 3}, {2, 3, 4}) # {2, 3}
+find_intersection({"a", "b"}, {"c", "d"}) # set()
+
+Q14. Invert Dictionary (Medium)
+Filename: <YourID> q14.py
+Function:
+def invert_dict(d):
+"""
+Return a dict with keys and values swapped.
+Assume all values are unique and hashable.
+"""
+pass
+
+Input: d: dict
+Test Cases:
+
+dict
+
+Output:
+
+invert_dict({’a’: 1, ’b’: 2})
+invert_dict({’k1’: ’v1’})
+
+# {1: ’a’, 2: ’b’}
+# {’v1’: ’k1’}
+
+Q15. Squares of Evens (Easy)
+Filename: <YourID> q15.py
+Function:
+def squares_of_evens(numbers):
+"""
+Return squares of even numbers from ’numbers’ using a list
+comp.
+
+6
+
+"""
+pass
+
+Input: numbers:
+Test Cases:
+
+list[int]
+
+Output:
+
+squares_of_evens([1, 2, 3, 4, 5, 6])
+squares_of_evens([1, 3, 5])
+squares_of_evens([-2, 0, 4])
+
+list[int]
+
+# [4, 16, 36]
+# []
+# [4, 0, 16]
+
+Q16. Nested Sum by Depth (Medium)
+Filename: <YourID> q16.py
+Function:
+def nested_sum(lst, depth=1):
+"""
+Each integer contributes value * depth to the total.
+Example: [1,[4,[6]]] = 1*1 + 4*2 + 6*3 = 27.
+Use recursion. Elements are ints or lists of the same form
+.
+"""
+pass
+
+Input: lst:
+Examples:
+
+list[int | list]
+
+nested_sum([1, [4, [6]]])
+nested_sum([2, [3, [4, [5]]]])
+nested_sum([])
+
+Output:
+
+int
+
+# 27
+# 40
+# 0
+
+Q17. Spiral Matrix Traversal (Medium)
+Filename: <YourID> q17.py
+Function:
+def spiral_order(matrix):
+"""
+Return elements of a rectangular 2D matrix in clockwise
+spiral order.
+"""
+pass
+
+Input: matrix:
+Examples:
+
+list[list[int]]
+
+Output:
+
+spiral_order([[1,2,3],[4,5,6],[7,8,9]])
+# [1,2,3,6,9,8,7,4,5]
+spiral_order([[1,2],[3,4]])
+# [1,2,4,3]
+
+7
+
+list[int]
+
+Q18. Subset with Target Sum (Hard)
+Filename: <YourID> q18.py
+Function:
+def subset_sum(nums, target):
+"""
+Return True if some subset of ’nums’ sums exactly to ’
+target’.
+Use recursion or backtracking.
+"""
+pass
+
+Input: nums:
+Examples:
+
+list[int], target:
+
+subset_sum([3,34,4,12,5,2], 9)
+subset_sum([1,2,3], 7)
+subset_sum([], 0)
+
+int
+
+Output:
+
+bool
+
+# True
+# False
+# True
+
+Q19. Anagram Grouping (Medium)
+Filename: <YourID> q19.py
+Function:
+def group_anagrams(words):
+"""
+Group words that are anagrams.
+Key: sorted-letter signature; Value: list of words.
+"""
+pass
+
+Input: words:
+Examples:
+
+list[str]
+
+Output:
+
+dict[str, list[str]]
+
+group_anagrams(["eat","tea","tan","ate","nat","bat"])
+# {’aet’: [’eat’,’tea’,’ate’], ’ant’: [’tan’,’nat’], ’abt’: [’
+bat’]}
+
+Q20. Sudoku Validator (Hard)
+Filename: <YourID> q20.py
+Function:
+def valid_sudoku_rows(board):
+"""
+Return True iff each row has no duplicate numbers among
+1..9.
+Zeros are blanks and ignored. ’board’ is 9x9 (list of
+lists).
+"""
+pass
+
+Input: board:
+Examples:
+
+list[list[int]]
+
+8
+
+Output:
+
+bool
+
+valid_sudoku_rows([[5,3,0],[6,0,0],[0,9,8]])
+valid_sudoku_rows([[5,3,3],[6,0,0],[0,9,8]])
+
+# True
+# False
+
+Q21. Student Class (OOP | Easy)
+Filename: <YourID> q21.py
+Class:
+class Student:
+"""
+Store and display student details.
+Attributes:
+name (str), roll_number (int), marks (list[int])
+Methods:
+average() -> float
+# 0.0 if no marks
+grade() -> str
+# ’A’ if avg>=75, ’B’ if >=60,
+else ’C’
+info() -> str
+# "Alice (Roll: 101) | Avg:
+80.0 | Grade: A"
+"""
+pass
+
+Examples:
+s1 = Student("Alice", 101, [80,70,90])
+s1.average() # 80.0
+s1.grade()
+# ’A’
+s1.info()
+# "Alice (Roll: 101) | Avg: 80.0 | Grade: A"
+s2 = Student("Bob", 102, [50,60,55])
+s2.grade()
+# ’C’
+
+Q22. Temperature Converter (OOP | Medium)
+Filename: <YourID> q22.py
+Class:
+class Temperature:
+"""
+Store temperature in Celsius internally.
+Methods:
+to_fahrenheit() -> float
+@classmethod from_fahrenheit(f) -> Temperature
+display() -> str
+# "37 C / 98.6 F "
+"""
+pass
+
+Examples:
+Temperature(25).to_fahrenheit()
+Temperature.from_fahrenheit(98.6).display()
+98.6 F "
+
+9
+
+# 77.0
+# "37 C
+
+/
+
+Q23. Bank Account (OOP | Medium)
+Filename: <YourID> q23.py
+Class:
+class BankAccount:
+"""
+Simple bank account.
+Attributes: owner (str), _balance (float)
+Methods:
+deposit(amount) -> None
+withdraw(amount) -> str|None # "Insufficient funds" on
+failure
+display_balance() -> str
+# e.g., "Balance: 1500.0"
+"""
+pass
+
+Examples:
+acc = BankAccount("Alice", 1000)
+acc.deposit(500)
+acc.withdraw(2000)
+# "Insufficient funds"
+acc.display_balance()
+# "Balance: 1500.0"
+acc.withdraw(100)
+acc.display_balance()
+# "Balance: 1400.0"
+
+Q24. Time Class (OOP | Medium)
+Filename: <YourID> q24.py
+Class:
+class Time:
+"""
+Time with hours and minutes (non-negative).
+Supports:
+t1 + t2, t1 - t2 (non-negative result), display()->"HH:
+MM"
+Normalize minutes to [0,59] with carry/borrow to hours.
+"""
+pass
+
+Examples:
+t1 = Time(2,45); t2 = Time(1,30)
+(t1 + t2).display() # "04:15"
+(t1 - t2).display() # "01:15"
+Time(0,90).display() # "01:30"
+
+Q25. Stack Class (OOP | Easy)
+Filename: <YourID> q25.py
+Class:
+class Stack:
+"""
+
+10
+
+Implement a stack using a list.
+Methods:
+push(item) -> None
+pop() -> item|None
+peek() -> item|None
+is_empty() -> bool
+size() -> int
+"""
+pass
+
+Examples:
+s = Stack()
+s.push(10); s.push(20); s.push(30)
+s.pop()
+# 30
+s.peek()
+# 20
+s.size()
+# 2
+s.is_empty()
+# False
+s.pop(); s.pop()
+s.is_empty()
+# True
+
+Q26. Merge Dictionaries with Summation (Medium)
+Filename: <YourID> q26.py
+Function:
+def merge_sum(dict1, dict2):
+"""
+Merge two dictionaries whose values are integers.
+For keys present in both, sum their values.
+Return a new dictionary without mutating inputs.
+"""
+pass
+
+Input: dict1: dict[str,int], dict2:
+Output: dict[str,int]
+Test Cases:
+
+dict[str,int]
+
+merge_sum({’a’:10,’b’:5}, {’b’:7,’c’:3})
+# {’a’:10, ’b’:12, ’c’:3}
+
+Q27. Invert Dictionary with Duplicate Values (Medium)
+Filename: <YourID> q27.py
+Function:
+def invert_dict(d):
+"""
+Invert a dictionary that may have duplicate values.
+Example: {’a’:1,’b’:2,’c’:1} -> {1:[’a’,’c’], 2:[’b’]}
+Keys in result lists may be in any order.
+"""
+pass
+
+11
+
+Input: d: dict
+Output: dict
+Test Cases:
+invert_dict({’a’:1,’b’:2,’c’:1})
+# {1: [’a’,’c’], 2: [’b’]}
+
+Q28. Longest Consecutive Sequence (Medium)
+Filename: <YourID> q28.py
+Function:
+def longest_consecutive(nums):
+"""
+Return the length of the longest consecutive elements
+sequence.
+Order in ’nums’ is arbitrary. Runs in O(n) average time.
+"""
+pass
+
+Input: nums:
+Output: int
+Test Cases:
+
+list[int]
+
+longest_consecutive([100,4,200,1,3,2])
+sequence 1,2,3,4)
+longest_consecutive([0,3,7,2,5,8,4,6,0,1])
+sequence 0..8)
+
+# 4
+
+(
+
+# 9
+
+(
+
+Q29. Pascal’s Triangle Generator (Medium)
+Filename: <YourID> q29.py
+Function:
+def pascal_triangle(n):
+"""
+Return the first n rows of Pascal’s triangle as a list of
+lists.
+For n <= 0, return [].
+"""
+pass
+
+Input: n: int
+Output: list[list[int]]
+Test Cases:
+pascal_triangle(5)
+# [[1], [1,1], [1,2,1], [1,3,3,1], [1,4,6,4,1]]
+
+Q30. Matrix Rotation (90° Clockwise) (Medium)
+Filename: <YourID> q30.py
+Function:
+
+12
+
+def rotate_matrix(matrix):
+"""
+Rotate a square matrix 90 degrees clockwise in-place.
+Return the same matrix object after rotation.
+"""
+pass
+
+Input: matrix: list[list[int]]
+Output: list[list[int]]
+Test Cases:
+rotate_matrix([[1,2,3],[4,5,6],[7,8,9]])
+# [[7,4,1],[8,5,2],[9,6,3]]
+rotate_matrix([[1,2],[3,4]])
+# [[3,1],[4,2]]
+
+13
+
+

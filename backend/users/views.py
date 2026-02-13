@@ -50,6 +50,17 @@ def simple_login(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    # Check if input is email
+    if '@' in username:
+        try:
+            from .models import User
+            user_obj = User.objects.filter(email=username).first()
+            if user_obj:
+                username = user_obj.username
+                print(f"Resolved email to username: {username}")
+        except Exception as e:
+            print(f"Error resolving email: {e}")
+
     # Let's also check if the user exists
     try:
         from .models import User

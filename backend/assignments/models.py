@@ -47,6 +47,9 @@ class Question(models.Model):
     # JSONB for test cases (Input/Output/Hidden/Points)
     test_cases = models.JSONField(default=list)
     
+    # Tags for Topic Analysis
+    tags = models.JSONField(default=list, blank=True)
+    
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_questions')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

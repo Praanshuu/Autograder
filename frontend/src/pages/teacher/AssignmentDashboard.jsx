@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     MoveLeft,
@@ -40,7 +40,7 @@ import { submissionService } from "../../services/submissionService";
 import PerformanceMatrix from "../../components/features/analytics/PerformanceMatrix";
 import ErrorWordCloud from "../../components/features/analytics/ErrorWordCloud";
 import BoxPlotChart from "../../components/features/analytics/BoxPlotChart";
-import ErrorHeatmap from "../../components/features/analytics/ErrorHeatmap";
+import ErrorHeatmapV2 from "../../components/features/analytics/ErrorHeatmapV2";
 import CodeSimilarityMap from "../../components/features/analytics/CodeSimilarityMap";
 
 export default function AssignmentDashboard() {
@@ -71,8 +71,8 @@ export default function AssignmentDashboard() {
                 const summaryRes = await submissionService.getAssignmentSummary(id);
                 setStudentsSummary(summaryRes.data);
 
-                // 3. Fetch Raw Submissions (For Analytics)
-                const subResponse = await submissionService.getAssignmentSubmissions(id);
+                // 3. Fetch Lightweight Analytics Data (no source code, minimal fields)
+                const subResponse = await submissionService.getAnalyticsSubmissions(id);
                 const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
                 setSubmissions(subData);
 
@@ -126,6 +126,129 @@ export default function AssignmentDashboard() {
     const currentQuestion = selectedQuestion && assignment?.questions
         ? assignment.questions.find(q => q.question.id === selectedQuestion)?.question
         : null;
+
+    // Memoize the data preparation to prevent infinite re-render loops
+    // detailed analytics data calculation moved to top level
+    const analyticsData = useMemo(() => {
+        const questionSubs = submissions.filter(s => (s.question_id || s.question?.id) === selectedQuestion);
+        const validSubs = questionSubs.filter(s => s.final_score !== null);
+
+        if (validSubs.length === 0) return { validSubs, boxPlotData: null, heatmapQuestions: [], wordCloudData: [] };
+
+        // Box Plot Data
+        const values = validSubs.map(s => s.final_score).sort((a, b) => a - b);
+        const q1 = values[Math.floor(values.length * 0.25)];
+        const median = values[Math.floor(values.length * 0.5)];
+        const q3 = values[Math.floor(values.length * 0.75)];
+        const boxPlotData = [{
+            name: "Class",
+            min: values[0],
+            q1, median, q3,
+            max: values[values.length - 1]
+        }];
+
+        // Error Heatmap Data
+        const testCasesMeta = currentQuestion?.test_cases || currentQuestion?.testCases || [];
+        const getConcept = (idx, testCaseId) => {
+            if (testCasesMeta[idx]?.concept) return testCasesMeta[idx].concept;
+            if (testCasesMeta[idx]?.tag) return testCasesMeta[idx].tag;
+            if (testCasesMeta[idx]?.description) return testCasesMeta[idx].description;
+            if (testCaseId) return `Test Case ${testCaseId.replace('tc_', '#')}`;
+            return `Test Case ${idx + 1}`;
+        };
+
+        const tcStats = {};
+        validSubs.forEach(sub => {
+            if (sub.test_results) {
+                sub.test_results.forEach((res, idx) => {
+                    const key = res.test_case_id || idx;
+                    if (!tcStats[key]) {
+                        tcStats[key] = {
+                            passes: 0,
+                            total: 0,
+                            name: getConcept(idx, res.test_case_id),
+                            concept: getConcept(idx, res.test_case_id),
+                            errors: {}, // Store error counts: { "Timeout": 5, "IndexError": 2 }
+                        };
+                    }
+                    tcStats[key].total++;
+
+                    if (res.status === 'pass') {
+                        tcStats[key].passes++;
+                    } else if (res.error_message) {
+                        // Dynamic Error Analysis
+                        // Extract exception type: "IndexError: list index out of range" -> "IndexError"
+                        // If no colon, might be "Timeout" or just the message.
+                        let errorType = "Unknown Error";
+                        const msg = res.error_message.trim();
+
+                        // Common Python/Java exception pattern
+                        if (msg.includes(':')) {
+                            const parts = msg.split(':');
+                            // Take first part if it looks like an Exception Class (CamelCase usually, no spaces preferably)
+                            if (parts[0].length < 30 && !parts[0].includes(' ')) {
+                                errorType = parts[0];
+                            } else {
+                                // Fallback: try to find common keywords
+                                if (msg.toLowerCase().includes('timeout')) errorType = "Timeout";
+                                else if (msg.toLowerCase().includes('syntax')) errorType = "Syntax Error";
+                                else errorType = "Runtime Error";
+                            }
+                        } else if (msg.toLowerCase().includes('timeout')) {
+                            errorType = "Timeout";
+                        } else {
+                            // If short enough, use whole message, else generic
+                            errorType = msg.length < 20 ? msg : "Runtime Error";
+                        }
+
+                        tcStats[key].errors[errorType] = (tcStats[key].errors[errorType] || 0) + 1;
+                    }
+                });
+            }
+        });
+
+        const heatmapQuestions = [{
+            id: currentQuestion?.id,
+            title: "Concept Mastery",
+            avgScore: Math.round(avgScore),
+            testCases: Object.values(tcStats).map((stat, i) => {
+                // Convert errors obj to sorted array
+                const errorList = Object.entries(stat.errors)
+                    .map(([type, count]) => ({ type, count }))
+                    .sort((a, b) => b.count - a.count); // Most frequent first
+
+                return {
+                    id: i,
+                    name: stat.name,
+                    concept: stat.concept,
+                    passRate: stat.total > 0 ? Math.round((stat.passes / stat.total) * 100) : 0,
+                    total: stat.total,
+                    errorStats: errorList
+                };
+            })
+        }];
+
+        // Word Cloud Data
+        const tagCounts = {};
+        validSubs.forEach(sub => {
+            if (sub.feedback_tags) {
+                sub.feedback_tags.split(',').forEach(tag => {
+                    const cleanTag = tag.trim();
+                    if (cleanTag) {
+                        tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
+                    }
+                });
+            }
+        });
+        const wordCloudData = Object.entries(tagCounts)
+            .map(([text, value]) => ({ text, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 20);
+
+        return { validSubs, boxPlotData, heatmapQuestions, wordCloudData };
+    }, [submissions, selectedQuestion, currentQuestion, avgScore]);
+
+    const { validSubs, boxPlotData, heatmapQuestions, wordCloudData } = analyticsData;
 
     if (loading) {
         return (
@@ -369,156 +492,65 @@ export default function AssignmentDashboard() {
 
 
 
-                                {(() => {
-                                    const questionSubs = submissions.filter(s => s.question?.id === selectedQuestion);
-                                    const validSubs = questionSubs.filter(s => s.final_score !== null);
-
-                                    // EMPTY STATE HANDLER
-                                    if (validSubs.length === 0) {
-                                        return (
-                                            <Card className="border-dashed bg-gray-50/50">
-                                                <CardContent className="flex flex-col items-center justify-center py-20 text-center">
-                                                    <div className="bg-white p-4 rounded-full shadow-sm mb-4">
-                                                        <Clock className="w-10 h-10 text-indigo-400" />
-                                                    </div>
-                                                    <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                                                        {new Date(assignment.due_date) > new Date() ? "Analytics In Progress" : "No Data Available"}
-                                                    </h3>
-                                                    <p className="text-gray-500 max-w-sm mx-auto mb-6">
-                                                        {new Date(assignment.due_date) > new Date()
-                                                            ? "This assignment is currently active. Graphs and insights will populate automatically as students submit their work."
-                                                            : "No graded submissions were found for this question."}
-                                                    </p>
-
-                                                    {questionSubs.length > 0 && (
-                                                        <p className="text-xs text-amber-600 font-medium bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                                                            {questionSubs.length} pending submissions waiting to be graded
-                                                        </p>
-                                                    )}
-                                                </CardContent>
-                                            </Card>
-                                        );
-                                    }
-
-                                    return (
-                                        <div className="space-y-6">
-                                            {/* Row 1: Key Performance Metrics */}
-                                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px]">
-                                                <div className="lg:col-span-2 h-full">
-                                                    <PerformanceMatrix
-                                                        submissions={validSubs}
-                                                    />
-                                                </div>
-                                                <div className="lg:col-span-1 h-full">
-                                                    <BoxPlotChart
-                                                        data={(() => {
-                                                            const values = validSubs
-                                                                .map(s => s.final_score)
-                                                                .sort((a, b) => a - b);
-
-                                                            // We know length > 0 here
-                                                            const q1 = values[Math.floor(values.length * 0.25)];
-                                                            const median = values[Math.floor(values.length * 0.5)];
-                                                            const q3 = values[Math.floor(values.length * 0.75)];
-
-                                                            return [{
-                                                                name: "Class",
-                                                                min: values[0],
-                                                                q1: q1,
-                                                                median: median,
-                                                                q3: q3,
-                                                                max: values[values.length - 1]
-                                                            }];
-                                                        })()}
-                                                    />
-                                                </div>
+                                {validSubs.length === 0 ? (
+                                    <Card className="border-dashed bg-gray-50/50">
+                                        <CardContent className="flex flex-col items-center justify-center py-20 text-center">
+                                            <div className="bg-white p-4 rounded-full shadow-sm mb-4">
+                                                <Clock className="w-10 h-10 text-indigo-400" />
                                             </div>
-
-                                            {/* Row 2: Deep Dive (Heatmap + Word Cloud) */}
-                                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[400px]">
-                                                <div className="lg:col-span-2 h-full">
-                                                    <ErrorHeatmap
-                                                        questions={[{
-                                                            id: currentQuestion?.id,
-                                                            title: "Concept Mastery",
-                                                            avgScore: Math.round(avgScore),
-                                                            testCases: (() => {
-                                                                const questionId = currentQuestion?.id;
-                                                                const questionSubs = validSubs.filter(s => s.question?.id === questionId);
-
-                                                                if (questionSubs.length === 0) return [];
-
-                                                                const tcStats = {};
-                                                                
-                                                                // Helper to get concept from assignment data
-                                                                const getConcept = (idx) => {
-                                                                    if (currentQuestion?.testCases && currentQuestion.testCases[idx]) {
-                                                                        return currentQuestion.testCases[idx].concept || `Test Case ${idx + 1}`;
-                                                                    }
-                                                                    return `Test Case ${idx + 1}`;
-                                                                };
-
-                                                                questionSubs.forEach(sub => {
-                                                                    if (sub.test_results) {
-                                                                        sub.test_results.forEach((res, idx) => {
-                                                                            const key = idx;
-                                                                            if (!tcStats[key]) {
-                                                                                tcStats[key] = { 
-                                                                                    passes: 0, 
-                                                                                    total: 0, 
-                                                                                    name: getConcept(idx),
-                                                                                    concept: getConcept(idx) // Pass concept specifically
-                                                                                };
-                                                                            }
-
-                                                                            tcStats[key].total++;
-                                                                            if (res.status === 'pass') tcStats[key].passes++;
-                                                                        });
-                                                                    }
-                                                                });
-
-                                                                return Object.values(tcStats).map((stat, i) => ({
-                                                                    id: i,
-                                                                    name: stat.name,
-                                                                    concept: stat.concept,
-                                                                    passRate: stat.total > 0 ? Math.round((stat.passes / stat.total) * 100) : 0
-                                                                }));
-                                                            })()
-                                                        }]}
-                                                    />
-                                                </div>
-                                                <div className="lg:col-span-1 h-full">
-                                                    <ErrorWordCloud
-                                                        data={(() => {
-                                                            const tagCounts = {};
-                                                            validSubs.forEach(sub => {
-                                                                if (sub.feedback_tags) {
-                                                                    sub.feedback_tags.split(',').forEach(tag => {
-                                                                        const cleanTag = tag.trim();
-                                                                        if (cleanTag) {
-                                                                            tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
-                                                                        }
-                                                                    });
-                                                                }
-                                                            });
-                                                            return Object.entries(tagCounts)
-                                                                .map(([text, value]) => ({ text, value }))
-                                                                .sort((a, b) => b.value - a.value)
-                                                                .slice(0, 20);
-                                                        })()}
-                                                        selectedTag={selectedAnalyticsTag}
-                                                        onSelectTag={setSelectedAnalyticsTag}
-                                                    />
-                                                </div>
+                                            <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                                                {new Date(assignment.due_date) > new Date() ? "Analytics In Progress" : "No Data Available"}
+                                            </h3>
+                                            <p className="text-gray-500 max-w-sm mx-auto mb-6">
+                                                {new Date(assignment.due_date) > new Date()
+                                                    ? "This assignment is currently active. Graphs and insights will populate automatically as students submit their work."
+                                                    : "No graded submissions were found for this question."}
+                                            </p>
+                                            {submissions.filter(s => (s.question_id || s.question?.id) === selectedQuestion).length > 0 && (
+                                                <p className="text-xs text-amber-600 font-medium bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                                                    Pending submissions waiting to be graded
+                                                </p>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                ) : (
+                                    <div className="space-y-6">
+                                        {/* Row 1: Key Performance Metrics */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                            <div className="lg:col-span-2 h-full">
+                                                <PerformanceMatrix
+                                                    submissions={validSubs}
+                                                />
                                             </div>
-
-                                            {/* Row 3: Advanced Analysis */}
-                                            <div className="h-[600px]">
-                                                <CodeSimilarityMap />
+                                            <div className="lg:col-span-1 h-full">
+                                                <BoxPlotChart
+                                                    data={boxPlotData}
+                                                />
                                             </div>
                                         </div>
-                                    );
-                                })()}
+
+                                        {/* Row 2: Deep Dive (Heatmap + Word Cloud) */}
+                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                            <div className="lg:col-span-2 h-full">
+                                                <ErrorHeatmapV2
+                                                    questions={heatmapQuestions}
+                                                />
+                                            </div>
+                                            <div className="lg:col-span-1 h-full">
+                                                <ErrorWordCloud
+                                                    data={wordCloudData}
+                                                    selectedTag={selectedAnalyticsTag}
+                                                    onSelectTag={setSelectedAnalyticsTag}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {/* Row 3: Advanced Analysis */}
+                                        <div className="h-[600px]">
+                                            <CodeSimilarityMap />
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </TabsContent>

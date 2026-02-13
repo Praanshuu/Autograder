@@ -190,6 +190,7 @@ export default function GradingInterface() {
                     {report.map((item, idx) => {
                         const isDirty = gradesMap[item.question.id]?.isDirty;
                         const scoreToShow = gradesMap[item.question.id]?.score;
+                        const maxPoints = item.max_points || 10;
 
                         return (
                             <button
@@ -209,7 +210,7 @@ export default function GradingInterface() {
                                         {item.question.title} {isDirty && <span className="text-amber-600 text-[10px] font-bold ml-1">(Unsaved)</span>}
                                     </p>
                                     <p className="text-xs text-gray-500 mt-1 line-clamp-1">
-                                        Q{idx + 1} • {item.submission ? `${scoreToShow}/100` : 'Not Attempted'}
+                                        Q{idx + 1} • {item.submission ? `${Number(scoreToShow).toFixed(1)} / ${maxPoints}` : 'Not Attempted'}
                                     </p>
                                 </div>
                             </button>
@@ -222,16 +223,21 @@ export default function GradingInterface() {
                     submission ? (
                         <>
                             {/* Code Viewer (Center) */}
-                            <div className="flex-1 bg-gray-900 text-gray-100 overflow-auto p-4 font-mono text-sm relative">
-                                <div className="absolute top-4 right-4 text-xs bg-gray-800 px-2 py-1 rounded text-gray-400 flex items-center gap-2">
-                                    <FileCode2 className="w-3 h-3" />
-                                    {submission.language || "python"}
+                            <div className="flex-1 bg-[#1e1e1e] text-gray-200 overflow-auto flex flex-col font-mono text-sm relative">
+                                <div className="sticky top-0 z-10 bg-[#252526] border-b border-[#333] px-4 py-2 flex items-center justify-between text-xs text-gray-400">
+                                    <div className="flex items-center gap-2">
+                                        <FileCode2 className="w-3.5 h-3.5" />
+                                        <span>{submission.language || "python"}</span>
+                                    </div>
+                                    <span>Read-only</span>
                                 </div>
-                                <pre className="counter-reset: line">
-                                    <code>
-                                        {submission.code_content || "# No code provided"}
-                                    </code>
-                                </pre>
+                                <div className="p-4">
+                                    <pre className="counter-reset: line font-mono leading-relaxed">
+                                        <code>
+                                            {submission.code_content || "# No code provided"}
+                                        </code>
+                                    </pre>
+                                </div>
                             </div>
 
                             {/* Grading Tools (Right) */}
@@ -329,8 +335,10 @@ export default function GradingInterface() {
                                                             value={currentGradeData.score}
                                                             onChange={(e) => updateScore(e.target.value)}
                                                             className="text-lg font-bold w-24"
+                                                            step="0.1"
+                                                            max={currentItem.max_points || 10}
                                                         />
-                                                        <span className="text-gray-500 font-medium">/ 100</span>
+                                                        <span className="text-gray-500 font-medium">/ {currentItem.max_points || 10}</span>
                                                     </div>
                                                 </div>
                                                 <div className="space-y-2">

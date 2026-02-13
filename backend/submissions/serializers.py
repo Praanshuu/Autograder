@@ -37,17 +37,21 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
         return QuestionSerializer(obj.assignment_question.question).data
 
     def get_final_score(self, obj):
-        # Return manual score if present
+        # Return manual score converted to percentage
         if obj.manual_score is not None:
-             return obj.manual_score
+            # manual_score is in points (e.g. 3.0 out of 6.0)
+            # Convert to percentage using custom_points from the assignment question
+            try:
+                max_points = obj.assignment_question.custom_points or 100
+                return round((obj.manual_score / max_points) * 100, 1)
+            except (ZeroDivisionError, AttributeError):
+                return obj.manual_score
 
-        # Calculate score based on passed test cases
-        # This is a naive implementation; real logic might depend on custom_points
+        # Fallback: Calculate score based on passed test cases
         results = obj.test_results.all()
         if not results:
             return 0
         
-        # Calculate percentage of passed tests
         passed = sum(1 for r in results if r.status == 'pass')
         total = len(results)
         
@@ -57,18 +61,167 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
         return round((passed / total) * 100)
 
     def get_time_spent(self, obj):
-        # Fetch draft progress to get time spent
-        progress = AssignmentProgress.objects.filter(
-            assignment_question=obj.assignment_question,
-            student=obj.student
-        ).first()
-        return progress.time_spent if progress else 0
+        # Use cached progress lookup to avoid N+1 queries
+        if not hasattr(self, '_progress_cache'):
+            # Bulk-fetch all AssignmentProgress for this assignment in one query
+            assignment_id = obj.assignment_question.assignment_id
+            progress_qs = AssignmentProgress.objects.filter(
+                assignment_question__assignment_id=assignment_id
+            ).values_list('assignment_question_id', 'student_id', 'time_spent')
+            self._progress_cache = {
+                (aq_id, student_id): time_spent
+                for aq_id, student_id, time_spent in progress_qs
+            }
+        
+        key = (obj.assignment_question_id, obj.student_id)
+        time_spent = self._progress_cache.get(key, 0)
+        if time_spent:
+            return round(time_spent / 60, 1)  # Convert seconds → minutes
+        return 0
 
     def get_is_graded(self, obj):
         return obj.status in ['success', 'fail']
 
     def get_feedback_tags(self, obj):
-        return "" # Placeholder
+        """Extract 1-2 word tags from feedback_text for the word cloud."""
+        if not obj.feedback_text:
+            return ""
+        
+        import re
+        # Strip <output> XML tags
+        text = re.sub(r'</?output>', '', obj.feedback_text).strip().lower()
+        if not text:
+            return ""
+        
+        # Curated 1-2 word tags with tight keyword patterns
+        tag_patterns = {
+            'list comprehension': ['list comprehension'],
+            'nested loops': ['nested loop', 'nested for', 'nested while'],
+            'loop efficiency': ['loop efficiency', 'unnecessary iteration', 'loop optimization'],
+            'variable naming': ['variable name', 'naming convention', 'descriptive name', 'descriptive variable'],
+            'edge cases': ['edge case', 'boundary', 'corner case'],
+            'error handling': ['error handling', 'try except', 'exception handling'],
+            'efficiency': ['efficient', 'efficiency', 'time complexity', 'more efficiently'],
+            'recursion': ['recursion', 'recursive'],
+            'string slicing': ['string slicing', 'string manipulation'],
+            'conditional logic': ['conditional statement', 'if-elif', 'if statement', 'conditional expression'],
+            'data structures': ['data structure', 'dictionary comprehension', 'set comprehension'],
+            'modular design': ['modular', 'reusable function', 'break down'],
+            'input validation': ['input validation', 'validate input', 'sanitize'],
+            'code style': ['pep8', 'formatting', 'code style', 'indentation error'],
+            'documentation': ['docstring', 'documentation', 'add comment'],
+            'logic error': ['logic error', 'incorrect output', 'wrong answer'],
+            'append method': ['append method', 'append correctly', "append'"],
+            'indexing': ['list indexing', 'index error', 'indexing'],
+            'simplification': ['simplif', 'redundant', 'unnecessary'],
+        }
+        
+        found_tags = []
+        for tag, keywords in tag_patterns.items():
+            if any(kw in text for kw in keywords):
+                found_tags.append(tag)
+        
+        if not found_tags:
+            found_tags = ['general feedback'] if obj.status == 'success' else ['needs review']
+        
+        return ','.join(found_tags)
+
+
+class TestResultMinimalSerializer(serializers.ModelSerializer):
+    """Minimal test result — only status and ID for analytics."""
+    class Meta:
+        model = TestResult
+        fields = ['test_case_id', 'status', 'error_message', 'execution_time_ms']
+
+
+class SubmissionAnalyticsSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for analytics — strips source code, descriptions, etc.
+    Reduces response from ~3.78MB to ~200KB for 1,397 submissions."""
+    
+    student_id = serializers.UUIDField(source='student.id', read_only=True)
+    student_username = serializers.CharField(source='student.username', read_only=True)
+    question_id = serializers.UUIDField(source='assignment_question.question.id', read_only=True)
+    final_score = serializers.SerializerMethodField()
+    time_spent = serializers.SerializerMethodField()
+    feedback_tags = serializers.SerializerMethodField()
+    test_results = TestResultMinimalSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = SubmissionAttempt
+        fields = ['id', 'student_id', 'student_username', 'question_id', 
+                  'status', 'final_score', 'time_spent', 'feedback_tags', 'test_results']
+
+    def get_final_score(self, obj):
+        if obj.manual_score is not None:
+            try:
+                max_points = obj.assignment_question.custom_points or 100
+                return round((obj.manual_score / max_points) * 100, 1)
+            except (ZeroDivisionError, AttributeError):
+                return obj.manual_score
+        results = obj.test_results.all()
+        if not results:
+            return 0
+        passed = sum(1 for r in results if r.status == 'pass')
+        total = len(results)
+        return round((passed / total) * 100) if total else 0
+
+    def get_time_spent(self, obj):
+        if not hasattr(self, '_progress_cache'):
+            assignment_id = obj.assignment_question.assignment_id
+            progress_qs = AssignmentProgress.objects.filter(
+                assignment_question__assignment_id=assignment_id
+            ).values_list('assignment_question_id', 'student_id', 'time_spent')
+            self._progress_cache = {
+                (aq_id, student_id): time_spent
+                for aq_id, student_id, time_spent in progress_qs
+            }
+        key = (obj.assignment_question_id, obj.student_id)
+        time_spent = self._progress_cache.get(key, 0)
+        if time_spent:
+            return round(time_spent / 60, 1)
+        return 0
+
+    def get_feedback_tags(self, obj):
+        if not obj.feedback_text:
+            return ""
+        import re
+        text = re.sub(r'</?output>', '', obj.feedback_text).strip().lower()
+        if not text:
+            return ""
+        tag_patterns = {
+            'list comprehension': ['list comprehension'],
+            'nested loops': ['nested loop', 'nested for', 'nested while'],
+            'loop efficiency': ['loop efficiency', 'unnecessary iteration', 'loop optimization'],
+            'variable naming': ['variable name', 'naming convention', 'descriptive name', 'descriptive variable'],
+            'edge cases': ['edge case', 'boundary', 'corner case'],
+            'error handling': ['error handling', 'try except', 'exception handling'],
+            'efficiency': ['efficient', 'efficiency', 'time complexity', 'more efficiently'],
+            'recursion': ['recursion', 'recursive'],
+            'string slicing': ['string slicing', 'string manipulation'],
+            'conditional logic': ['conditional statement', 'if-elif', 'if statement', 'conditional expression'],
+            'data structures': ['data structure', 'dictionary comprehension', 'set comprehension'],
+            'modular design': ['modular', 'reusable function', 'break down'],
+            'input validation': ['input validation', 'validate input', 'sanitize'],
+            'code style': ['pep8', 'formatting', 'code style', 'indentation error'],
+            'documentation': ['docstring', 'documentation', 'add comment'],
+            'logic error': ['logic error', 'incorrect output', 'wrong answer'],
+            'append method': ['append method', 'append correctly', "append'"],
+            'indexing': ['list indexing', 'index error', 'indexing'],
+            'simplification': ['simplif', 'redundant', 'unnecessary'],
+        }
+        found_tags = []
+        for tag, keywords in tag_patterns.items():
+            if any(kw in text for kw in keywords):
+                found_tags.append(tag)
+        # Add detected_keywords from AST analysis
+        if hasattr(obj, 'detected_keywords') and obj.detected_keywords:
+            for kw in obj.detected_keywords:
+                if kw not in found_tags:
+                    found_tags.append(kw)
+
+        if not found_tags:
+            found_tags = ['general feedback'] if obj.status == 'success' else ['needs review']
+        return ','.join(found_tags)
 
 
 class AssignmentProgressSerializer(serializers.ModelSerializer):
@@ -87,3 +240,4 @@ class GradebookEntrySerializer(serializers.ModelSerializer):
         model = GradebookEntry
         fields = ['id', 'student', 'content_item', 'content_item_title', 'content_item_type',
                   'final_score', 'points_earned', 'status', 'updated_at']
+

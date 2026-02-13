@@ -24,10 +24,13 @@ const ProtectedRoute = ({ children, requiredRole = null }) => {
   }
 
   // Check role-based access if required
-  if (requiredRole && user?.role !== requiredRole) {
-    // Redirect based on user role
-    const redirectPath = user?.role === 'student' ? '/student/dashboard' : '/teacher/dashboard';
-    return <Navigate to={redirectPath} replace />;
+  if (requiredRole) {
+    const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!roles.includes(user?.role)) {
+      // Redirect based on user role
+      const redirectPath = user?.role === 'student' ? '/student/dashboard' : '/teacher/dashboard';
+      return <Navigate to={redirectPath} replace />;
+    }
   }
 
   return children;
