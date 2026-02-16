@@ -9,7 +9,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from django.db import transaction
 from django.utils import timezone
-from .models import UserPoints, PracticeQuestion, PracticeSubmission
+from assignments.models import Question
+from .models import UserPoints, PracticeSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class PointsCalculator:
     
     def calculate_practice_points(
         self, 
-        question: PracticeQuestion, 
+        question: Question, 
         attempt_number: int = 1,
         execution_time_ms: Optional[int] = None,
         completion_time_seconds: Optional[int] = None
@@ -69,7 +70,9 @@ class PointsCalculator:
         """
         # Start with base points adjusted for difficulty
         base_points = self.BASE_POINTS['practice_completion']
-        difficulty_multiplier = self.DIFFICULTY_MULTIPLIERS.get(question.difficulty, 1.0)
+        # Question difficulty is capitalized (Easy, Medium, Hard), convert to lower for lookup
+        difficulty_key = question.difficulty.lower()
+        difficulty_multiplier = self.DIFFICULTY_MULTIPLIERS.get(difficulty_key, 1.0)
         points = int(base_points * difficulty_multiplier)
         
         # First attempt bonus (25% of base points)
@@ -80,14 +83,16 @@ class PointsCalculator:
         
         # Speed bonus based on completion time
         if completion_time_seconds is not None:
-            speed_bonus = self._calculate_speed_bonus(question.difficulty, completion_time_seconds)
+            difficulty_key = question.difficulty.lower()
+            speed_bonus = self._calculate_speed_bonus(difficulty_key, completion_time_seconds)
             points += speed_bonus
             if speed_bonus > 0:
                 logger.info(f"Speed bonus: +{speed_bonus} points")
         
         # Alternative speed bonus based on execution time
         elif execution_time_ms is not None:
-            exec_speed_bonus = self._calculate_execution_speed_bonus(question.difficulty, execution_time_ms)
+            difficulty_key = question.difficulty.lower()
+            exec_speed_bonus = self._calculate_execution_speed_bonus(difficulty_key, execution_time_ms)
             points += exec_speed_bonus
             if exec_speed_bonus > 0:
                 logger.info(f"Execution speed bonus: +{exec_speed_bonus} points")
@@ -268,7 +273,7 @@ class PointsCalculator:
         
         # Calculate points
         points = self.calculate_practice_points(
-            question=submission.practice_question,
+            question=submission.question,
             attempt_number=submission.attempt_number,
             execution_time_ms=submission.execution_time_ms,
             completion_time_seconds=completion_time_seconds
@@ -289,7 +294,7 @@ class PointsCalculator:
         from .realtime_service import realtime_service
         realtime_service.notify_practice_completed(
             user=submission.student,
-            question_title=submission.practice_question.title,
+            question_title=submission.question.title,
             points_earned=points_added,
             attempt_number=submission.attempt_number
         )

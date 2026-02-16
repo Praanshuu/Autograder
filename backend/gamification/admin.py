@@ -1,34 +1,9 @@
 from django.contrib import admin
 from .models import (
-    PracticeQuestion, PracticeQuestionLibrary, UserPoints, Achievement, 
+    PracticeQuestionLibrary, UserPoints, Achievement, 
     UserAchievement, PracticeSubmission, PracticeProgress, 
     StudentAnalytics, LeaderboardEntry
 )
-
-
-@admin.register(PracticeQuestion)
-class PracticeQuestionAdmin(admin.ModelAdmin):
-    list_display = ['title', 'difficulty', 'category', 'point_value', 'is_active', 'created_by', 'created_at']
-    list_filter = ['difficulty', 'category', 'is_active', 'created_at']
-    search_fields = ['title', 'description', 'category']
-    readonly_fields = ['id', 'created_at', 'updated_at']
-    ordering = ['difficulty', 'title']
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('title', 'description', 'difficulty', 'category', 'point_value')
-        }),
-        ('Code & Tests', {
-            'fields': ('starter_code', 'test_cases')
-        }),
-        ('Settings', {
-            'fields': ('is_active', 'created_by')
-        }),
-        ('Metadata', {
-            'fields': ('id', 'created_at', 'updated_at'),
-            'classes': ('collapse',)
-        })
-    )
 
 
 @admin.register(PracticeQuestionLibrary)
@@ -83,15 +58,15 @@ class UserAchievementAdmin(admin.ModelAdmin):
 
 @admin.register(PracticeSubmission)
 class PracticeSubmissionAdmin(admin.ModelAdmin):
-    list_display = ['student', 'practice_question', 'status', 'attempt_number', 'points_earned', 'submitted_at']
+    list_display = ['student', 'question', 'status', 'attempt_number', 'points_earned', 'submitted_at']
     list_filter = ['status', 'language', 'submitted_at']
-    search_fields = ['student__username', 'practice_question__title']
+    search_fields = ['student__username', 'question__title']
     readonly_fields = ['id', 'submitted_at']
     ordering = ['-submitted_at']
     
     fieldsets = (
         ('Submission Info', {
-            'fields': ('student', 'practice_question', 'attempt_number', 'language')
+            'fields': ('student', 'question', 'attempt_number', 'language')
         }),
         ('Code & Results', {
             'fields': ('source_code', 'status', 'test_results', 'points_earned', 'execution_time_ms')
@@ -105,9 +80,9 @@ class PracticeSubmissionAdmin(admin.ModelAdmin):
 
 @admin.register(PracticeProgress)
 class PracticeProgressAdmin(admin.ModelAdmin):
-    list_display = ['student', 'practice_question', 'is_completed', 'attempts_count', 'best_score', 'completed_at']
-    list_filter = ['is_completed', 'practice_question__difficulty', 'completed_at']
-    search_fields = ['student__username', 'practice_question__title']
+    list_display = ['student', 'question', 'is_completed', 'attempts_count', 'best_score', 'completed_at']
+    list_filter = ['is_completed', 'question__difficulty', 'completed_at']
+    search_fields = ['student__username', 'question__title']
     readonly_fields = ['id', 'first_attempt_at', 'last_updated']
     ordering = ['-last_updated']
 

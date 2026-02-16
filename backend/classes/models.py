@@ -65,3 +65,43 @@ class Enrollment(models.Model):
     
     def __str__(self):
         return f"{self.user.username} - {self.class_obj.name} ({self.role})"
+
+
+class Announcement(models.Model):
+    """
+    Teacher announcements for the class stream.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    class_obj = models.ForeignKey(Class, on_delete=models.CASCADE, related_name='announcements')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='announcements')
+    content = models.TextField()
+    is_pinned = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'announcements'
+        ordering = ['-is_pinned', '-created_at']
+
+    def __str__(self):
+        return f"{self.author.username} - {self.class_obj.name}"
+
+
+class Comment(models.Model):
+    """
+    Comments on Announcements or Assignments.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='class_comments')
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Parent objects
+    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name='comments', null=True, blank=True)
+    # Use string reference to avoid circular import with assignments app
+    assignment = models.ForeignKey('assignments.Assignment', on_delete=models.CASCADE, related_name='class_comments', null=True, blank=True)
+
+    class Meta:
+        db_table = 'class_comments'
+        ordering = ['created_at']

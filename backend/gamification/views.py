@@ -23,8 +23,9 @@ from typing import List, Dict, Any
 from .models import (
     UserPoints, Achievement, UserAchievement, LeaderboardEntry,
     PracticeSubmission, PracticeProgress, StudentAnalytics,
-    PracticeQuestion, PracticeQuestionLibrary
+    PracticeQuestionLibrary
 )
+from assignments.models import Question
 from .points_calculator import (
     PointsCalculator, get_top_users_by_points, get_user_rank
 )
@@ -60,17 +61,19 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
         
         if user.role == 'student':
             # Students can only see active questions
-            queryset = PracticeQuestion.objects.filter(is_active=True)
+            queryset = Question.objects.filter(is_active=True)
         elif user.role in ['teacher', 'admin']:
             # Teachers can see all questions they created
-            queryset = PracticeQuestion.objects.filter(created_by=user)
+            queryset = Question.objects.filter(created_by=user)
         else:
-            queryset = PracticeQuestion.objects.none()
+            queryset = Question.objects.none()
         
         # Apply filters
         difficulty_filter = self.request.query_params.get('difficulty')
         if difficulty_filter:
-            queryset = queryset.filter(difficulty__in=difficulty_filter.split(','))
+            # Capitalize difficulty for filtering as Question model uses Capitalized choices
+            difficulties = [d.capitalize() for d in difficulty_filter.split(',')]
+            queryset = queryset.filter(difficulty__in=difficulties)
         
         category_filter = self.request.query_params.get('category')
         if category_filter:
@@ -139,7 +142,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
             # Get current attempt number
             current_attempts = PracticeSubmission.objects.filter(
                 student=request.user,
-                practice_question=practice_question
+                question=practice_question
             ).count()
             attempt_number = current_attempts + 1
             
@@ -175,7 +178,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
             # Create submission record
             submission = PracticeSubmission.objects.create(
                 student=request.user,
-                practice_question=practice_question,
+                question=practice_question,
                 source_code=source_code,
                 language=language,
                 status='success' if all_passed else 'fail',
@@ -195,7 +198,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
             # Update or create progress record
             progress, created = PracticeProgress.objects.get_or_create(
                 student=request.user,
-                practice_question=practice_question,
+                question=practice_question,
                 defaults={
                     'attempts_count': attempt_number,
                     'best_score': 100.0 if all_passed else (len([r for r in formatted_results if r['passed']]) / len(formatted_results) * 100),
@@ -245,7 +248,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
             # Create error submission record
             PracticeSubmission.objects.create(
                 student=request.user,
-                practice_question=practice_question,
+                question=practice_question,
                 source_code=source_code,
                 language=language,
                 status='error',
@@ -363,7 +366,7 @@ class PracticeSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         elif user.role in ['teacher', 'admin']:
             # Teachers can see submissions for questions they created
             queryset = PracticeSubmission.objects.filter(
-                practice_question__created_by=user
+                question__created_by=user
             )
         else:
             queryset = PracticeSubmission.objects.none()
@@ -379,9 +382,9 @@ class PracticeSubmissionViewSet(viewsets.ReadOnlyModelViewSet):
         
         practice_question_filter = self.request.query_params.get('practice_question')
         if practice_question_filter:
-            queryset = queryset.filter(practice_question_id=practice_question_filter)
+            queryset = queryset.filter(question_id=practice_question_filter)
         
-        return queryset.select_related('student', 'practice_question')
+        return queryset.select_related('student', 'question')
 
 
 class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
@@ -393,7 +396,7 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = PracticeProgressSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter, filters.SearchFilter]
-    search_fields = ['practice_question__title', 'practice_question__category']
+    search_fields = ['question__title', 'question__category']
     ordering_fields = ['last_updated', 'completed_at', 'best_score', 'attempts_count', 'time_spent']
     ordering = ['-last_updated']
     
@@ -403,12 +406,12 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
         
         if user.role == 'student':
             # Students can only see their own progress
-            queryset = PracticeProgress.objects.filter(student=user).select_related('practice_question')
+            queryset = PracticeProgress.objects.filter(student=user).select_related('question')
         elif user.role in ['teacher', 'admin']:
             # Teachers can see progress for questions they created
             queryset = PracticeProgress.objects.filter(
-                practice_question__created_by=user
-            ).select_related('student', 'practice_question')
+                question__created_by=user
+            ).select_related('student', 'question')
         else:
             queryset = PracticeProgress.objects.none()
         
@@ -424,11 +427,12 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
         
         difficulty_filter = self.request.query_params.get('difficulty')
         if difficulty_filter:
-            queryset = queryset.filter(practice_question__difficulty__in=difficulty_filter.split(','))
+            difficulties = [d.capitalize() for d in difficulty_filter.split(',')]
+            queryset = queryset.filter(question__difficulty__in=difficulties)
         
         category_filter = self.request.query_params.get('category')
         if category_filter:
-            queryset = queryset.filter(practice_question__category__icontains=category_filter)
+            queryset = queryset.filter(question__category__icontains=category_filter)
         
         return queryset
     
@@ -449,11 +453,11 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
             )
         
         try:
-            practice_question = PracticeQuestion.objects.get(
+            practice_question = Question.objects.get(
                 id=practice_question_id,
                 is_active=True
             )
-        except PracticeQuestion.DoesNotExist:
+        except Question.DoesNotExist:
             return Response(
                 {'success': False, 'message': 'Practice question not found'},
                 status=status.HTTP_404_NOT_FOUND
@@ -462,7 +466,7 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
         # Get or create progress record
         progress, created = PracticeProgress.objects.get_or_create(
             student=request.user,
-            practice_question=practice_question,
+            question=practice_question,
             defaults={
                 'attempts_count': 0,
                 'best_score': 0.0,
@@ -517,7 +521,7 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
         try:
             progress = PracticeProgress.objects.get(
                 student=request.user,
-                practice_question_id=practice_question_id
+                question_id=practice_question_id
             )
         except PracticeProgress.DoesNotExist:
             return Response(
@@ -588,7 +592,7 @@ class PracticeAnalyticsViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        progress_records = PracticeProgress.objects.filter(student=request.user).select_related('practice_question')
+        progress_records = PracticeProgress.objects.filter(student=request.user).select_related('question')
         
         # Calculate summary statistics
         total_attempted = progress_records.count()
@@ -600,7 +604,7 @@ class PracticeAnalyticsViewSet(viewsets.ViewSet):
         # Get category breakdown
         category_stats = {}
         for progress in progress_records:
-            category = progress.practice_question.category
+            category = progress.question.category
             if category not in category_stats:
                 category_stats[category] = {'attempted': 0, 'completed': 0}
             category_stats[category]['attempted'] += 1
@@ -701,7 +705,7 @@ class PointsViewSet(viewsets.ReadOnlyModelViewSet):
             status='success',
             submitted_at__gte=start_date,
             points_earned__gt=0
-        ).select_related('practice_question').order_by('-submitted_at')
+        ).select_related('question').order_by('-submitted_at')
         
         history_data = []
         for submission in practice_history:
@@ -709,8 +713,8 @@ class PointsViewSet(viewsets.ReadOnlyModelViewSet):
                 'date': submission.submitted_at,
                 'points': submission.points_earned,
                 'type': 'practice',
-                'source': submission.practice_question.title,
-                'difficulty': submission.practice_question.difficulty
+                'source': submission.question.title,
+                'difficulty': submission.question.difficulty
             })
         
         # TODO: Add assignment point history when assignment points are implemented

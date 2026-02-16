@@ -12,6 +12,7 @@ from django.dispatch import receiver
 from django.db import transaction
 
 from .models import PracticeSubmission, PracticeProgress
+from assignments.models import Question
 from .points_calculator import PointsCalculator
 from submissions.models import SubmissionAttempt, TestResult
 
@@ -41,7 +42,7 @@ def handle_practice_submission_points(sender, instance, created, **kwargs):
             try:
                 progress = PracticeProgress.objects.get(
                     student=instance.student,
-                    practice_question=instance.practice_question
+                    question=instance.question
                 )
                 completion_time_seconds = progress.time_spent
             except PracticeProgress.DoesNotExist:
@@ -64,13 +65,13 @@ def handle_practice_submission_points(sender, instance, created, **kwargs):
             
             logger.info(
                 f"Awarded {points_awarded} points to {instance.student.username} "
-                f"for completing practice question: {instance.practice_question.title}"
+                f"for completing practice question: {instance.question.title}"
             )
             
             # Update practice progress to mark as completed
             progress, created = PracticeProgress.objects.get_or_create(
                 student=instance.student,
-                practice_question=instance.practice_question,
+                question=instance.question,
                 defaults={
                     'attempts_count': instance.attempt_number,
                     'best_score': 100.0,  # Successful completion = 100%
@@ -86,7 +87,7 @@ def handle_practice_submission_points(sender, instance, created, **kwargs):
                 
                 logger.info(
                     f"Marked practice question as completed for {instance.student.username}: "
-                    f"{instance.practice_question.title}"
+                    f"{instance.question.title}"
                 )
             
             # Send real-time notifications
@@ -103,7 +104,7 @@ def handle_practice_submission_points(sender, instance, created, **kwargs):
             # Notify practice completion
             realtime_service.notify_practice_completed(
                 user=instance.student,
-                question_title=instance.practice_question.title,
+                question_title=instance.question.title,
                 points_earned=points_awarded,
                 attempt_number=instance.attempt_number
             )
@@ -308,7 +309,7 @@ def update_practice_progress_time(sender, instance, created, **kwargs):
             # Find the successful submission for this progress
             successful_submission = PracticeSubmission.objects.filter(
                 student=instance.student,
-                practice_question=instance.practice_question,
+                question=instance.question,
                 status='success'
             ).first()
             
@@ -351,7 +352,7 @@ def check_practice_achievements(sender, instance, created, **kwargs):
         newly_awarded = check_user_achievements(
             user=instance.student,
             trigger_event='practice_completion',
-            practice_question=instance.practice_question,
+            practice_question=instance.question,
             submission=instance
         )
         
@@ -587,13 +588,11 @@ def trigger_leaderboard_update_assignment(sender, instance, created, **kwargs):
         )
 
 
-from .models import PracticeQuestion
-
-@receiver(post_save, sender=PracticeQuestion)
+@receiver(post_save, sender=Question)
 def create_default_config(sender, instance, created, **kwargs):
     """
-    Ensure every PracticeQuestion has a default configuration.
-    This signal runs after a PracticeQuestion is saved.
+    Ensure every Question has a default configuration.
+    This signal runs after a Question is saved.
     """
     if created or not instance.config:
         default_config = {

@@ -19,16 +19,14 @@ import { assignmentService } from "../../../services/assignmentService";
 import { classService } from "../../../services/classService";
 import { streamService } from "../../../services/streamService";
 
-export default function StreamTab() {
+import { useAuth } from "../../../contexts/AuthContext";
+
+export default function StudentStreamTab() {
     const { classId } = useParams();
+    const { user } = useAuth();
     const [classData, setClassData] = useState(null);
     const [upcomingWork, setUpcomingWork] = useState([]);
-    const [isAnnouncing, setIsAnnouncing] = useState(false);
-    const [announcementText, setAnnouncementText] = useState("");
-    const [editingPostId, setEditingPostId] = useState(null);
-    const [editText, setEditText] = useState("");
     const [posts, setPosts] = useState([]);
-    const [currentUser, setCurrentUser] = useState(null); // Would normally get from AuthContext
     const [loading, setLoading] = useState(true);
 
     // Fetch class details
@@ -40,8 +38,6 @@ export default function StreamTab() {
                 if (response.success) {
                     setClassData(response.data);
                 }
-                // Assume we can get current user from somewhere, or owner check
-                // For now, rely on API response author
             } catch (error) {
                 console.error("Failed to fetch class details", error);
             }
@@ -52,14 +48,24 @@ export default function StreamTab() {
     // Fetch Stream Data (Announcements + Assignments)
     useEffect(() => {
         const fetchStream = async () => {
-            if (!classId) return;
+            console.log("StudentStreamTab: useEffect running, classId:", classId);
+
+            if (!classId) {
+                console.error("StudentStreamTab: No classId found in params");
+                setLoading(false);
+                return;
+            }
+
             setLoading(true);
             try {
                 // Parallel fetch
+                console.log("StudentStreamTab: Fetching data...");
                 const [announcementsRes, assignmentsRes] = await Promise.all([
                     streamService.getAnnouncements(classId),
                     assignmentService.getClassAssignments(classId)
                 ]);
+
+                console.log("StudentStreamTab: Data received", { announcements: announcementsRes, assignments: assignmentsRes });
 
                 let allPosts = [];
 
@@ -68,7 +74,7 @@ export default function StreamTab() {
                     const announcements = announcementsRes.data.map(a => ({
                         id: a.id,
                         type: 'announcement',
-                        author: a.author,
+                        author: a.author || { first_name: 'Unknown', last_name: '', avatar_url: null },
                         date: new Date(a.created_at),
                         content: a.content,
                         comments: a.comments || [],
@@ -89,11 +95,11 @@ export default function StreamTab() {
                     const assignmentPosts = rawAssignments.map(a => ({
                         id: a.id,
                         type: 'assignment',
-                        author: { first_name: 'New', last_name: 'Assignment' }, // Placeholder or use Class Owner
+                        author: { first_name: 'Assignment', last_name: '', avatar_url: null }, // Placeholder
                         title: a.title,
                         date: new Date(a.created_at),
                         content: `New Assignment Posted: ${a.title}`,
-                        comments: [], // Assignments usually don't have comments in list view initially or need separate fetch
+                        comments: [], // Lazy loaded
                         commentsCount: a.comments_count || 0,
                         showComments: false,
                         dueDate: a.due_date,
@@ -119,7 +125,7 @@ export default function StreamTab() {
                 setUpcomingWork(upcoming);
 
             } catch (error) {
-                console.error("Failed to fetch stream:", error);
+                console.error("StudentStreamTab: Failed to fetch stream:", error);
             } finally {
                 setLoading(false);
             }
@@ -128,66 +134,8 @@ export default function StreamTab() {
         fetchStream();
     }, [classId]);
 
-    const handlePost = async () => {
-        if (!announcementText.trim()) return;
-
-        try {
-            const res = await streamService.createAnnouncement(classId, { content: announcementText });
-            if (res.success) {
-                const newPost = {
-                    id: res.data.id,
-                    type: 'announcement',
-                    author: res.data.author,
-                    date: new Date(res.data.created_at),
-                    content: res.data.content,
-                    comments: [],
-                    commentsCount: 0,
-                    showComments: false,
-                    isPinned: res.data.is_pinned,
-                    raw: res.data
-                };
-                setPosts([newPost, ...posts]);
-                setAnnouncementText("");
-                setIsAnnouncing(false);
-            }
-        } catch (error) {
-            console.error("Failed to post:", error);
-        }
-    };
-
-    const handleDelete = async (post) => {
-        if (post.type !== 'announcement') return; // Can't delete assignments from stream here
-
-        if (confirm("Are you sure you want to delete this announcement?")) {
-            const res = await streamService.deleteAnnouncement(post.id);
-            if (res.success) {
-                setPosts(posts.filter(p => p.id !== post.id));
-            }
-        }
-    };
-
-    const startEdit = (post) => {
-        setEditingPostId(post.id);
-        setEditText(post.content);
-    };
-
-    const saveEdit = async (post) => {
-        if (!editText.trim()) return;
-        try {
-            const res = await streamService.updateAnnouncement(post.id, { content: editText });
-            if (res.success) {
-                setPosts(posts.map(p => p.id === post.id ? { ...p, content: res.data.content } : p));
-                setEditingPostId(null);
-                setEditText("");
-            }
-        } catch (error) {
-            console.error("Failed to update:", error);
-        }
-    };
-
     const toggleComments = async (post) => {
         // Fetch comments if needed (lazy load or refresh)
-        // Always fetch to ensure we see new student comments
         if (!post.showComments) {
             try {
                 // Determine IDs
@@ -201,7 +149,7 @@ export default function StreamTab() {
                     // Handle pagination (DRF returns { results: [...] } if paginated)
                     const commentsData = Array.isArray(res.data) ? res.data : (res.data.results || []);
 
-                    setPosts(posts.map(p =>
+                    setPosts(prevPosts => prevPosts.map(p =>
                         p.id === post.id ? { ...p, comments: commentsData, commentsCount: commentsData.length, showComments: true } : p
                     ));
                     return;
@@ -211,6 +159,7 @@ export default function StreamTab() {
             }
         }
 
+        // Fallback or just toggle if already loaded/fetch failed
         setPosts(posts.map(p =>
             p.id === post.id ? { ...p, showComments: !p.showComments } : p
         ));
@@ -219,21 +168,26 @@ export default function StreamTab() {
     const handleAddComment = async (post, text) => {
         if (!text.trim()) return;
 
+        // Clean payload: author is handled by backend token
         const payload = {
-            content: text,
-            // author is handled by backend token
+            content: text
         };
 
         if (post.type === 'announcement') payload.announcement = post.id;
         else if (post.type === 'assignment') payload.assignment = post.id;
 
+        console.log("StudentStreamTab: Adding comment...", payload);
+
         try {
             const res = await streamService.addComment(payload);
+            console.log("StudentStreamTab: Add comment response:", res);
+
             if (res.success) {
                 const newComment = res.data;
                 // Append to post comments
-                setPosts(posts.map(p => {
+                setPosts(prevPosts => prevPosts.map(p => {
                     if (p.id === post.id) {
+                        // Ensure comments array exists
                         const currentComments = Array.isArray(p.comments) ? p.comments : [];
                         return {
                             ...p,
@@ -243,9 +197,12 @@ export default function StreamTab() {
                     }
                     return p;
                 }));
+            } else {
+                console.error("StudentStreamTab: Failed to add comment error:", res.error);
+                // Ideally show a toast here
             }
         } catch (error) {
-            console.error("Failed to add comment:", error);
+            console.error("StudentStreamTab: Failed to add comment (exception):", error);
         }
     };
 
@@ -253,15 +210,17 @@ export default function StreamTab() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             {/* Left Sidebar */}
             <div className="space-y-6 hidden lg:block">
+                {/* Class Code removed for students (optional, but requested layout similarity) */}
                 <Card>
                     <div className="p-4 space-y-3">
-                        <h3 className="font-semibold text-gray-600 text-sm">Class Code</h3>
-                        <div className="text-2xl font-bold tracking-widest text-indigo-600">
-                            {classData?.join_code || "..."}
+                        <h3 className="font-semibold text-gray-600 text-sm">Class Info</h3>
+                        <div className="text-sm text-gray-500">
+                            <p><strong>Section:</strong> {classData?.section || "N/A"}</p>
+                            <p><strong>Term:</strong> {classData?.term || "Current"}</p>
                         </div>
-                        <p className="text-xs text-gray-400">Share this code with students</p>
                     </div>
                 </Card>
+
                 <Card>
                     <div className="p-4 space-y-4">
                         <h3 className="font-semibold text-gray-600 text-sm">Upcoming</h3>
@@ -313,45 +272,17 @@ export default function StreamTab() {
 
             {/* Main Stream */}
             <div className="col-span-1 lg:col-span-3 space-y-6">
-                {/* Announcement Input */}
-                <Card className="shadow-sm transition-shadow">
-                    {isAnnouncing ? (
-                        <div className="p-4 space-y-4">
-                            <Textarea
-                                placeholder="Announce something to your class..."
-                                className="min-h-[120px] resize-none border-0 focus-visible:ring-0 bg-gray-50 text-base"
-                                value={announcementText}
-                                onChange={(e) => setAnnouncementText(e.target.value)}
-                                autoFocus
-                            />
-                            <div className="flex justify-between items-center">
-                                <Button variant="ghost" size="icon" className="text-gray-400 hover:text-indigo-600">
-                                    <Paperclip className="w-5 h-5" />
-                                </Button>
-                                <div className="flex gap-2">
-                                    <Button variant="ghost" onClick={() => setIsAnnouncing(false)}>Cancel</Button>
-                                    <Button onClick={handlePost} disabled={!announcementText.trim()}>Post</Button>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div
-                            className="p-4 flex items-center gap-4 cursor-pointer hover:bg-gray-50/50 transition-colors rounded-lg"
-                            onClick={() => setIsAnnouncing(true)}
-                        >
-                            <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">
-                                {classData?.owner?.first_name?.charAt(0) || "T"}
-                            </div>
-                            <div className="flex-1 text-gray-400 text-sm font-medium hover:text-gray-500">
-                                Announce something to your class...
-                            </div>
-                        </div>
-                    )}
-                </Card>
+
+                {/* Announcement Input Removed for Students */}
 
                 {/* Stream Items */}
                 {loading ? (
                     <div className="text-center py-12 text-gray-400">Loading stream...</div>
+                ) : posts.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400">
+                        <Info className="w-12 h-12 mx-auto mb-3 text-gray-200" />
+                        <p>No announcements yet.</p>
+                    </div>
                 ) : posts.map((post) => (
                     <Card key={`${post.type}-${post.id}`} className="group">
                         <div className="p-6">
@@ -377,53 +308,22 @@ export default function StreamTab() {
                                         <p className="text-xs text-gray-500">{post.date.toLocaleDateString()} {post.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
                                 </div>
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <MoreVertical className="w-4 h-4" />
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent>
-                                        {post.type === 'announcement' && (
-                                            <>
-                                                <DropdownMenuItem onClick={() => startEdit(post)}>Edit</DropdownMenuItem>
-                                                <DropdownMenuItem onClick={() => handleDelete(post)} className="text-red-600">
-                                                    <Trash2 className="w-4 h-4 mr-2" /> Delete
-                                                </DropdownMenuItem>
-                                            </>
-                                        )}
-
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                {/* Dropdown Removed for Students unless we add 'Report' or something */}
                             </div>
 
-                            {editingPostId === post.id ? (
-                                <div className="space-y-3">
-                                    <Textarea
-                                        value={editText}
-                                        onChange={(e) => setEditText(e.target.value)}
-                                        className="min-h-[100px]"
-                                    />
-                                    <div className="flex justify-end gap-2">
-                                        <Button variant="outline" size="sm" onClick={() => setEditingPostId(null)}>Cancel</Button>
-                                        <Button size="sm" onClick={() => saveEdit(post)}>Save</Button>
+                            <div className="text-gray-700 text-sm mb-4 whitespace-pre-wrap">
+                                {post.type === 'assignment' ? (
+                                    // Assignment simplified view
+                                    <div className="flex flex-col gap-1">
+                                        <span>{post.title}</span>
+                                        <span className="text-xs text-gray-500">Due: {new Date(post.dueDate).toLocaleDateString()}</span>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="text-gray-700 text-sm mb-4 whitespace-pre-wrap">
-                                    {post.type === 'assignment' ? (
-                                        // Assignment simplified view
-                                        <div className="flex flex-col gap-1">
-                                            <span>{post.title}</span>
-                                            <span className="text-xs text-gray-500">Due: {new Date(post.dueDate).toLocaleDateString()}</span>
-                                        </div>
-                                    ) : post.content}
-                                </div>
-                            )}
+                                ) : post.content}
+                            </div>
 
                             {/* Attachments Placeholder */}
                             {post.type === 'assignment' && (
-                                <div onClick={() => window.location.href = `/teacher/class/${classId}/assignments/${post.id}`} className="border border-gray-200 rounded-lg p-3 flex items-center gap-3 bg-gray-50 mb-4 cursor-pointer hover:bg-gray-100">
+                                <div onClick={() => window.location.href = `/student/workspace/${post.id}`} className="border border-gray-200 rounded-lg p-3 flex items-center gap-3 bg-gray-50 mb-4 cursor-pointer hover:bg-gray-100">
                                     <div className="w-10 h-10 bg-white rounded border flex items-center justify-center text-indigo-600 font-bold text-xs uppercase shadow-sm">
                                         <StickyNote className="w-5 h-5" />
                                     </div>
@@ -439,12 +339,14 @@ export default function StreamTab() {
                             <div className="px-6 py-3 flex items-center gap-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => toggleComments(post)}>
                                 <Users className="w-4 h-4 text-gray-400" />
                                 <span className="text-xs font-medium text-gray-500">
+                                    {/* Safe length check */}
                                     {(post.commentsCount || 0)} class comments
                                 </span>
                             </div>
 
                             {post.showComments && (
                                 <div className="px-6 pb-4 space-y-4 animate-in slide-in-from-top-2 duration-200">
+                                    {/* Safe Map */}
                                     {Array.isArray(post.comments) && post.comments.map(comment => (
                                         <div key={comment.id} className="flex gap-3">
                                             <Avatar className="w-8 h-8">

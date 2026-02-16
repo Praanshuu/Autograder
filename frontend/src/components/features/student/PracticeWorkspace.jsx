@@ -36,15 +36,15 @@ import 'prismjs/themes/prism-tomorrow.css';
 import { practiceService } from "../../../services/practiceService";
 
 const DIFFICULTY_COLORS = {
-  easy: "bg-green-100 text-green-700 border-green-200",
-  medium: "bg-yellow-100 text-yellow-700 border-yellow-200", 
-  hard: "bg-red-100 text-red-700 border-red-200"
+    easy: "bg-green-100 text-green-700 border-green-200",
+    medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    hard: "bg-red-100 text-red-700 border-red-200"
 };
 
 const DIFFICULTY_ICONS = {
-  easy: <Target className="w-3 h-3" />,
-  medium: <Zap className="w-3 h-3" />,
-  hard: <Trophy className="w-3 h-3" />
+    easy: <Target className="w-3 h-3" />,
+    medium: <Zap className="w-3 h-3" />,
+    hard: <Trophy className="w-3 h-3" />
 };
 
 const PracticeWorkspace = () => {
@@ -95,21 +95,25 @@ const PracticeWorkspace = () => {
     useEffect(() => {
         const fetchData = async () => {
             if (!questionId) return;
-            
+
             try {
                 setLoading(true);
-                
+
+                console.log("Fetching data for questionId:", questionId);
                 // Fetch question and progress in parallel
                 const [questionRes, progressRes] = await Promise.all([
                     practiceService.getPracticeQuestion(questionId),
-                    practiceService.getPracticeProgress({ practice_question: questionId })
+                    practiceService.getPracticeProgress({ question: questionId })
                 ]);
 
+                console.log("Question Response:", questionRes);
+                console.log("Progress Response:", progressRes);
+
                 setQuestion(questionRes.data);
-                
+
                 // Find progress for this specific question
                 const progressData = Array.isArray(progressRes.data) ? progressRes.data : (progressRes.data.results || []);
-                const questionProgress = progressData.find(p => p.practice_question == questionId);
+                const questionProgress = progressData.find(p => p.question == questionId);
                 setProgress(questionProgress || null);
 
                 // Set initial code
@@ -139,14 +143,14 @@ const PracticeWorkspace = () => {
 
     const handleLanguageChange = (newLanguage) => {
         setSelectedLanguage(newLanguage);
-        
+
         // Reset to starter code or default for new language
         if (question?.starter_code) {
             setCode(question.starter_code);
         } else {
             setCode(languageConfig[newLanguage].defaultCode);
         }
-        
+
         setOutput(null);
     };
 
@@ -165,7 +169,7 @@ const PracticeWorkspace = () => {
 
             // Format result for UI
             const resultData = response.data.data || response.data;
-            
+
             const formattedOutput = {
                 status: resultData.summary.execution_successful ? 'success' : 'error',
                 message: resultData.summary.execution_successful ?
@@ -199,7 +203,7 @@ const PracticeWorkspace = () => {
         if (!question) return;
 
         setIsSubmitting(true);
-        
+
         try {
             const response = await practiceService.submitPracticeCode(questionId, {
                 code: code,
@@ -207,7 +211,7 @@ const PracticeWorkspace = () => {
             });
 
             const submissionData = response.data;
-            
+
             // Process submission result
             const formattedResults = submissionData.test_results.map((r, idx) => ({
                 id: idx,
@@ -223,8 +227,8 @@ const PracticeWorkspace = () => {
 
             setOutput({
                 status: allPassed ? 'success' : 'error',
-                message: allPassed ? 
-                    `🎉 Congratulations! All test cases passed! You earned ${submissionData.points_earned} points!` : 
+                message: allPassed ?
+                    `🎉 Congratulations! All test cases passed! You earned ${submissionData.points_earned} points!` :
                     'Some test cases failed. Keep trying - you can submit unlimited times!',
                 results: formattedResults,
                 isSubmission: true,
@@ -234,7 +238,7 @@ const PracticeWorkspace = () => {
             if (allPassed) {
                 setPointsEarned(submissionData.points_earned || 0);
                 setShowSuccess(true);
-                
+
                 // Update progress
                 setProgress(prev => ({
                     ...prev,
@@ -376,7 +380,7 @@ const PracticeWorkspace = () => {
                                     {question.title}
                                 </h2>
                             </div>
-                            
+
                             {question.category && (
                                 <div className="mb-4">
                                     <Badge variant="outline" className="text-gray-600 border-gray-200">
@@ -384,11 +388,11 @@ const PracticeWorkspace = () => {
                                     </Badge>
                                 </div>
                             )}
-                            
+
                             <Separator className="my-4" />
-                            
+
                             <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-                                {question.description}
+                                {question.description || <span className="text-gray-400 italic">No description available.</span>}
                             </div>
                         </div>
 
@@ -400,14 +404,17 @@ const PracticeWorkspace = () => {
                                     <div key={idx} className="bg-gray-50 rounded-lg p-3 text-xs font-mono border border-gray-200">
                                         <div className="grid grid-cols-2 gap-2 mb-1">
                                             <span className="text-gray-500">Input:</span>
-                                            <span className="text-gray-900">{tc.input}</span>
+                                            <span className="text-gray-900">{tc.input !== undefined ? tc.input : (tc.concept || "N/A")}</span>
                                         </div>
                                         <div className="grid grid-cols-2 gap-2">
                                             <span className="text-gray-500">Output:</span>
-                                            <span className="text-gray-900">{tc.expected_output || tc.output}</span>
+                                            <span className="text-gray-900">{tc.expected_output !== undefined ? tc.expected_output : (tc.output !== undefined ? tc.output : (tc.description || "N/A"))}</span>
                                         </div>
                                     </div>
                                 ))}
+                                {testCases.length === 0 && (
+                                    <p className="text-gray-500 text-xs italic">No example test cases available.</p>
+                                )}
                             </div>
                         </div>
 
@@ -531,22 +538,20 @@ const PracticeWorkspace = () => {
                             {output && (
                                 <div className="space-y-4">
                                     {/* Status Message */}
-                                    <div className={`p-3 rounded-lg border ${
-                                        output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                                    }`}>
+                                    <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                                        }`}>
                                         <div className="flex items-center gap-2">
                                             {output.status === 'success' ? (
                                                 <CheckCircle2 className="w-4 h-4 text-green-600" />
                                             ) : (
                                                 <XCircle className="w-4 h-4 text-red-600" />
                                             )}
-                                            <span className={`font-medium text-sm ${
-                                                output.status === 'success' ? 'text-green-800' : 'text-red-800'
-                                            }`}>
+                                            <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'
+                                                }`}>
                                                 {output.message}
                                             </span>
                                         </div>
-                                        
+
                                         {output.isSubmission && output.pointsEarned > 0 && (
                                             <div className="mt-2 flex items-center gap-2 text-green-700">
                                                 <Star className="w-4 h-4 text-yellow-500" />
@@ -560,12 +565,10 @@ const PracticeWorkspace = () => {
                                         <div className="space-y-3">
                                             {output.results.map((result, idx) => (
                                                 <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className={`px-4 py-2 border-b ${
-                                                        result.testPassed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                                                    }`}>
-                                                        <h3 className={`font-semibold text-sm flex items-center gap-2 ${
-                                                            result.testPassed ? 'text-green-800' : 'text-red-800'
+                                                    <div className={`px-4 py-2 border-b ${result.testPassed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                                                         }`}>
+                                                        <h3 className={`font-semibold text-sm flex items-center gap-2 ${result.testPassed ? 'text-green-800' : 'text-red-800'
+                                                            }`}>
                                                             {result.testPassed ? (
                                                                 <CheckCircle2 className="w-4 h-4" />
                                                             ) : (
@@ -595,9 +598,8 @@ const PracticeWorkspace = () => {
                                                             </div>
                                                             <div>
                                                                 <div className="text-xs font-semibold text-gray-500 mb-1">YOUR OUTPUT:</div>
-                                                                <div className={`p-2 rounded text-sm font-mono border ${
-                                                                    result.testPassed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                                                }`}>
+                                                                <div className={`p-2 rounded text-sm font-mono border ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                                                    }`}>
                                                                     {result.error ? (
                                                                         <div className="text-red-600">
                                                                             <div className="font-bold">Error:</div>
@@ -623,7 +625,7 @@ const PracticeWorkspace = () => {
                                                 <span className="font-semibold">Keep Going!</span>
                                             </div>
                                             <p className="text-sm text-blue-700">
-                                                Don't worry - practice makes perfect! Review the failed test cases above, 
+                                                Don't worry - practice makes perfect! Review the failed test cases above,
                                                 adjust your code, and try again. You have unlimited attempts.
                                             </p>
                                         </div>

@@ -70,7 +70,11 @@ export default function TeacherLayout({ children }) {
         const fetchNotifications = async () => {
             try {
                 const res = await notificationService.getNotifications();
-                setNotifications(res.data.results || res.data || []);
+                if (res.success && res.data) {
+                    setNotifications(Array.isArray(res.data) ? res.data : (res.data.results || []));
+                } else {
+                    setNotifications([]);
+                }
             } catch (err) {
                 console.error("Failed to fetch notifications", err);
             }

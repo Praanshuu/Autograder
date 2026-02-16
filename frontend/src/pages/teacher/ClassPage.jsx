@@ -25,7 +25,11 @@ export default function ClassPage() {
             try {
                 setLoading(true);
                 const response = await classService.getClass(classId);
-                setClassData(response.data);
+                if (response.success) {
+                    setClassData(response.data);
+                } else {
+                    setError(response.error?.message || "Failed to load class details.");
+                }
             } catch (err) {
                 console.error("Failed to fetch class details", err);
                 setError("Failed to load class details.");

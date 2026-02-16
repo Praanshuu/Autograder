@@ -141,7 +141,7 @@ const StudentDashboard = () => {
 
     return (
         <StudentLayout refreshTrigger={sidebarRefreshKey}>
-            <div className="space-y-8 max-w-7xl mx-auto">
+            <div className="space-y-4 max-w-7xl mx-auto">
 
                 {/* 1. Header & Momentum Indicators */}
                 <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
@@ -314,9 +314,9 @@ const StudentDashboard = () => {
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.5, delay: 0.2 }}
                         >
-                            <LeaderboardWidget 
-                                type="global" 
-                                limit={5} 
+                            <LeaderboardWidget
+                                type="global"
+                                limit={5}
                                 compact={true}
                                 className="shadow-lg shadow-gray-100/50"
                             />
@@ -327,7 +327,7 @@ const StudentDashboard = () => {
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ duration: 0.5, delay: 0.25 }}
                         >
-                            <AchievementBadges 
+                            <AchievementBadges
                                 showProgress={true}
                                 limit={6}
                                 compact={true}

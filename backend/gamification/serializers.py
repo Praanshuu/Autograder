@@ -10,10 +10,11 @@ This module provides DRF serializers for:
 
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
+from assignments.models import Question
 from .models import (
     UserPoints, Achievement, UserAchievement, LeaderboardEntry,
     StudentAnalytics, PracticeSubmission, PracticeProgress,
-    PracticeQuestion, PracticeQuestionLibrary
+    PracticeQuestionLibrary
 )
 
 User = get_user_model()
@@ -92,11 +93,11 @@ class StudentAnalyticsSerializer(serializers.ModelSerializer):
 
 
 class PracticeQuestionSerializer(serializers.ModelSerializer):
-    """Serializer for practice questions"""
+    """Serializer for practice questions (using unified Question model)"""
     created_by = serializers.PrimaryKeyRelatedField(read_only=True)
     
     class Meta:
-        model = PracticeQuestion
+        model = Question
         fields = [
             'id', 'title', 'description', 'difficulty', 'category',
             'test_cases', 'starter_code', 'point_value', 'created_by',
@@ -118,14 +119,14 @@ class PracticeQuestionLibrarySerializer(serializers.ModelSerializer):
 class PracticeSubmissionSerializer(serializers.ModelSerializer):
     """Serializer for practice submissions with question details"""
     student = serializers.PrimaryKeyRelatedField(read_only=True)
-    practice_question_title = serializers.CharField(source='practice_question.title', read_only=True)
-    practice_question_difficulty = serializers.CharField(source='practice_question.difficulty', read_only=True)
+    question_title = serializers.CharField(source='question.title', read_only=True)
+    question_difficulty = serializers.CharField(source='question.difficulty', read_only=True)
     
     class Meta:
         model = PracticeSubmission
         fields = [
-            'id', 'student', 'practice_question', 'practice_question_title',
-            'practice_question_difficulty', 'source_code', 'language', 'status',
+            'id', 'student', 'question', 'question_title',
+            'question_difficulty', 'source_code', 'language', 'status',
             'test_results', 'points_earned', 'attempt_number', 'execution_time_ms',
             'submitted_at'
         ]
@@ -135,14 +136,14 @@ class PracticeSubmissionSerializer(serializers.ModelSerializer):
 class PracticeProgressSerializer(serializers.ModelSerializer):
     """Serializer for practice progress tracking"""
     student = UserSerializer(read_only=True)
-    practice_question_title = serializers.CharField(source='practice_question.title', read_only=True)
-    practice_question_difficulty = serializers.CharField(source='practice_question.difficulty', read_only=True)
+    question_title = serializers.CharField(source='question.title', read_only=True)
+    question_difficulty = serializers.CharField(source='question.difficulty', read_only=True)
     
     class Meta:
         model = PracticeProgress
         fields = [
-            'id', 'student', 'practice_question', 'practice_question_title',
-            'practice_question_difficulty', 'is_completed', 'attempts_count',
+            'id', 'student', 'question', 'question_title',
+            'question_difficulty', 'is_completed', 'attempts_count',
             'best_score', 'time_spent', 'first_attempt_at', 'completed_at',
             'last_updated'
         ]

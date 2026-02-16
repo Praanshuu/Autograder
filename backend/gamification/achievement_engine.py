@@ -192,7 +192,8 @@ class AchievementEngine:
         )
         
         if difficulty:
-            query = query.filter(practice_question__difficulty=difficulty)
+            # Use iexact for case-insensitive comparison since Question uses Capitalized difficulty
+            query = query.filter(question__difficulty__iexact=difficulty)
         
         return query.count() >= required_count
     
@@ -207,7 +208,7 @@ class AchievementEngine:
         )
         
         if difficulty:
-            query = query.filter(practice_question__difficulty=difficulty)
+            query = query.filter(question__difficulty__iexact=difficulty)
         
         # Check if user has any submission faster than max_time
         # Convert milliseconds to seconds for comparison
@@ -241,7 +242,7 @@ class AchievementEngine:
             mastered_categories = PracticeProgress.objects.filter(
                 student=user,
                 is_completed=True
-            ).values_list('practice_question__category', flat=True).distinct().count()
+            ).values_list('question__category', flat=True).distinct().count()
             return mastered_categories >= required_value
         
         return False
@@ -401,7 +402,7 @@ class AchievementEngine:
         )
         
         if difficulty:
-            query = query.filter(practice_question__difficulty=difficulty)
+            query = query.filter(question__difficulty__iexact=difficulty)
         
         current_count = query.count()
         
@@ -422,7 +423,7 @@ class AchievementEngine:
         )
         
         if difficulty:
-            query = query.filter(practice_question__difficulty=difficulty)
+            query = query.filter(question__difficulty__iexact=difficulty)
         
         fast_submissions = query.filter(
             execution_time_ms__lt=max_time * 1000
@@ -456,7 +457,7 @@ class AchievementEngine:
             current_value = PracticeProgress.objects.filter(
                 student=user,
                 is_completed=True
-            ).values_list('practice_question__category', flat=True).distinct().count()
+            ).values_list('question__category', flat=True).distinct().count()
         
         else:
             current_value = 0

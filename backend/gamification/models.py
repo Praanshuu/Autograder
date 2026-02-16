@@ -5,119 +5,14 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import transaction
 from django.utils import timezone
 from typing import List, Dict, Optional
-
-
-class PracticeQuestion(models.Model):
-    """Standalone practice problems separate from assignments"""
-    DIFFICULTY_CHOICES = [
-        ('easy', 'Easy'),
-        ('medium', 'Medium'), 
-        ('hard', 'Hard')
-    ]
-    
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    title = models.CharField(max_length=200)
-    description = models.TextField()
-    difficulty = models.CharField(max_length=20, choices=DIFFICULTY_CHOICES)
-    category = models.CharField(max_length=100)  # e.g., "Arrays", "Recursion"
-    test_cases = models.JSONField()  # Same format as existing questions
-    config = models.JSONField(default=dict, blank=True)  # runtime configuration
-    starter_code = models.TextField(blank=True)
-    point_value = models.IntegerField(validators=[MinValueValidator(1)])  # Points awarded for completion
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    class Meta:
-        db_table = 'practice_questions'
-        ordering = ['difficulty', 'title']
-        indexes = [
-            models.Index(fields=['difficulty', 'category']),
-            models.Index(fields=['is_active', 'created_at']),
-        ]
-    
-    def __str__(self):
-        return f"{self.title} ({self.difficulty})"
-    
-    def get_difficulty_multiplier(self):
-        """Get the point multiplier based on difficulty level"""
-        multipliers = {
-            'easy': 1.0,
-            'medium': 1.5,
-            'hard': 2.0
-        }
-        return multipliers.get(self.difficulty, 1.0)
-    
-    def calculate_base_points(self):
-        """Calculate base points for this question based on difficulty"""
-        base_points = 100  # Base points for any practice question
-        return int(base_points * self.get_difficulty_multiplier())
-    
-    def calculate_points_with_bonuses(self, attempt_number=1, execution_time_ms=None):
-        """
-        Calculate total points including bonuses for first attempt and speed
-        
-        Args:
-            attempt_number: The attempt number (1 for first attempt)
-            execution_time_ms: Execution time in milliseconds for speed bonus
-            
-        Returns:
-            int: Total points including bonuses
-        """
-        points = self.calculate_base_points()
-        
-        # First attempt bonus (25% of base points)
-        if attempt_number == 1:
-            first_attempt_bonus = int(points * 0.25)
-            points += first_attempt_bonus
-        
-        # Speed bonus based on difficulty (if execution time provided)
-        if execution_time_ms is not None:
-            speed_bonus = self.calculate_speed_bonus(execution_time_ms)
-            points += speed_bonus
-        
-        return points
-    
-    def calculate_speed_bonus(self, execution_time_ms):
-        """
-        Calculate speed bonus based on execution time and difficulty
-        
-        Args:
-            execution_time_ms: Execution time in milliseconds
-            
-        Returns:
-            int: Speed bonus points
-        """
-        # Expected time thresholds by difficulty (in milliseconds)
-        expected_times = {
-            'easy': 5000,    # 5 seconds
-            'medium': 10000, # 10 seconds  
-            'hard': 15000    # 15 seconds
-        }
-        
-        expected_time = expected_times.get(self.difficulty, 10000)
-        
-        # Award speed bonus if completed in less than 50% of expected time
-        if execution_time_ms < expected_time * 0.5:
-            return 20  # Fixed speed bonus
-        
-        return 0
-    
-    def get_expected_completion_time(self):
-        """Get expected completion time in seconds based on difficulty"""
-        times = {
-            'easy': 300,    # 5 minutes
-            'medium': 900,  # 15 minutes
-            'hard': 1800    # 30 minutes
-        }
-        return times.get(self.difficulty, 900)
+from assignments.models import Question
+# PracticeQuestion model removed - merged into assignments.Question
 
 
 class PracticeQuestionLibrary(models.Model):
     """Pre-built practice questions that teachers can assign"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    question = models.ForeignKey(PracticeQuestion, on_delete=models.CASCADE)
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
     is_public = models.BooleanField(default=True)
     tags = models.JSONField(default=list)  # For filtering and search
     created_at = models.DateTimeField(auto_now_add=True)
@@ -218,7 +113,7 @@ class PracticeSubmission(models.Model):
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='practice_submissions')
-    practice_question = models.ForeignKey(PracticeQuestion, on_delete=models.CASCADE, related_name='submissions')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='practice_submissions')
     source_code = models.TextField()
     language = models.CharField(max_length=20, default='python')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES)
@@ -232,20 +127,20 @@ class PracticeSubmission(models.Model):
         db_table = 'practice_submissions'
         ordering = ['-submitted_at']
         indexes = [
-            models.Index(fields=['student', 'practice_question']),
+            models.Index(fields=['student', 'question']),
             models.Index(fields=['student', '-submitted_at']),
             models.Index(fields=['status']),
         ]
     
     def __str__(self):
-        return f"{self.student.username} - {self.practice_question.title} (Attempt {self.attempt_number})"
+        return f"{self.student.username} - {self.question.title} (Attempt {self.attempt_number})"
 
 
 class PracticeProgress(models.Model):
     """Track student progress on practice questions"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='practice_progress')
-    practice_question = models.ForeignKey(PracticeQuestion, on_delete=models.CASCADE, related_name='progress')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='practice_progress')
     is_completed = models.BooleanField(default=False)
     attempts_count = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     best_score = models.FloatField(default=0.0, validators=[MinValueValidator(0.0), MaxValueValidator(100.0)])
@@ -256,15 +151,15 @@ class PracticeProgress(models.Model):
     
     class Meta:
         db_table = 'practice_progress'
-        unique_together = ['student', 'practice_question']
+        unique_together = ['student', 'question']
         indexes = [
             models.Index(fields=['student', 'is_completed']),
-            models.Index(fields=['practice_question', 'is_completed']),
+            models.Index(fields=['question', 'is_completed']),
         ]
     
     def __str__(self):
         status = "Completed" if self.is_completed else "In Progress"
-        return f"{self.student.username} - {self.practice_question.title} ({status})"
+        return f"{self.student.username} - {self.question.title} ({status})"
 
 
 class StudentAnalytics(models.Model):

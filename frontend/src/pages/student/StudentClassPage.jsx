@@ -11,7 +11,7 @@ import { Badge } from "../../components/ui/badge";
 
 // Reusing teacher components (Read-Only mode where applicable)
 // Ideally we should make separate student-specific components, but for speed:
-import StreamTab from "../../components/features/teacher/StreamTab"; // Assuming we can make this readonly or it handles role check
+import StudentStreamTab from "../../components/features/student/StudentStreamTab";
 import StudentClassworkTab from "../../components/features/student/StudentClassworkTab"; // We need to create this
 
 import { classService } from "../../services/classService";
@@ -96,43 +96,7 @@ export default function StudentClassPage() {
                     </div>
 
                     <TabsContent value="stream" className="mt-0">
-                        {/* Reusing StreamTab but we might want to ensure it's student-friendly. 
-                             For now, let's assume StreamTab renders posts. 
-                             If StreamTab has "Create Post", we need to hide it for students if they aren't allowed.
-                             Let's place a placeholder or reuse it if it handles permissions. 
-                             Since I don't want to break existing code, I'll wrap it or use a simplified version.
-                         */}
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            {/* Left: Upcoming (Todo) */}
-                            <div className="hidden lg:block space-y-4">
-                                <Card>
-                                    <CardHeader className="pb-3">
-                                        <CardTitle className="text-sm font-medium text-gray-500 uppercase tracking-wider">Upcoming</CardTitle>
-                                    </CardHeader>
-                                    <CardContent>
-                                        <p className="text-sm text-gray-400 italic">No work due soon</p>
-                                    </CardContent>
-                                </Card>
-                            </div>
-
-                            {/* Center: Stream Feed */}
-                            <div className="lg:col-span-2 space-y-4">
-                                {/* Announcement Placeholder */}
-                                <Card className="bg-indigo-50 border-indigo-100">
-                                    <CardContent className="p-4 flex items-center gap-4">
-                                        <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
-                                            <Info className="w-5 h-5" />
-                                        </div>
-                                        <div>
-                                            <p className="text-indigo-900 font-medium">Welcome to {classData.name}!</p>
-                                            <p className="text-indigo-700 text-sm">Check the Classwork tab for new assignments.</p>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-
-                                {/* We can reuse StreamTab here if refined later */}
-                            </div>
-                        </div>
+                        <StudentStreamTab />
                     </TabsContent>
 
                     <TabsContent value="classwork">

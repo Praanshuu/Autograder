@@ -23,15 +23,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { practiceService } from "../../../services/practiceService";
 
 const DIFFICULTY_COLORS = {
-  easy: "bg-green-100 text-green-700 border-green-200",
-  medium: "bg-yellow-100 text-yellow-700 border-yellow-200", 
-  hard: "bg-red-100 text-red-700 border-red-200"
+    easy: "bg-green-100 text-green-700 border-green-200",
+    medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
+    hard: "bg-red-100 text-red-700 border-red-200"
 };
 
 const DIFFICULTY_ICONS = {
-  easy: <Target className="w-3 h-3" />,
-  medium: <Zap className="w-3 h-3" />,
-  hard: <Trophy className="w-3 h-3" />
+    easy: <Target className="w-3 h-3" />,
+    medium: <Zap className="w-3 h-3" />,
+    hard: <Trophy className="w-3 h-3" />
 };
 
 export default function PracticeQuestionsList() {
@@ -58,17 +58,19 @@ export default function PracticeQuestionsList() {
                 ordering: sortBy === "created_at" ? "-created_at" : sortBy,
                 search: searchTerm
             };
-            
+
             if (selectedDifficulty !== "all") {
                 params.difficulty = selectedDifficulty;
             }
-            
+
             if (selectedCategory !== "all") {
                 params.category = selectedCategory;
             }
 
             const response = await practiceService.getPracticeQuestions(params);
+            console.log("Fetched practice questions:", response.data);
             const questionsData = Array.isArray(response.data) ? response.data : (response.data.results || []);
+            console.log("Processed questions data:", questionsData);
             setQuestions(questionsData);
 
             // Extract unique categories
@@ -94,11 +96,11 @@ export default function PracticeQuestionsList() {
 
             const response = await practiceService.getPracticeProgress(params);
             const progressData = Array.isArray(response.data) ? response.data : (response.data.results || []);
-            
+
             // Convert to lookup object
             const progressLookup = {};
             progressData.forEach(p => {
-                progressLookup[p.practice_question] = p;
+                progressLookup[p.question] = p;
             });
             setProgress(progressLookup);
         } catch (err) {
@@ -130,7 +132,7 @@ export default function PracticeQuestionsList() {
     const getStatusBadge = (question) => {
         const status = getCompletionStatus(question);
         const questionProgress = progress[question.id];
-        
+
         switch (status) {
             case "completed":
                 return (
@@ -294,18 +296,18 @@ export default function PracticeQuestionsList() {
                                                 {/* Metadata */}
                                                 <div className="flex items-center gap-4 text-xs text-gray-500">
                                                     <div className="flex items-center gap-1">
-                                                        <Badge className={DIFFICULTY_COLORS[question.difficulty] || DIFFICULTY_COLORS.medium}>
-                                                            {DIFFICULTY_ICONS[question.difficulty]}
+                                                        <Badge className={DIFFICULTY_COLORS[question.difficulty?.toLowerCase()] || DIFFICULTY_COLORS.medium}>
+                                                            {DIFFICULTY_ICONS[question.difficulty?.toLowerCase()] || DIFFICULTY_ICONS.medium}
                                                             <span className="ml-1 capitalize">{question.difficulty}</span>
                                                         </Badge>
                                                     </div>
-                                                    
+
                                                     {question.category && (
                                                         <span className="bg-gray-100 px-2 py-1 rounded text-gray-600">
                                                             {question.category.charAt(0).toUpperCase() + question.category.slice(1)}
                                                         </span>
                                                     )}
-                                                    
+
                                                     <span className="flex items-center gap-1">
                                                         <Star className="w-3 h-3 text-yellow-500" />
                                                         {question.point_value} pts
@@ -320,9 +322,9 @@ export default function PracticeQuestionsList() {
                                             </div>
 
                                             {/* Action Button */}
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className="text-gray-300 group-hover:text-indigo-600 shrink-0"
                                             >
                                                 <ArrowRight className="w-5 h-5" />

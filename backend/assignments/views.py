@@ -9,15 +9,27 @@ from classes.models import Enrollment
 
 
 class AssignmentViewSet(viewsets.ModelViewSet):
-    serializer_class = AssignmentSerializer
     permission_classes = [IsAuthenticated]
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            from .serializers import StreamAssignmentSerializer
+            return StreamAssignmentSerializer
+        return AssignmentSerializer
     
     def get_queryset(self):
         user = self.request.user
         class_id = self.request.query_params.get('class_id', None)
         
         # Select related module -> class for filtering
-        queryset = Assignment.objects.select_related('module__class_obj').prefetch_related('questions')
+        from django.db.models import Count
+        queryset = Assignment.objects.select_related('module__class_obj').annotate(
+            comments_count=Count('comments', distinct=True)
+        )
+        
+        # Only prefetch questions if NOT listing (detailed view needs them)
+        if self.action != 'list':
+            queryset = queryset.prefetch_related('questions')
         
         if class_id:
             queryset = queryset.filter(module__class_obj_id=class_id)

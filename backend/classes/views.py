@@ -3,8 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db.models import Count, Q
-from .models import Class, Enrollment, Module
-from .serializers import ClassSerializer, EnrollmentSerializer
+from .models import Class, Enrollment, Module, Announcement, Comment
+from .serializers import ClassSerializer, EnrollmentSerializer, AnnouncementSerializer, CommentSerializer
 from django.contrib.auth import get_user_model
 from submissions.models import GradebookEntry, SubmissionAttempt
 from core.permissions import IsTeacher
@@ -361,3 +361,43 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         return Enrollment.objects.filter(
             user=self.request.user
         ).select_related('class_obj', 'user')
+
+
+class AnnouncementViewSet(viewsets.ModelViewSet):
+    serializer_class = AnnouncementSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        class_id = self.request.query_params.get('class_id')
+        if class_id:
+             # Ensure user is enrolled or owner
+             # For now, simplistic check or reliance on frontend passing valid IDs
+             return Announcement.objects.filter(class_obj_id=class_id).select_related('author').annotate(
+                 comments_count=Count('comments', distinct=True)
+             ).order_by('-is_pinned', '-created_at')
+        return Announcement.objects.none()
+    
+    def perform_create(self, serializer):
+        # In a real app, verify user has permission to post in this class
+        serializer.save(author=self.request.user)
+
+
+class CommentViewSet(viewsets.ModelViewSet):
+    serializer_class = CommentSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+         announcement_id = self.request.query_params.get('announcement_id')
+         assignment_id = self.request.query_params.get('assignment_id')
+         
+         queryset = Comment.objects.select_related('author').order_by('created_at')
+         
+         if announcement_id:
+             return queryset.filter(announcement_id=announcement_id)
+         if assignment_id:
+             return queryset.filter(assignment_id=assignment_id)
+             
+         return queryset
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)

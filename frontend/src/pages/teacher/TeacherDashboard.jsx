@@ -115,10 +115,13 @@ export default function TeacherDashboard() {
         try {
             setLoading(true);
             const response = await classService.getClasses();
-            // Backend returns array directly or { results: ... } depending on pagination
-            // Assuming DRF default: it might be array if no pagination, or .results
-            const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
-            setClasses(data);
+            if (response.success && response.data) {
+                const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                setClasses(data);
+            } else {
+                setClasses([]);
+                if (!response.success) setError("Failed to load classes.");
+            }
             setError(null);
         } catch (err) {
             console.error("Failed to fetch classes:", err);

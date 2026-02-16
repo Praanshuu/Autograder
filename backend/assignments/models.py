@@ -49,6 +49,17 @@ class Question(models.Model):
     
     # Tags for Topic Analysis
     tags = models.JSONField(default=list, blank=True)
+
+    # Unified fields from PracticeQuestion
+    difficulty = models.CharField(
+        max_length=20, 
+        choices=[('Easy', 'Easy'), ('Medium', 'Medium'), ('Hard', 'Hard')],
+        default='Medium'
+    )
+    category = models.CharField(max_length=100, default='General')
+    point_value = models.IntegerField(default=100)
+    is_active = models.BooleanField(default=True)
+    config = models.JSONField(default=dict, blank=True)
     
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_questions')
     created_at = models.DateTimeField(auto_now_add=True)

@@ -10,7 +10,10 @@ class QuestionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Question
-        fields = ['id', 'title', 'slug', 'description', 'starter_code', 'reference_solution', 'test_cases', 'tags']
+        fields = ['id', 'title', 'slug', 'description', 'difficulty', 'category', 'point_value', 
+                  'starter_code', 'reference_solution', 'test_cases', 'tags', 'config', 'is_active', 
+                  'created_by', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'slug']
 
     def create(self, validated_data):
         if 'slug' not in validated_data:
@@ -57,8 +60,8 @@ class AssignmentSerializer(serializers.ModelSerializer):
         # Include fields from ContentItem (inherited) and Assignment
         fields = ['id', 'title', 'description', 'due_date', 'is_published', 
                   'mode', 'points_total', 'points', 'difficulty', 'config', 'questions', 
-                  'module', 'class_name', 'class_id', 'total_students', 'is_submitted', 'is_graded']
-        read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students', 'is_submitted', 'is_graded']
+                  'module', 'class_name', 'class_id', 'total_students', 'is_submitted', 'is_graded', 'created_at']
+        read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students', 'is_submitted', 'is_graded', 'created_at']
 
     def get_total_students(self, obj):
         # Count students enrolled in the class linked to this assignment's module
@@ -85,3 +88,16 @@ class AssignmentSerializer(serializers.ModelSerializer):
             content_item=obj,
             status='graded'
         ).exists()
+
+
+class StreamAssignmentSerializer(serializers.ModelSerializer):
+    """
+    Lightweight serializer for stream/list view.
+    Excludes questions and heavy computed fields.
+    """
+    class_id = serializers.UUIDField(source='module.class_obj.id', read_only=True)
+    comments_count = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = Assignment
+        fields = ['id', 'title', 'due_date', 'points_total', 'created_at', 'class_id', 'is_published', 'comments_count']
