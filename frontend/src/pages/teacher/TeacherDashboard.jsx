@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MoreVertical, Users, Loader2, AlertCircle } from "lucide-react";
+import { MoreVertical, Users, Loader2, AlertCircle, Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 
@@ -7,7 +7,23 @@ import TeacherLayout from "../../components/layout/TeacherLayout";
 import { classService } from "../../services/classService";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../../components/ui/card";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../../components/ui/dropdown-menu";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../../components/ui/dialog";
 import CreateClassDialog from "../../components/features/teacher/CreateClassDialog";
+import EditClassDialog from "../../components/features/teacher/EditClassDialog";
+import ClassCard from "../../components/features/teacher/ClassCard";
 
 // Motion Variants
 const containerVariants = {
@@ -25,91 +41,18 @@ const itemVariants = {
     show: { opacity: 1, y: 0 }
 };
 
-const ClassCard = ({ cl }) => {
-    // Unique color accent based on class ID
-    const colors = [
-        "bg-indigo-600",
-        "bg-emerald-600",
-        "bg-rose-600",
-        "bg-amber-600",
-        "bg-cyan-600",
-        "bg-violet-600"
-    ];
-    const accentColor = colors[(cl.id || 0) % colors.length];
 
-    return (
-        <motion.div variants={itemVariants} className="h-full">
-            <Link to={`/teacher/class/${cl.id}`} className="block h-full group">
-                <Card className="h-full flex flex-col overflow-hidden border border-gray-200 transition-all duration-300 hover:shadow-xl hover:border-gray-300 hover:-translate-y-1">
-                    <div className="flex h-full">
-                        {/* Colored Side Accent */}
-                        <div className={`w-1.5 ${accentColor} group-hover:w-3 transition-all duration-300`} />
-
-                        <div className="flex-1 flex flex-col">
-                            <CardContent className="p-6 flex-1">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div>
-                                        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1">{cl.section || "TERM 1"}</p>
-                                        <h3 className="text-xl font-bold text-gray-900 leading-tight group-hover:text-indigo-600 transition-colors">
-                                            {cl.name}
-                                        </h3>
-                                    </div>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <MoreVertical className="w-4 h-4" />
-                                    </Button>
-                                </div>
-
-                                <div className="space-y-3 mt-6">
-                                    <div className="flex items-center text-sm text-gray-600">
-                                        <div className="bg-gray-100 p-1.5 rounded-md mr-3">
-                                            <Users className="w-4 h-4 text-gray-500" />
-                                        </div>
-                                        <span className="font-medium">{cl.student_count || 0}</span>
-                                        <span className="text-gray-400 ml-1">Students enrolled</span>
-                                    </div>
-
-                                    <div className="flex items-center text-sm text-gray-600">
-                                        <div className="bg-gray-100 p-1.5 rounded-md mr-3">
-                                            <Loader2 className="w-4 h-4 text-gray-500" />
-                                        </div>
-                                        <span className="font-medium">{cl.assignment_count || 0}</span>
-                                        <span className="text-gray-400 ml-1">Active assignments</span>
-                                    </div>
-                                </div>
-                            </CardContent>
-
-                            {/* Footer Area with Action or Status */}
-                            <div className="p-4 bg-gray-50/50 border-t border-gray-100 flex items-center justify-between">
-                                {cl.has_pending_grading ? (
-                                    <div className="flex items-center gap-2 text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full border border-amber-100">
-                                        <span className="relative flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                                        </span>
-                                        Grading Pending
-                                    </div>
-                                ) : (
-                                    <div className="text-xs text-gray-400 font-medium px-2">
-                                        All caught up
-                                    </div>
-                                )}
-
-                                <span className="text-xs font-bold text-indigo-600 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0 flex items-center">
-                                    OPEN CLASS →
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                </Card>
-            </Link>
-        </motion.div>
-    );
-};
 
 export default function TeacherDashboard() {
     const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+
+    const [classToEdit, setClassToEdit] = useState(null);
+    const [classToDelete, setClassToDelete] = useState(null);
+    const [classToArchive, setClassToArchive] = useState(null);
+    const [isDeleting, setIsDeleting] = useState(false);
+    const [isArchiving, setIsArchiving] = useState(false);
 
     const fetchClasses = async () => {
         try {
@@ -137,7 +80,56 @@ export default function TeacherDashboard() {
 
     const handleClassCreated = (newClass) => {
         // Optimistic update or refetch
-        setClasses(prev => [...prev, newClass]);
+        setClasses(prev => [newClass, ...prev]);
+    };
+
+    const handleClassUpdated = (updatedClass) => {
+        setClasses(prev => prev.map(c => c.id === updatedClass.id ? { ...c, ...updatedClass } : c));
+        setClassToEdit(null);
+    };
+
+    const handleDeleteClick = (cl) => {
+        setClassToDelete(cl);
+    };
+
+    const handleArchiveClick = (cl) => {
+        setClassToArchive(cl);
+    };
+
+    const confirmDelete = async () => {
+        if (!classToDelete) return;
+
+        setIsDeleting(true);
+        try {
+            await classService.deleteClass(classToDelete.id);
+            setClasses(prev => prev.filter(c => c.id !== classToDelete.id));
+            setClassToDelete(null);
+        } catch (err) {
+            console.error("Failed to delete class:", err);
+            // Optionally set global error or toast here
+        } finally {
+            setIsDeleting(false);
+        }
+    };
+
+    const confirmArchive = async () => {
+        if (!classToArchive) return;
+
+        setIsArchiving(true);
+        try {
+            await classService.archiveClass(classToArchive.id);
+            // If we are showing "active" classes, archiving it should remove it from the list
+            // If unarchiving, it might stay or move depending on the view. 
+            // For now assuming dashboard shows active classes, so removing it is correct behavior for archive.
+            // But if it was unarchive action (which is rare here but possible if we reusing this), logic might differ.
+            // Since dashboard usually filters archived=false, we remove it.
+            setClasses(prev => prev.filter(c => c.id !== classToArchive.id));
+            setClassToArchive(null);
+        } catch (err) {
+            console.error("Failed to archive class:", err);
+        } finally {
+            setIsArchiving(false);
+        }
     };
 
     return (
@@ -179,10 +171,68 @@ export default function TeacherDashboard() {
                     animate="show"
                 >
                     {classes.map((cl) => (
-                        <ClassCard key={cl.id} cl={cl} />
+                        <ClassCard
+                            key={cl.id}
+                            cl={cl}
+                            onEdit={() => setClassToEdit(cl)}
+                            onDelete={() => handleDeleteClick(cl)}
+                            onArchive={() => handleArchiveClick(cl)}
+                        />
                     ))}
                 </motion.div>
             )}
+
+            {/* Edit Dialog */}
+            <EditClassDialog
+                classData={classToEdit}
+                open={!!classToEdit}
+                onOpenChange={(open) => !open && setClassToEdit(null)}
+                onClassUpdated={handleClassUpdated}
+            />
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!classToDelete} onOpenChange={(open) => !open && setClassToDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Class</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete <strong>{classToDelete?.name}</strong>?
+                            This action cannot be undone and will remove all assignments and student data associated with this class.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setClassToDelete(null)} disabled={isDeleting}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
+                            {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                            Delete Class
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Archive Confirmation Dialog */}
+            <Dialog open={!!classToArchive} onOpenChange={(open) => !open && setClassToArchive(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Archive Class</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to archive <strong>{classToArchive?.name}</strong>?
+                            Archived classes will still be accessible but won&apos;t appear on your main dashboard.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setClassToArchive(null)} disabled={isArchiving}>
+                            Cancel
+                        </Button>
+                        <Button onClick={confirmArchive} disabled={isArchiving}>
+                            {isArchiving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Archive className="w-4 h-4 mr-2" />}
+                            Archive Class
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </TeacherLayout>
     );
 }

@@ -12,6 +12,7 @@ import {
 import { Input } from "../../ui/input";
 import { Label } from "../../ui/label";
 import { Textarea } from "../../ui/textarea";
+import { MarkdownEditor } from "../../ui/markdown-editor";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -21,6 +22,7 @@ import {
 
 export default function QuestionEditorDialog({ open, onOpenChange, questionToEdit, onSave }) {
     const [title, setTitle] = useState("");
+    const [functionName, setFunctionName] = useState("solution"); // Default entry point
     const [difficulty, setDifficulty] = useState("Easy");
     const [description, setDescription] = useState("");
     const [testCases, setTestCases] = useState([{ input: "", output: "", explanation: "" }]);
@@ -28,12 +30,14 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
     useEffect(() => {
         if (questionToEdit) {
             setTitle(questionToEdit.title || "");
+            setFunctionName(questionToEdit.functionName || "solution");
             setDifficulty(questionToEdit.difficulty || "Easy");
             setDescription(questionToEdit.description || "");
             setTestCases(questionToEdit.testCases || [{ input: "", output: "", explanation: "" }]);
         } else {
             // Reset for new question
             setTitle("");
+            setFunctionName("solution");
             setDifficulty("Easy");
             setDescription("");
             setTestCases([{ input: "", output: "", explanation: "" }]);
@@ -41,9 +45,16 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
     }, [questionToEdit, open]);
 
     const handleSave = () => {
+        // Validate function name (simple regex for python identifier)
+        if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(functionName)) {
+            alert("Function name must be a valid Python identifier (e.g., 'two_sum', 'solve')");
+            return;
+        }
+
         onSave({
             id: questionToEdit ? questionToEdit.id : Date.now().toString(),
             title,
+            functionName,
             difficulty,
             description,
             testCases
@@ -75,14 +86,26 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-6 py-4">
-                    <div className="grid gap-2">
-                        <Label htmlFor="q-title">Question Title</Label>
-                        <Input
-                            id="q-title"
-                            placeholder="e.g. Reverse Linked List"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                        />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="q-title">Question Title</Label>
+                            <Input
+                                id="q-title"
+                                placeholder="e.g. Reverse Linked List"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="q-func">Function Name (Entry Point)</Label>
+                            <Input
+                                id="q-func"
+                                placeholder="e.g. reverse_list"
+                                value={functionName}
+                                onChange={(e) => setFunctionName(e.target.value)}
+                                className="font-mono"
+                            />
+                        </div>
                     </div>
 
                     <div className="grid gap-2">
@@ -104,10 +127,10 @@ export default function QuestionEditorDialog({ open, onOpenChange, questionToEdi
 
                     <div className="grid gap-2">
                         <Label htmlFor="q-desc">Problem Description (Markdown)</Label>
-                        <Textarea
+                        <MarkdownEditor
                             id="q-desc"
                             placeholder="Describe the problem..."
-                            className="min-h-[150px] font-mono text-sm"
+                            className="min-h-[150px]"
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                         />

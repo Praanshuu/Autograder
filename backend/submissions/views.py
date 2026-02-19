@@ -7,7 +7,7 @@ from django.utils import timezone
 from .models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
 from .serializers import SubmissionAttemptSerializer, AssignmentProgressSerializer, GradebookEntrySerializer
 from .services import execute_code, analyze_code_structure
-from assignments.models import AssignmentQuestion, ContentItem
+from assignments.models import AssignmentQuestion, ContentItem, Question
 from gamification.points_calculator import PointsCalculator
 import logging
 
@@ -49,6 +49,79 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         queryset = self.get_queryset()
         serializer = SubmissionAnalyticsSerializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='summary')
+    def get_assignment_summary(self, request):
+        """
+        Returns aggregated list of students for an assignment.
+        Teacher only.
+        """
+        assignment_id = request.query_params.get('assignment_id')
+        if not assignment_id: return Response({'message': 'Missing ID'}, status=400)
+        
+        from assignments.models import Assignment
+        try:
+            assignment = Assignment.objects.select_related('module__class_obj').get(id=assignment_id)
+        except Assignment.DoesNotExist:
+             return Response({'message': 'Assignment not found'}, status=404)
+
+        # 0. Get All Enrolled Students (from the Class)
+        class_obj = assignment.module.class_obj
+        # Local import User if not imported at top level
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        enrolled_students = User.objects.filter(enrollments__class_obj=class_obj, enrollments__role='student')
+        
+        student_map = {}
+        for student in enrolled_students:
+             student_map[student.id] = {
+                'student': {
+                    'id': student.id,
+                    'first_name': student.first_name,
+                    'last_name': student.last_name,
+                    'email': student.email,
+                    'username': student.username
+                },
+                'status': 'not_started',
+                'final_score': 0,
+                'updated_at': None,
+                'questions_completed': 0,
+                'total_questions': 0 
+            }
+
+        # 1. Get Gradebook
+        entries = GradebookEntry.objects.filter(content_item_id=assignment_id).select_related('student')
+        for entry in entries:
+            if entry.student_id in student_map:
+                student_map[entry.student_id]['status'] = entry.status
+                student_map[entry.student_id]['final_score'] = entry.final_score
+                student_map[entry.student_id]['updated_at'] = entry.updated_at
+        
+        # 2. Get Progress
+        progress_rows = AssignmentProgress.objects.filter(assignment_question__assignment_id=assignment_id).values('student_id').distinct()
+        for p in progress_rows:
+            sid = p['student_id']
+            if sid in student_map and student_map[sid]['status'] == 'not_started':
+                student_map[sid]['status'] = 'in_progress'
+
+        # Total questions
+        total_questions = AssignmentQuestion.objects.filter(assignment_id=assignment_id).count()
+        for sid in student_map:
+            student_map[sid]['total_questions'] = total_questions
+        
+        # Completed
+        completed_counts = SubmissionAttempt.objects.filter(
+            assignment_question__assignment_id=assignment_id,
+            status='success'
+        ).values('student_id').annotate(count=models.Count('assignment_question', distinct=True))
+        
+        for c in completed_counts:
+            sid = c['student_id']
+            if sid in student_map:
+                student_map[sid]['questions_completed'] = c['count']
+        
+        return Response(list(student_map.values()))
+
         
     def create(self, request, *args, **kwargs):
         assignment_question_id = request.data.get('assignment_question_id')
@@ -83,72 +156,18 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             detected_keywords=keywords
         )
         
-        # Execute Code
-        # aq.question.test_cases is JSON now
-        test_cases = aq.question.test_cases
-        language = request.data.get('language', 'python')  # Get language from request
+        # Execute Code (Async)
+        from .tasks import execute_submission_task
         
-        # Validate language support
-        supported_languages = ['python', 'c', 'java']
-        if language.lower() not in supported_languages:
-            return Response({
-                'message': f'Unsupported language: {language}. Supported languages: {", ".join(supported_languages)}'
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # Enqueue task
+        transaction_on_commit = getattr(timezone, 'now', None) # minimal dummy
+        # Better: use django transaction.on_commit if wrapped in atomicty, 
+        # but view is not atomic by default.
         
-        # We need to adapt the execute_code service to handle the JSON test cases
-        # Structure is list of dicts: {'input': '', 'output': ''}
+        execute_submission_task.delay(attempt.id, language)
         
-        # Map JSON test cases to format expected by service (if different)
-        # Service expects list of dicts.
-        
-        try:
-            results = execute_code(code, language, test_cases)
-            
-            # Save Results
-            passed_count = 0
-            test_results_data = []
-            for idx, res in enumerate(results):
-                status_res = res.get('status', 'fail')
-                if status_res == 'pass': passed_count += 1
-                
-                test_result = TestResult.objects.create(
-                    attempt=attempt,
-                    test_case_id=str(idx),
-                    status=status_res,
-                    score=1 if status_res == 'pass' else 0,
-                    actual_output=res.get('console_output', ''),
-                    error_message=res.get('error_message', ''),
-                    execution_time_ms=res.get('execution_time', 0)
-                )
-                
-                # Collect test results for points calculation
-                test_results_data.append({
-                    'status': status_res,
-                    'score': test_result.score
-                })
-            
-            # Determine final status
-            if passed_count == len(results) and len(results) > 0:
-                attempt.status = 'success'
-            else:
-                attempt.status = 'fail'
-            
-            attempt.save()
-            
-            # Award points for assignment submission
-            self._award_assignment_points(attempt, test_results_data)
-            
-            # Auto-update gradebook
-            self._update_gradebook(request.user, aq.assignment)
-            
-            serializer = self.get_serializer(attempt)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            attempt.status = 'error'
-            attempt.save()
-            logger.error(f"Execution failed: {e}")
-            return Response({'message': 'Execution failed'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        serializer = self.get_serializer(attempt)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=['post'], url_path='run')
     def run_code(self, request):
@@ -171,7 +190,18 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_400_BAD_REQUEST)
              
         try:
-            results = execute_code(code, language, test_cases)
+            # Fetch config if question_id is provided
+            config = {}
+            question_id = request.data.get('question_id')
+            if question_id:
+                try:
+                    question = Question.objects.get(id=question_id)
+                    config = question.config
+                    logger.info(f"Running code with config from Question {question_id}: {config}")
+                except Question.DoesNotExist:
+                    logger.warning(f"Question {question_id} not found for run_code config lookup.")
+            
+            results = execute_code(code, language, test_cases, config=config)
             
             formatted_results = []
             for r in results:
@@ -197,7 +227,36 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         except Exception as e:
             logger.error(f"Sandbox execution failed: {e}")
             return Response({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        except Exception as e:
+            logger.error(f"Sandbox execution failed: {e}")
+            return Response({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+    @action(detail=True, methods=['post'], url_path='analyze-ai')
+    def analyze_ai(self, request, pk=None):
+        """
+        Trigger Bulk AI Analysis for this assignment.
+        """
+        try:
+             # Verify assignment exists
+             from assignments.models import Assignment
+             try:
+                 assignment = Assignment.objects.get(id=pk)
+             except Assignment.DoesNotExist:
+                 return Response({'message': 'Assignment not found'}, status=status.HTTP_404_NOT_FOUND)
+            
+             # Trigger Celery Task
+             from .tasks import analyze_assignment_ai_task
+             task = analyze_assignment_ai_task.delay(pk)
+             
+             return Response({
+                 'message': f'AI Analysis started for assignment {assignment.title}',
+                 'task_id': task.id
+             })
+             
+        except Exception as e:
+            logger.error(f"Failed to trigger AI analysis: {e}")
+            return Response({'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=True, methods=['put', 'patch'], url_path='grade')
     def grade(self, request, pk=None):
@@ -458,9 +517,23 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
             assignment_question_id=aq_id
         )
         
+        # Get code content (Draft -> Last Submission -> Empty)
+        code_content = progress.current_code
+        
+        if not code_content:
+            # Fallback to latest submission if no draft
+            latest_submission = SubmissionAttempt.objects.filter(
+                student=request.user,
+                assignment_question=aq_id
+            ).order_by('-created_at').first()
+            
+            if latest_submission:
+                code_content = latest_submission.source_code
+        
         return Response({
             'time_spent': progress.time_spent,
-            'started_at': progress.started_at
+            'started_at': progress.started_at,
+            'code_content': code_content  # Return code to frontend
         })
 
     @action(detail=False, methods=['get'], url_path='points-summary')
@@ -640,93 +713,6 @@ class AssignmentProgressViewSet(viewsets.ModelViewSet):
             logger.error(f"Error getting assignment progress with points: {e}")
             return Response({'error': str(e)}, status=500)
 
-    @action(detail=False, methods=['get'], url_path='summary')
-    def get_assignment_summary(self, request):
-        """
-        Returns aggregated list of students for an assignment.
-        Teacher only.
-        """
-        # if not request.user.role == 'teacher': return 403
-        assignment_id = request.query_params.get('assignment_id')
-        if not assignment_id: return Response({'message': 'Missing ID'}, status=400)
-        
-        from django.contrib.auth import get_user_model
-        User = get_user_model()
-        
-        # Get all students (naive: all students in system, or enrolled in class if strict)
-        # Ideally get from Class Enrollments. 
-        # For now, get students who have ATTEMPTED or are in Gradebook
-        
-        # 1. Get Gradebook Entries
-        entries = GradebookEntry.objects.filter(content_item_id=assignment_id).select_related('student')
-        
-        # 2. Get Submissions to count progress
-        attempts = SubmissionAttempt.objects.filter(assignment_question__assignment_id=assignment_id)
-        
-        data = []
-        # Group by student
-        student_map = {}
-        for entry in entries:
-            student_map[entry.student_id] = {
-                'student': {
-                    'id': entry.student.id,
-                    'first_name': entry.student.first_name,
-                    'last_name': entry.student.last_name,
-                    'email': entry.student.email,
-                    'username': entry.student.username
-                },
-                'status': entry.status,
-                'final_score': entry.final_score,
-                'updated_at': entry.updated_at,
-                'questions_completed': 0,
-                'total_questions': 0 # To be filled
-            }
-            
-        # Get Total Questions Count
-        total_questions = AssignmentQuestion.objects.filter(assignment_id=assignment_id).count()
-
-        # Fill in attempts info (even if no gradebook entry yet, though finish_assignment creates it)
-        # If student worked but didn't finish, they might not have GradebookEntry (depending on logic).
-        # We should also include them.
-        
-        # ... simplifying for time: Just use Gradebook entries as "Submitted" list
-        # If we want "In Progress", we query AssignmentProgress.
-        
-        progress_rows = AssignmentProgress.objects.filter(assignment_question__assignment_id=assignment_id).values('student_id').distinct()
-        for p in progress_rows:
-            sid = p['student_id']
-            if sid not in student_map:
-                # Fetch user
-                stu = User.objects.get(id=sid)
-                student_map[sid] = {
-                    'student': {
-                        'id': stu.id,
-                        'first_name': stu.first_name,
-                        'last_name': stu.last_name,
-                        'email': stu.email,
-                         'username': stu.username
-                    },
-                    'status': 'in_progress',
-                    'final_score': 0,
-                    'updated_at': None,
-                    'questions_completed': 0,
-                    'total_questions': total_questions
-                }
-        
-        # Count completed questions per student
-        # We count SUCCESSFUL attempts
-        completed_counts = SubmissionAttempt.objects.filter(
-            assignment_question__assignment_id=assignment_id,
-            status='success'
-        ).values('student_id').annotate(count=models.Count('assignment_question', distinct=True))
-        
-        for c in completed_counts:
-            sid = c['student_id']
-            if sid in student_map:
-                student_map[sid]['questions_completed'] = c['count']
-                student_map[sid]['total_questions'] = total_questions
-        
-        return Response(list(student_map.values()))
 
     @action(detail=False, methods=['get'], url_path='student-report')
     def get_student_report(self, request):

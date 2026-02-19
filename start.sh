@@ -49,6 +49,9 @@ fi
 echo -e "${GREEN}Starting Backend Server (Port 8000)...${NC}"
 if [ -d "venv" ]; then
     source venv/bin/activate
+    # Install dependencies to ensure environment is up to date
+    echo -e "${BLUE}Installing/Updating Python dependencies...${NC}"
+    pip install -r backend/requirements.txt
 else
     echo -e "${RED}Virtual environment not found!${NC}"
 fi
@@ -62,6 +65,9 @@ sleep 2
 # 4. Start Frontend
 echo -e "${GREEN}Starting Frontend Server (Port 5173)...${NC}"
 cd frontend
+# Install dependencies
+echo -e "${BLUE}Installing/Updating Frontend dependencies...${NC}"
+npm install
 npm run dev &
 FRONTEND_PID=$!
 

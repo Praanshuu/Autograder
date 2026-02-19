@@ -243,3 +243,11 @@ ANYMAIL = {
     "RESEND_API_KEY": config('RESEND_API_KEY', default=''),
 }
 DEFAULT_FROM_EMAIL = "onboarding@resend.dev"
+
+# Celery Configuration
+CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6380/0')
+CELERY_RESULT_BACKEND = config('CELERY_BROKER_URL', default='redis://localhost:6380/0')
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE

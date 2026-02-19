@@ -1,0 +1,29 @@
+{
+    "assignment_name": "We\u2019re testing\u2026 YOUR SKILLS! \ud83d\ude06\ud83d\udd25 - Recursive String Permutations",
+    "language": "python",
+    "execution_mode": {
+        "type": "function"
+    },
+    "test_cases": [
+        {
+            "input": "abc",
+            "points": 10,
+            "concept": "Recursion, Backtracking, Permutations, String Manipulation",
+            "is_hidden": false,
+            "explanation": "There are 3! = 6 permutations of the string \"abc\".",
+            "expected_output": "abc\nacb\nbac\nbca\ncab\ncba\n"
+        },
+        {
+            "input": "ab",
+            "points": 10,
+            "concept": "Base Case Handling, Recursion Tree",
+            "is_hidden": false,
+            "explanation": "There are 2! = 2 permutations of the string \"ab\".",
+            "expected_output": "ab\nba\n"
+        }
+    ],
+    "entry_point": "reverse_string",
+    "input_types": null,
+    "points": 100,
+    "description": "Given a string S consisting of distinct lowercase English characters, write a recursive function to generate all possible permutations of the string.\n\nReturn the permutations in lexicographically sorted order.\n\nConstraints:\n\n1 \u2264 |S| \u2264 8\n\nAll characters in S are unique.\n\nNotes:\n\nYou must use recursion to solve this problem.\n\nIterative permutation generation is not allowed.\n\nOutput permutations as a list of strings."
+}

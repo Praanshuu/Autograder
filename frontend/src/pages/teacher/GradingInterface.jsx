@@ -12,7 +12,10 @@ import {
     History,
     Loader2,
     FileCode2,
-    AlertCircle
+    AlertCircle,
+    Bot,
+    Sparkles,
+    Brain
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -210,7 +213,18 @@ export default function GradingInterface() {
                                         {item.question.title} {isDirty && <span className="text-amber-600 text-[10px] font-bold ml-1">(Unsaved)</span>}
                                     </p>
                                     <p className="text-xs text-gray-500 mt-1 line-clamp-1">
-                                        Q{idx + 1} • {item.submission ? `${Number(scoreToShow).toFixed(1)} / ${maxPoints}` : 'Not Attempted'}
+                                        {item.submission ? (() => {
+                                            const passed = item.submission.test_results?.filter(r => r.status === 'pass').length ?? 0;
+                                            const total = item.submission.test_results?.length ?? 0;
+                                            const hasManual = item.submission.manual_score !== null && item.submission.manual_score !== undefined;
+                                            if (hasManual) {
+                                                return <span className="text-amber-600 font-medium">Override: {item.submission.manual_score} pts</span>;
+                                            }
+                                            if (total > 0) {
+                                                return <span className={passed === total ? 'text-green-600 font-medium' : 'text-red-500 font-medium'}>{passed}/{total} passed</span>;
+                                            }
+                                            return <span className={item.status === 'success' ? 'text-green-600' : 'text-gray-500'}>Q{idx + 1} • {item.status}</span>;
+                                        })() : <span className="italic">Not Attempted</span>}
                                     </p>
                                 </div>
                             </button>
@@ -241,9 +255,9 @@ export default function GradingInterface() {
                             </div>
 
                             {/* Grading Tools (Right) */}
-                            <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-20">
-                                <Tabs defaultValue="autograder" className="flex-1 flex flex-col">
-                                    <div className="border-b px-4">
+                            <div className="w-[400px] border-l bg-white flex flex-col shadow-xl z-20 h-full min-h-0">
+                                <Tabs defaultValue="autograder" className="flex-1 flex flex-col min-h-0">
+                                    <div className="border-b px-4 shrink-0">
                                         <TabsList className="w-full justify-start h-12 bg-transparent p-0 gap-4">
                                             <TabsTrigger value="autograder" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none h-12 px-0">
                                                 Autograder
@@ -258,7 +272,7 @@ export default function GradingInterface() {
                                         </TabsList>
                                     </div>
 
-                                    <div className="flex-1 overflow-auto p-4">
+                                    <div className="flex-1 overflow-y-auto p-4 min-h-0">
                                         <TabsContent value="autograder" className="mt-0 space-y-4">
                                             <Card>
                                                 <CardHeader className="pb-3">
@@ -321,6 +335,141 @@ export default function GradingInterface() {
                                                             );
                                                         });
                                                     })()}
+                                                </CardContent>
+                                            </Card>
+
+                                            {/* AI Analysis Section */}
+                                            <Card className="border-indigo-100 bg-indigo-50/20 shadow-sm">
+                                                <CardHeader className="pb-3 border-b border-indigo-100/50">
+                                                    <CardTitle className="text-sm font-medium flex items-center gap-2 text-indigo-900">
+                                                        <Sparkles className="w-4 h-4 text-indigo-600" />
+                                                        <span>AI Analysis (Autograder+)</span>
+                                                    </CardTitle>
+                                                </CardHeader>
+                                                <CardContent className="pt-4 space-y-4">
+                                                    {submission.ai_analysis_data ? (() => {
+                                                        // Determine data shape:
+                                                        // New format: { static, dynamic, feedback: { generative_model, technical_summary, ... }, embedding }
+                                                        // Old format: { tags: [...] }
+                                                        const raw = submission.ai_analysis_data;
+                                                        const fb = (raw.feedback && typeof raw.feedback === 'object') ? raw.feedback : raw;
+                                                        const staticData = raw.static || null;
+                                                        const tags = raw.tags || (Array.isArray(fb.tags) ? fb.tags : []);
+                                                        const hasAnyContent = fb.technical_summary || fb.error_explanation || fb.identified_concepts || fb.summarized_construct || tags.length > 0 || (staticData && staticData.constructs_found?.length > 0);
+
+                                                        if (!hasAnyContent) {
+                                                            return (
+                                                                <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                                                                    <Brain className="w-10 h-10 mb-3 text-indigo-100" />
+                                                                    <p className="text-sm font-medium text-gray-500">Analysis data is empty</p>
+                                                                    <p className="text-xs mt-1">Re-run "Autograder+" to generate insights.</p>
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        return (
+                                                            <div className="space-y-3 text-sm">
+                                                                {/* Model Badge */}
+                                                                {fb.generative_model && (
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-semibold border border-indigo-200">
+                                                                            🤖 {fb.generative_model}
+                                                                        </span>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Tags (old format or supplementary) */}
+                                                                {tags.length > 0 && (
+                                                                    <div className="p-3 bg-white rounded-lg border border-indigo-100/50 shadow-sm">
+                                                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block mb-1.5">Code Tags</span>
+                                                                        <div className="flex flex-wrap gap-1.5">
+                                                                            {tags.map((tag, i) => (
+                                                                                <span key={i} className="px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-md text-[10px] font-medium border border-indigo-100">
+                                                                                    {typeof tag === 'object' ? JSON.stringify(tag) : tag}
+                                                                                </span>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Technical Summary */}
+                                                                {fb.technical_summary && (
+                                                                    <div className="p-3 bg-white rounded-lg border border-indigo-100/50 shadow-sm">
+                                                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block mb-1">Technical Summary</span>
+                                                                        <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-line">
+                                                                            {typeof fb.technical_summary === 'object' ? JSON.stringify(fb.technical_summary, null, 2) : fb.technical_summary}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Error Explanation */}
+                                                                {fb.error_explanation && (
+                                                                    <div className="p-3 bg-red-50 rounded-lg border border-red-100 shadow-sm">
+                                                                        <span className="text-[10px] text-red-600 uppercase tracking-wider font-bold block mb-1">Error Explanation</span>
+                                                                        <p className="text-xs text-red-700 leading-relaxed whitespace-pre-line">
+                                                                            {typeof fb.error_explanation === 'object' ? JSON.stringify(fb.error_explanation, null, 2) : fb.error_explanation}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Identified Concepts */}
+                                                                {fb.identified_concepts && (Array.isArray(fb.identified_concepts) ? fb.identified_concepts.length > 0 : true) && (
+                                                                    <div className="p-3 bg-white rounded-lg border border-indigo-100/50 shadow-sm">
+                                                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block mb-1.5">Identified Concepts</span>
+                                                                        {Array.isArray(fb.identified_concepts) && fb.identified_concepts.length > 0 ? (
+                                                                            <div className="flex flex-wrap gap-1.5">
+                                                                                {fb.identified_concepts.map((concept, i) => (
+                                                                                    <span key={i} className="px-2 py-0.5 bg-violet-50 text-violet-700 rounded-md text-[10px] font-medium border border-violet-100">
+                                                                                        {typeof concept === 'object' ? (concept.name || JSON.stringify(concept)) : concept}
+                                                                                    </span>
+                                                                                ))}
+                                                                            </div>
+                                                                        ) : (
+                                                                            <p className="text-xs text-gray-500 italic">None detected</p>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Summarized Construct */}
+                                                                {fb.summarized_construct && (
+                                                                    <div className="p-3 bg-white rounded-lg border border-indigo-100/50 shadow-sm">
+                                                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block mb-1">Construct Used</span>
+                                                                        <p className="text-xs text-gray-700 leading-relaxed">
+                                                                            {typeof fb.summarized_construct === 'object' ? JSON.stringify(fb.summarized_construct, null, 2) : fb.summarized_construct}
+                                                                        </p>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Static Analysis */}
+                                                                {staticData && (
+                                                                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-100 shadow-sm space-y-1.5">
+                                                                        <span className="text-[10px] text-gray-500 uppercase tracking-wider font-bold block">Static Analysis</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${staticData.syntax_valid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                                                {staticData.syntax_valid ? '✓ Syntax Valid' : '✗ Syntax Error'}
+                                                                            </span>
+                                                                        </div>
+                                                                        {staticData.errors?.length > 0 && (
+                                                                            <p className="text-[10px] text-red-600 font-mono bg-red-50 px-2 py-1 rounded">{staticData.errors.join(', ')}</p>
+                                                                        )}
+                                                                        {staticData.constructs_found?.length > 0 && (
+                                                                            <div className="flex flex-wrap gap-1">
+                                                                                {staticData.constructs_found.map((c, i) => (
+                                                                                    <span key={i} className="text-[10px] text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{c}</span>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })() : (
+                                                        <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                                                            <Brain className="w-10 h-10 mb-3 text-indigo-100" />
+                                                            <p className="text-sm font-medium text-gray-500">No AI analysis available yet</p>
+                                                            <p className="text-xs mt-1">Run "Autograder+" from the assignment dashboard to generate insights.</p>
+                                                        </div>
+                                                    )}
                                                 </CardContent>
                                             </Card>
                                         </TabsContent>

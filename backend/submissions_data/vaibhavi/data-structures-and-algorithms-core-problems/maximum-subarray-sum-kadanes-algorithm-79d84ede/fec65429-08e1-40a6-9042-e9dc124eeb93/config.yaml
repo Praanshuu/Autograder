@@ -1,0 +1,10 @@
+meta:
+  student: vaibhavi
+  attempt_id: fec65429-08e1-40a6-9042-e9dc124eeb93
+  timestamp: '2026-02-17 11:14:53.820225+00:00'
+  status: success
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: max_subarray_sum

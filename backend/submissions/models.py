@@ -39,7 +39,7 @@ class SubmissionAttempt(models.Model):
     student = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='attempts')
     assignment_question = models.ForeignKey(AssignmentQuestion, on_delete=models.CASCADE, related_name='attempts')
     attempt_number = models.IntegerField(default=1)
-    code_blob_ref = models.CharField(max_length=255, blank=True)  # Path in MinIO
+    code_blob_ref = models.CharField(max_length=255, null=True, blank=True)  # Path in MinIO
     execution_time_ms = models.IntegerField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='queued')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -47,6 +47,7 @@ class SubmissionAttempt(models.Model):
     feedback_text = models.TextField(blank=True)
     detected_keywords = models.JSONField(default=list, blank=True)
     source_code = models.TextField(blank=True) # Snapshot of code at submission time
+    ai_analysis_data = models.JSONField(null=True, blank=True)  # New field for AI analysis results
     
     class Meta:
         db_table = 'submission_attempts'
@@ -65,7 +66,7 @@ class TestResult(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt = models.ForeignKey(SubmissionAttempt, on_delete=models.CASCADE, related_name='test_results')
     test_case_id = models.CharField(max_length=50) # ID from JSONB in Question
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES)
     score = models.FloatField(default=0.0)
     actual_output = models.TextField(blank=True, default='')
     error_message = models.TextField(blank=True, default='')
@@ -89,9 +90,11 @@ class GradebookEntry(models.Model):
     content_item = models.ForeignKey(ContentItem, on_delete=models.CASCADE)
     final_score = models.FloatField(default=0.0)
     points_earned = models.IntegerField(default=0)  # Points earned from gamification system
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='submitted')
+    status = models.CharField(max_length=20, choices=[('graded', 'Graded'), ('pending', 'Pending')], default='pending')
+    completion_date = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         db_table = 'gradebook_entries'
-        unique_together = ['student', 'content_item']
+        unique_together = ('student', 'content_item')

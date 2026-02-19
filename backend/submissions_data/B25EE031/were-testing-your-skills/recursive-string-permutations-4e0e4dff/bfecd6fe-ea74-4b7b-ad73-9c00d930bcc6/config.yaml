@@ -1,0 +1,10 @@
+meta:
+  student: B25EE031
+  attempt_id: bfecd6fe-ea74-4b7b-ad73-9c00d930bcc6
+  timestamp: '2026-02-19 13:47:13.721594+00:00'
+  status: fail
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: reverse_string

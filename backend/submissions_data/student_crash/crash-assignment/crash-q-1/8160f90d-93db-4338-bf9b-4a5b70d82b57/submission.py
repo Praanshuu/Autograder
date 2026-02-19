@@ -1,0 +1,1 @@
+def solution(x): return x

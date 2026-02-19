@@ -1,27 +1,64 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { MoveLeft, Plus, Save, Trash2, GripVertical, Pencil, Loader2, AlertCircle } from "lucide-react";
-import { motion, Reorder } from "framer-motion";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { MoveLeft, Plus, Save, Loader2, AlertCircle, GripVertical } from "lucide-react";
+import { motion } from "framer-motion";
+import {
+    DndContext,
+    DragOverlay,
+    closestCenter,
+    KeyboardSensor,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    useDroppable,
+} from '@dnd-kit/core';
+import {
+    arrayMove,
+    SortableContext,
+    sortableKeyboardCoordinates,
+    verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
-import { Textarea } from "../../components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
+import { MarkdownEditor } from "../../components/ui/markdown-editor";
 import QuestionEditorDialog from "../../components/features/teacher/QuestionEditorDialog";
+import PracticeQuestionsPanel from "../../components/features/teacher/PracticeQuestionsPanel";
+import { SortableQuestionItem } from "../../components/features/teacher/SortableQuestionItem";
 
 import { assignmentService } from "../../services/assignmentService";
 import { classService } from "../../services/classService";
 
-import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
+
+// Droppable Wrapper Component
+function DroppableQuestionList({ children }) {
+    const { setNodeRef, isOver } = useDroppable({
+        id: 'question-list-droppable',
+    });
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={`space-y-3 min-h-[150px] p-4 rounded-lg border-2 border-dashed transition-colors ${isOver ? 'border-indigo-400 bg-indigo-50' : 'border-transparent hover:border-gray-200'
+                }`}
+        >
+            {children}
+        </div>
+    );
+}
 
 export default function CreateAssignment() {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [searchParams] = useSearchParams();
     const copyId = searchParams.get("copy_id");
     const editId = searchParams.get("id");
+    const paramClassId = searchParams.get("class_id");
     const isEditMode = searchParams.get("edit") === "true";
 
     // Form State
@@ -42,16 +79,21 @@ export default function CreateAssignment() {
     const [error, setError] = useState(null);
     const [isQuestionDialogOpen, setIsQuestionDialogOpen] = useState(false);
     const [editingQuestion, setEditingQuestion] = useState(null);
-    const [saveStatus, setSaveStatus] = useState(""); // "Saved" | "Saving..."
+    const [saveStatus, setSaveStatus] = useState("");
+    const [activeId, setActiveId] = useState(null); // For drag overlay
 
-    // 1. Auto-save is disabled in Edit Mode to avoid overwriting new drafts with old edits or vice versa? 
-    // Actually, we might want to autosave edits too? For complexity, let's disable autosave for Edit Mode for now or treat it differently.
-    // Or just let it save to a different key?
+    // DnD Sensors
+    const sensors = useSensors(
+        useSensor(PointerSensor),
+        useSensor(KeyboardSensor, {
+            coordinateGetter: sortableKeyboardCoordinates,
+        })
+    );
 
+    // Auto-save Logic
     useEffect(() => {
-        if (isEditMode) return; // Don't auto-save to "draft" when editing an existing assignment
+        if (isEditMode) return;
 
-        // Debounce save logic
         const timer = setTimeout(() => {
             if (title || instructions || questions.length > 0) {
                 const draft = { title, instructions, selectedClassId, difficulty, points, dueDate, questions };
@@ -62,16 +104,14 @@ export default function CreateAssignment() {
         return () => clearTimeout(timer);
     }, [title, instructions, selectedClassId, difficulty, points, dueDate, questions, isEditMode]);
 
-    // 2. Load Classes & Handle Copy/Edit/Draft
+    // Load Data
     useEffect(() => {
         const init = async () => {
             try {
-                // Fetch classes
                 const response = await classService.getClasses();
                 const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
                 setClasses(data);
 
-                // Priority 1: Edit Mode
                 if (isEditMode && editId) {
                     const assignRes = await assignmentService.getAssignment(editId);
                     const source = assignRes.data;
@@ -82,23 +122,16 @@ export default function CreateAssignment() {
                     setPoints(source.points || source.points_total);
                     setDueDate(source.due_date ? new Date(source.due_date).toISOString().slice(0, 16) : "");
                     if (source.class_id || source.module?.class_id) {
-                        // Find class
                         const cId = source.class_id || source.module?.class_obj?.id;
                         setSelectedClassId(cId ? cId.toString() : "");
                     }
 
-                    // Existing questions
                     const existingQuestions = source.questions.map(q => ({
                         ...q.question,
-                        id: q.question.id, // Keep ID for editing? Or treating as value object? 
-                        // If we edit questions, do we update the original question?
-                        // Ideally yes, or creating new versions.
-                        // For simplicity in this MV, let's keep IDs. 
+                        id: q.question.id,
                         testCases: q.question.test_cases?.map(tc => ({
                             input: tc.input,
-                            output: tc.expected_output, // Mapping back from backend format?
-                            // Backend has expected_output, frontend seems to use 'output' in some places or 'expected_output'.
-                            // Let's ensure consistency.
+                            output: tc.expected_output,
                             expected_output: tc.expected_output,
                             explanation: tc.explanation,
                             concept: tc.concept,
@@ -107,7 +140,6 @@ export default function CreateAssignment() {
                     }));
                     setQuestions(existingQuestions);
                 }
-                // Priority 2: Duplicate logic
                 else if (copyId) {
                     const assignRes = await assignmentService.getAssignment(copyId);
                     const source = assignRes.data;
@@ -116,10 +148,9 @@ export default function CreateAssignment() {
                     setDifficulty(source.questions?.[0]?.question?.difficulty || "Medium");
                     setPoints(source.points);
 
-                    // Transform existing questions to editor format
                     const existingQuestions = source.questions.map(q => ({
                         ...q.question,
-                        id: `copy-${q.question.id}-${Date.now()}`, // New IDs for copy
+                        id: `copy-${q.question.id}-${Date.now()}`,
                         testCases: q.question.test_cases?.map(tc => ({
                             input: tc.input,
                             expected_output: tc.expected_output,
@@ -133,21 +164,25 @@ export default function CreateAssignment() {
                     if (data.length > 0) setSelectedClassId(data[0].id.toString());
                     localStorage.removeItem("assignment_draft");
                 }
-                // Priority 3: Restore Draft
                 else {
                     const saved = localStorage.getItem("assignment_draft");
+                    let parsedData = null;
                     if (saved) {
-                        const parsed = JSON.parse(saved);
-                        setTitle(parsed.title || "");
-                        setInstructions(parsed.instructions || "");
-                        setDifficulty(parsed.difficulty || "Medium");
-                        setPoints(parsed.points || 100);
-                        setDueDate(parsed.dueDate || "");
-                        setQuestions(parsed.questions || []);
-                        if (parsed.selectedClassId) setSelectedClassId(parsed.selectedClassId);
+                        parsedData = JSON.parse(saved);
+                        setTitle(parsedData.title || "");
+                        setInstructions(parsedData.instructions || "");
+                        setDifficulty(parsedData.difficulty || "Medium");
+                        setPoints(parsedData.points || 100);
+                        setDueDate(parsedData.dueDate || "");
+                        setQuestions(parsedData.questions || []);
+                        if (parsedData.selectedClassId) setSelectedClassId(parsedData.selectedClassId);
                     }
-                    if (!selectedClassId && data.length > 0) {
-                        setSelectedClassId(data[0].id.toString());
+                    if (!selectedClassId && !parsedData?.selectedClassId) {
+                        if (paramClassId) {
+                            setSelectedClassId(paramClassId);
+                        } else if (data.length > 0) {
+                            setSelectedClassId(data[0].id.toString());
+                        }
                     }
                 }
             } catch (err) {
@@ -160,13 +195,68 @@ export default function CreateAssignment() {
         init();
     }, [copyId]);
 
+    // Drag & Drop Handlers
+    const handleDragStart = (event) => {
+        setActiveId(event.active.id);
+    };
+
+    const handleDragEnd = (event) => {
+        const { active, over } = event;
+        setActiveId(null);
+
+        if (!over) return;
+
+        // Sorting logic (drag within list)
+        if (active.id !== over.id && !active.id.toString().startsWith('bank-')) {
+            const oldIndex = questions.findIndex((q) => q.id === active.id);
+            const newIndex = questions.findIndex((q) => q.id === over.id);
+
+            if (oldIndex !== -1 && newIndex !== -1) {
+                setQuestions((items) => arrayMove(items, oldIndex, newIndex));
+            }
+        }
+
+        // Drag from Bank to List logic
+        if (active.id.toString().startsWith('bank-')) {
+            // Check if dropped over the list area OR strictly over an item in the list
+            const isOverList = over.id === 'question-list-droppable';
+            // Also allow if dropped over any existing sortable item
+            const isOverItem = questions.some(q => q.id === over.id);
+
+            if (isOverList || isOverItem) {
+                const questionData = active.data.current?.question;
+                if (questionData) {
+                    handleAddFromBank(questionData);
+                }
+            }
+        }
+    };
+
+    const handleAddFromBank = (question) => {
+        // Check if already added
+        if (questions.some(q => q.id === question.id)) {
+            if (!confirm(`Question "${question.title}" is already in the assignment. Add it again?`)) {
+                return;
+            }
+            // Add as copy
+            const newQ = {
+                ...question,
+                id: `copy-${question.id}-${Date.now()}`,
+                testCases: question.test_cases || []
+            };
+            setQuestions([...questions, newQ]);
+        } else {
+            // Add directly
+            setQuestions([...questions, { ...question, testCases: question.test_cases || [] }]);
+        }
+    };
+
     const handleSave = async (isPublished = false) => {
         if (!selectedClassId || !title) {
             setError("Please select a class and enter a title.");
             return;
         }
 
-        // TA Restriction Logic
         if (isPublished && (user?.role === 'ta' || user?.roles?.includes('ta'))) {
             alert("TAs cannot publish assignments. Saving as Draft.");
             isPublished = false;
@@ -176,14 +266,13 @@ export default function CreateAssignment() {
         setError(null);
 
         try {
-            // 1. Process Questions (Create or Update)
             const finalQuestionIds = [];
 
             for (const q of questions) {
-                // Prepare Test Cases for this question
+                // Prepare Test Cases
                 const testCases = (q.testCases || []).filter(tc => tc.input || tc.output).map(tc => ({
                     input: tc.input || "",
-                    expected_output: tc.expected_output || tc.output || "", // Handle both keys
+                    expected_output: tc.expected_output || tc.output || "",
                     explanation: tc.explanation || "",
                     concept: tc.concept || "",
                     is_hidden: false,
@@ -199,13 +288,15 @@ export default function CreateAssignment() {
                     memory_limit: 128,
                     allowed_languages: ["python"],
                     starter_code: q.starterCode || "",
+                    config: {
+                        entry_point: q.functionName || "solution",
+                        timeout: 2.0,
+                        memory: 128
+                    }
                 };
 
-                // Check if it's a new question or existing one
-                const isTemp = !q.id || q.id.toString().startsWith('temp-') || q.id.toString().startsWith('copy-');
-                // Also check if it's a valid UUID. If not (e.g. timestamp from old drafts), treat as new.
+                const isTemp = !q.id || q.id.toString().startsWith('temp-') || q.id.toString().startsWith('copy-') || q.id.toString().startsWith('bank-');
                 const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.id);
-
                 const isNew = isTemp || !isUUID;
 
                 if (isNew) {
@@ -216,13 +307,11 @@ export default function CreateAssignment() {
                         throw new Error("Failed to create question: No ID returned.");
                     }
                 } else {
-                    // Update existing question
                     await assignmentService.updateQuestion(q.id, questionPayload);
                     finalQuestionIds.push(q.id);
                 }
             }
 
-            // 2. Create or Update Assignment
             const payload = {
                 class_obj_id: selectedClassId,
                 title: title,
@@ -230,7 +319,7 @@ export default function CreateAssignment() {
                 question_ids: finalQuestionIds,
                 points: points,
                 due_date: dueDate ? new Date(dueDate).toISOString() : null,
-                is_published: isPublished // Toggle status
+                is_published: isPublished
             };
 
             if (isEditMode && editId) {
@@ -239,9 +328,7 @@ export default function CreateAssignment() {
                 await assignmentService.createAssignment(payload);
             }
 
-            // Clear draft after successful save
             localStorage.removeItem("assignment_draft");
-
             navigate(`/teacher/class/${selectedClassId}`);
         } catch (err) {
             console.error("Failed to save assignment:", err);
@@ -287,199 +374,221 @@ export default function CreateAssignment() {
 
     return (
         <TeacherLayout>
-            <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="max-w-4xl mx-auto pb-20"
+            <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" asChild>
-                            <Link to="/teacher/dashboard">
-                                <MoveLeft className="w-5 h-5" />
-                            </Link>
-                        </Button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-900">Create Assignment</h1>
-                            <p className="text-gray-500 text-sm">Draft a new coding assignment for your class</p>
-                        </div>
-                    </div>
-                    <div className="flex gap-2 items-center">
-                        {saveStatus && (
-                            <span className="text-xs text-gray-400 mr-2 transition-opacity duration-300">
-                                {saveStatus}
-                            </span>
-                        )}
-                        <Button
-                            variant="outline"
-                            onClick={() => handleSave(false)}
-                            disabled={loading}
-                        >
-                            Save Draft
-                        </Button>
-                        <Button
-                            onClick={() => handleSave(true)}
-                            disabled={loading}
-                            className={`gap-2 min-w-[120px] ${user?.role === 'ta' ? 'opacity-90' : ''}`}
-                            title={user?.role === 'ta' ? "TAs will save as Draft" : "Publish Assignment"}
-                        >
-                            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                            Publish Assignment
-                        </Button>
-                    </div>
-                </div>
-
-                {error && (
-                    <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6 flex items-center gap-3 border border-red-200">
-                        <AlertCircle className="w-5 h-5" />
-                        {error}
-                    </div>
-                )}
-
-                <div className="space-y-8">
-                    {/* Basic Info */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Assignment Details</CardTitle>
-                        </CardHeader>
-                        <CardContent className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div className="space-y-2">
-                                    <Label>Select Class</Label>
-                                    <Select value={selectedClassId} onValueChange={setSelectedClassId}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select a class" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {classes.map(c => (
-                                                <SelectItem key={c.id} value={c.id.toString()}>{c.name} ({c.section})</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="title">Assignment Title</Label>
-                                    <Input
-                                        id="title"
-                                        placeholder="e.g. Dynamic Programming Basics"
-                                        value={title}
-                                        onChange={(e) => setTitle(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                <div className="space-y-2">
-                                    <Label>Difficulty</Label>
-                                    <Select value={difficulty} onValueChange={setDifficulty}>
-                                        <SelectTrigger>
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="Easy">Easy</SelectItem>
-                                            <SelectItem value="Medium">Medium</SelectItem>
-                                            <SelectItem value="Hard">Hard</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Total Points</Label>
-                                    <Input
-                                        type="number"
-                                        value={points}
-                                        onChange={(e) => setPoints(e.target.value)}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label>Due Date</Label>
-                                    <Input
-                                        type="datetime-local"
-                                        value={dueDate}
-                                        onChange={(e) => setDueDate(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="instructions">Instructions</Label>
-                                <Textarea
-                                    id="instructions"
-                                    placeholder="Enter detailed instructions (Markdown supported)..."
-                                    className="min-h-[150px] font-mono text-sm"
-                                    value={instructions}
-                                    onChange={(e) => setInstructions(e.target.value)}
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Questions Section */}
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
+                <motion.div
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="h-[calc(100vh-64px)] overflow-hidden flex flex-col"
+                >
+                    {/* Header */}
+                    <div className="flex-none px-6 py-4 border-b bg-white flex items-center justify-between z-10">
+                        <div className="flex items-center gap-4">
+                            <Button variant="ghost" size="icon" asChild>
+                                <Link to="/teacher/dashboard">
+                                    <MoveLeft className="w-5 h-5" />
+                                </Link>
+                            </Button>
                             <div>
-                                <h2 className="text-lg font-semibold text-gray-900">Coding Problems</h2>
-                                <p className="text-sm text-gray-500">Add at least one problem to this assignment.</p>
+                                <h1 className="text-xl font-bold text-gray-900">
+                                    {isEditMode ? "Edit Assignment" : "Create Assignment"}
+                                </h1>
+                                <p className="text-gray-500 text-sm">
+                                    {isEditMode ? "Modify existing assignment" : "Draft a new coding assignment"}
+                                </p>
                             </div>
-                            <Button variant="secondary" size="sm" className="gap-2" onClick={handleAddQuestion}>
-                                <Plus className="w-4 h-4" />
-                                Add Question
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            {saveStatus && (
+                                <span className="text-xs text-gray-400 mr-2 transition-opacity duration-300">
+                                    {saveStatus}
+                                </span>
+                            )}
+                            <Button
+                                variant="outline"
+                                onClick={() => handleSave(false)}
+                                disabled={loading}
+                                size="sm"
+                            >
+                                Save Draft
+                            </Button>
+                            <Button
+                                onClick={() => handleSave(true)}
+                                disabled={loading}
+                                className={`gap-2 ${user?.role === 'ta' ? 'opacity-90' : ''}`}
+                                size="sm"
+                                title={user?.role === 'ta' ? "TAs will save as Draft" : "Publish Assignment"}
+                            >
+                                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                Publish
                             </Button>
                         </div>
+                    </div>
 
-                        {questions.length === 0 ? (
-                            <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300 hover:border-indigo-300 transition-colors">
-                                <p className="text-gray-500 mb-2">No questions added yet.</p>
-                                <Button variant="link" onClick={handleAddQuestion} className="text-indigo-600">
-                                    Add your first question
-                                </Button>
+                    {/* Main Content Grid */}
+                    <div className="flex-1 flex overflow-hidden">
+                        {/* Left Sidebar: Question Bank */}
+                        <div className="w-1/3 min-w-[350px] max-w-[450px] border-r border-gray-200 bg-gray-50 flex flex-col">
+                            <div className="flex-1 p-4 overflow-hidden">
+                                <PracticeQuestionsPanel onAddQuestion={handleAddFromBank} />
                             </div>
-                        ) : (
-                            <Reorder.Group axis="y" values={questions} onReorder={setQuestions} className="space-y-3">
-                                {questions.map((q) => (
-                                    <Reorder.Item key={q.id} value={q}>
-                                        <div className="bg-white border rounded-lg p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-shadow cursor-move group">
-                                            <GripVertical className="w-5 h-5 text-gray-400 group-hover:text-gray-600" />
-                                            <div className="flex-1">
-                                                <h3 className="font-medium text-gray-900">{q.title}</h3>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${q.difficulty === "Easy" ? "bg-green-100 text-green-700" :
-                                                        q.difficulty === "Medium" ? "bg-yellow-100 text-yellow-700" :
-                                                            "bg-red-100 text-red-700"
-                                                        }`}>
-                                                        {q.difficulty}
-                                                    </span>
-                                                    <span className="text-xs text-gray-400">• {q.testCases?.length || 0} Test Cases</span>
+                        </div>
+
+                        {/* Right Content: Assignment Form */}
+                        <div className="flex-1 overflow-y-auto bg-white">
+                            <div className="max-w-4xl mx-auto p-8 pb-20">
+                                {error && (
+                                    <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6 flex items-center gap-3 border border-red-200">
+                                        <AlertCircle className="w-5 h-5" />
+                                        {error}
+                                    </div>
+                                )}
+
+                                <div className="space-y-8">
+                                    {/* Basic Info */}
+                                    <Card>
+                                        <CardHeader>
+                                            <CardTitle>Assignment Details</CardTitle>
+                                        </CardHeader>
+                                        <CardContent className="space-y-6">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                <div className="space-y-2">
+                                                    <Label>Select Class</Label>
+                                                    <Select value={selectedClassId} onValueChange={setSelectedClassId}>
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select a class" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {classes.map(c => (
+                                                                <SelectItem key={c.id} value={c.id.toString()}>{c.name} ({c.section})</SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="title">Assignment Title</Label>
+                                                    <Input
+                                                        id="title"
+                                                        placeholder="e.g. Dynamic Programming Basics"
+                                                        value={title}
+                                                        onChange={(e) => setTitle(e.target.value)}
+                                                    />
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <Button variant="ghost" size="sm" onClick={() => handleEditQuestion(q)}>
-                                                    <Pencil className="w-4 h-4 mr-1" /> Edit
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="text-gray-400 hover:text-red-600 hover:bg-red-50"
-                                                    onClick={() => handleDeleteQuestion(q.id)}
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    </Reorder.Item>
-                                ))}
-                            </Reorder.Group>
-                        )}
-                    </div>
-                </div>
-            </motion.div>
 
-            <QuestionEditorDialog
-                open={isQuestionDialogOpen}
-                onOpenChange={setIsQuestionDialogOpen}
-                questionToEdit={editingQuestion}
-                onSave={handleSaveQuestion}
-            />
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                                <div className="space-y-2">
+                                                    <Label>Difficulty</Label>
+                                                    <Select value={difficulty} onValueChange={setDifficulty}>
+                                                        <SelectTrigger>
+                                                            <SelectValue />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="Easy">Easy</SelectItem>
+                                                            <SelectItem value="Medium">Medium</SelectItem>
+                                                            <SelectItem value="Hard">Hard</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Total Points</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={points}
+                                                        onChange={(e) => setPoints(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label>Due Date</Label>
+                                                    <Input
+                                                        type="datetime-local"
+                                                        value={dueDate}
+                                                        onChange={(e) => setDueDate(e.target.value)}
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="instructions">Instructions</Label>
+                                                <MarkdownEditor
+                                                    id="instructions"
+                                                    placeholder="Enter detailed instructions (Markdown supported)..."
+                                                    className="min-h-[150px]"
+                                                    value={instructions}
+                                                    onChange={(e) => setInstructions(e.target.value)}
+                                                />
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+
+                                    {/* Questions Section */}
+                                    <div className="space-y-4">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h2 className="text-lg font-semibold text-gray-900">Selected Problems</h2>
+                                                <p className="text-sm text-gray-500">
+                                                    Drag questions here from the bank or click 'Add Question' to create new.
+                                                </p>
+                                            </div>
+                                            <Button variant="secondary" size="sm" className="gap-2" onClick={handleAddQuestion}>
+                                                <Plus className="w-4 h-4" />
+                                                Create New
+                                            </Button>
+                                        </div>
+
+                                        <SortableContext
+                                            items={questions.map(q => q.id)}
+                                            strategy={verticalListSortingStrategy}
+                                        >
+                                            <DroppableQuestionList>
+                                                {questions.length === 0 ? (
+                                                    <div className="text-center py-12">
+                                                        <p className="text-gray-500 mb-2">No questions selected.</p>
+                                                        <p className="text-sm text-gray-400">
+                                                            Drag questions from the left panel or create a new one.
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    questions.map((q) => (
+                                                        <SortableQuestionItem
+                                                            key={q.id}
+                                                            question={q}
+                                                            onEdit={handleEditQuestion}
+                                                            onDelete={handleDeleteQuestion}
+                                                        />
+                                                    ))
+                                                )}
+                                            </DroppableQuestionList>
+                                        </SortableContext>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </motion.div>
+
+                <DragOverlay>
+                    {activeId ? (
+                        <div className="bg-white p-4 rounded-lg shadow-xl border border-indigo-200 opacity-90 cursor-grabbing w-[300px]">
+                            <div className="flex items-center gap-3">
+                                <GripVertical className="w-5 h-5 text-gray-400" />
+                                <span className="font-medium text-gray-900">Moving Question...</span>
+                            </div>
+                        </div>
+                    ) : null}
+                </DragOverlay>
+
+                <QuestionEditorDialog
+                    open={isQuestionDialogOpen}
+                    onOpenChange={setIsQuestionDialogOpen}
+                    questionToEdit={editingQuestion}
+                    onSave={handleSaveQuestion}
+                />
+            </DndContext>
         </TeacherLayout>
     );
 }

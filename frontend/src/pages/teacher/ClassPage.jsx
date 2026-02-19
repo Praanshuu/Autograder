@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
-import { MoveLeft, Settings, Loader2, AlertCircle } from "lucide-react";
+import { MoveLeft, Settings, Loader2, AlertCircle, Archive } from "lucide-react";
 import { motion } from "framer-motion";
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
@@ -76,22 +76,47 @@ export default function ClassPage() {
                 className="space-y-6"
             >
                 {/* Header */}
-                <div className="flex flex-col gap-4 md:flex-row md:items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <Button variant="ghost" size="icon" asChild>
-                            <Link to="/teacher/dashboard">
-                                <MoveLeft className="w-5 h-5" />
+                <div className="flex flex-col gap-4">
+                    {/* Archived Banner */}
+                    {classData.is_archived && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3 text-amber-800 mb-2">
+                            <Archive className="w-5 h-5" />
+                            <div className="flex-1">
+                                <p className="font-medium text-sm">This class is archived</p>
+                                <p className="text-xs text-amber-700 mt-0.5">
+                                    You can restore it from the <Link to="/teacher/archived" className="underline hover:text-amber-900">Archived Classes</Link> page.
+                                    Students can still view their work, but cannot make new submissions.
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-4">
+                            <Button variant="ghost" size="icon" asChild>
+                                <Link to={classData.is_archived ? "/teacher/archived" : "/teacher/dashboard"}>
+                                    <MoveLeft className="w-5 h-5" />
+                                </Link>
+                            </Button>
+                            <div>
+                                <div className="flex items-center gap-3">
+                                    <h1 className="text-2xl font-bold text-gray-900">{classData.name}</h1>
+                                    {classData.is_archived && (
+                                        <span className="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded border border-amber-200 uppercase tracking-wide">
+                                            Archived
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="text-gray-500 text-sm mt-1">{classData.section || "No Section"} • {classData.term || "Current Term"}</p>
+                            </div>
+                        </div>
+                        <Button variant="outline" size="sm" className="gap-2" asChild>
+                            <Link to={`/teacher/class/${classId}/settings`}>
+                                <Settings className="w-4 h-4" />
+                                Class Settings
                             </Link>
                         </Button>
-                        <div>
-                            <h1 className="text-2xl font-bold text-gray-900">{classData.name}</h1>
-                            <p className="text-gray-500 text-sm mt-1">{classData.section || "No Section"} • {classData.term || "Current Term"}</p>
-                        </div>
                     </div>
-                    <Button variant="outline" size="sm" className="gap-2">
-                        <Settings className="w-4 h-4" />
-                        Class Settings
-                    </Button>
                 </div>
 
                 {/* Class Tabs */}

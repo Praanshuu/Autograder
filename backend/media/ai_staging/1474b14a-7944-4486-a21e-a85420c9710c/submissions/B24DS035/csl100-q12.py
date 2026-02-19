@@ -1,0 +1,1 @@
+def word_frequency(sentence):\n    words = sentence.split() # This is used for splitting the sentence into words and this makes a list of words. \n    \n    frequency = {}\n    for word in words:\n        word = word.lower()\n        if word in frequency:\n            frequency[word] += 1\n        else:\n            frequency[word] = 1\n    return frequency\n    pass

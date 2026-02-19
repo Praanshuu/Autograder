@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "sonner";
 
 // Auth
 import { AuthProvider } from "./contexts/AuthContext";
@@ -25,6 +26,7 @@ import Settings from "./pages/teacher/Settings";
 import AllAssignments from "./pages/teacher/AllAssignments";
 import TeacherCalendar from "./pages/teacher/TeacherCalendar";
 import PracticeQuestionManager from "./pages/teacher/PracticeQuestionManager";
+import ClassSettings from "./pages/teacher/ClassSettings";
 
 // Student Pages
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -78,6 +80,14 @@ function App() {
             element={
               <ProtectedRoute requiredRole={['teacher', 'ta']}>
                 <ClassPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/teacher/class/:classId/settings"
+            element={
+              <ProtectedRoute requiredRole={['teacher', 'ta']}>
+                <ClassSettings />
               </ProtectedRoute>
             }
           />
@@ -209,6 +219,7 @@ function App() {
 
         </Routes>
       </Router>
+      <Toaster richColors />
     </AuthProvider>
   );
 }

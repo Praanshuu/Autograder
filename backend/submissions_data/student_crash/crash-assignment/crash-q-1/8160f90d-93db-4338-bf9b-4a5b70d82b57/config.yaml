@@ -1,0 +1,9 @@
+meta:
+  student: student_crash
+  attempt_id: 8160f90d-93db-4338-bf9b-4a5b70d82b57
+  timestamp: '2026-02-17 06:27:57.060972+00:00'
+  status: fail
+  language: python
+question_config:
+  timeout: 2
+  language: python

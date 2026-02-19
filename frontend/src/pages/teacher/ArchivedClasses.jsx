@@ -1,175 +1,197 @@
-import { Archive, MoreVertical, SlidersHorizontal, Search, RotateCcw } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Loader2, AlertCircle, ArchiveRestore, Trash2, Archive } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
 import { classService } from "../../services/classService";
 import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../../components/ui/dropdown-menu";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "../../components/ui/dialog";
+import ClassCard from "../../components/features/teacher/ClassCard";
 
 // Motion Variants
 const containerVariants = {
     hidden: { opacity: 0 },
     show: {
         opacity: 1,
-        transition: { staggerChildren: 0.1 }
+        transition: {
+            staggerChildren: 0.1
+        }
     }
 };
 
-const itemVariants = {
-    hidden: { opacity: 0, y: 10 },
-    show: { opacity: 1, y: 0 }
-};
-
-const ArchivedClassCard = ({ cl }) => (
-    <motion.div variants={itemVariants}>
-        <Card className="group h-full flex flex-col overflow-hidden border-gray-200 hover:border-gray-300 transition-all hover:shadow-md bg-gray-50/50">
-            {/* Grayscale Header */}
-            <div className={`h-28 relative p-5 flex flex-col justify-between overflow-hidden`}>
-                <div className={`absolute inset-0 ${cl.bgPattern} opacity-20 grepayscale filter grayscale group-hover:grayscale-0 transition-all duration-500`} />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent" />
-
-                <div className="relative z-10 flex justify-between items-start">
-                    <Link to={`/teacher/class/${cl.id}`} className="hover:underline decoration-gray-400">
-                        <h3 className="text-xl font-bold text-gray-700 leading-tight tracking-tight group-hover:text-gray-900 transition-colors">
-                            {cl.name}
-                        </h3>
-                    </Link>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-gray-700 hover:bg-white/50">
-                                <MoreVertical className="w-4 h-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuItem className="gap-2">
-                                <RotateCcw className="w-4 h-4" />
-                                Restore Class
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-
-                <div className="relative z-10 flex justify-between items-end">
-                    <div className="flex flex-col">
-                        <span className="text-sm font-medium text-gray-500">{cl.section}</span>
-                        <span className="text-xs text-gray-400 mt-1">{cl.assignments} Assignments • {cl.students} Students</span>
-                    </div>
-                </div>
-            </div>
-
-            <CardContent className="p-0">
-                <div className="px-5 py-4 border-t border-gray-100 bg-white">
-                    <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 w-fit px-2 py-1 rounded-full border border-amber-100">
-                        <Archive className="w-3 h-3" />
-                        <span className="font-medium uppercase tracking-wide">Archived</span>
-                    </div>
-                    <p className="mt-3 text-xs text-gray-500 line-clamp-2 leading-relaxed">
-                        This class is in read-only mode. Assignments and submissions can be viewed but not edited.
-                    </p>
-                </div>
-            </CardContent>
-
-            <CardFooter className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end">
-                <Button variant="outline" size="sm" className="w-full text-gray-600 border-gray-300 hover:bg-white hover:text-indigo-600" asChild>
-                    <Link to={`/teacher/class/${cl.id}`}>View Records</Link>
-                </Button>
-            </CardFooter>
-        </Card>
-    </motion.div>
-);
-
 export default function ArchivedClasses() {
-    const [archivedClasses, setArchivedClasses] = useState([]);
+    const [classes, setClasses] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const [classToRestore, setClassToRestore] = useState(null);
+    const [classToDelete, setClassToDelete] = useState(null);
+    const [isRestoring, setIsRestoring] = useState(false);
+    const [isDeleting, setIsDeleting] = useState(false);
+
+    const fetchArchivedClasses = async () => {
+        try {
+            setLoading(true);
+            const response = await classService.getArchivedClasses();
+            if (response.success && response.data) {
+                const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                setClasses(data);
+            } else {
+                setClasses([]);
+                if (!response.success) setError("Failed to load archived classes.");
+            }
+            setError(null);
+        } catch (err) {
+            console.error("Failed to fetch archived classes:", err);
+            setError("Failed to load archived classes. Please try again.");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        const loadArchivedClasses = async () => {
-            try {
-                setLoading(true);
-                // For now, we'll show an empty state since we don't have archived classes in the API
-                // In the future, this would call: const response = await classService.getArchivedClasses();
-                setArchivedClasses([]);
-            } catch (error) {
-                console.error('Failed to load archived classes:', error);
-                setArchivedClasses([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        loadArchivedClasses();
+        fetchArchivedClasses();
     }, []);
+
+    const handleRestoreClick = (cl) => {
+        setClassToRestore(cl);
+    };
+
+    const handleDeleteClick = (cl) => {
+        setClassToDelete(cl);
+    };
+
+    const confirmRestore = async () => {
+        if (!classToRestore) return;
+
+        setIsRestoring(true);
+        try {
+            await classService.archiveClass(classToRestore.id); // Toggle back to unarchived
+            setClasses(prev => prev.filter(c => c.id !== classToRestore.id));
+            setClassToRestore(null);
+        } catch (err) {
+            console.error("Failed to restore class:", err);
+        } finally {
+            setIsRestoring(false);
+        }
+    };
+
+    const confirmDelete = async () => {
+        if (!classToDelete) return;
+
+        setIsDeleting(true);
+        try {
+            await classService.deleteClass(classToDelete.id);
+            setClasses(prev => prev.filter(c => c.id !== classToDelete.id));
+            setClassToDelete(null);
+        } catch (err) {
+            console.error("Failed to delete class:", err);
+        } finally {
+            setIsDeleting(false);
+        }
+    };
 
     return (
         <TeacherLayout>
             <motion.div
-                className="max-w-7xl mx-auto"
-                initial={{ opacity: 0, y: -10 }}
+                className="flex items-center justify-between mb-8"
+                initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
+                transition={{ duration: 0.5 }}
             >
-                {/* Header Section */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-                    <div>
-                        <h1 className="text-3xl font-bold text-gray-900 tracking-tight flex items-center gap-3">
-                            <div className="p-2 bg-gray-100 rounded-lg">
-                                <Archive className="w-6 h-6 text-gray-500" />
-                            </div>
-                            Archived Classes
-                        </h1>
-                        <p className="text-gray-500 mt-2">
-                            Access past course materials and student records.
-                        </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <div className="relative flex-1 md:w-64">
-                            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
-                            <Input
-                                type="search"
-                                placeholder="Search archives..."
-                                className="pl-9 bg-white"
-                            />
-                        </div>
-                        <Button variant="outline" size="icon">
-                            <SlidersHorizontal className="h-4 w-4" />
-                        </Button>
-                    </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Archived Classes</h1>
+                    <p className="text-muted-foreground mt-1 text-lg">Manage your archived classes. Restore them to make them active again.</p>
                 </div>
-
-                {/* Content Grid */}
-                {archivedClasses.length === 0 ? (
-                    <motion.div
-                        className="flex flex-col items-center justify-center py-24 px-4 bg-white rounded-xl border border-dashed border-gray-200"
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        transition={{ delay: 0.2 }}
-                    >
-                        <div className="w-16 h-16 rounded-full bg-gray-50 flex items-center justify-center mb-4">
-                            <Archive className="w-8 h-8 text-gray-300" />
-                        </div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-1">No Archived Classes</h3>
-                        <p className="text-gray-500 text-center max-w-sm text-sm">
-                            Classes you archive will appear here for safe keeping.
-                        </p>
-                    </motion.div>
-                ) : (
-                    <motion.div
-                        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-                        variants={containerVariants}
-                        initial="hidden"
-                        animate="show"
-                    >
-                        {archivedClasses.map((cl) => (
-                            <ArchivedClassCard key={cl.id} cl={cl} />
-                        ))}
-                    </motion.div>
-                )}
             </motion.div>
+
+            {loading ? (
+                <div className="flex justify-center items-center h-64">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                </div>
+            ) : error ? (
+                <div className="flex flex-col items-center justify-center h-64 text-red-500">
+                    <AlertCircle className="w-10 h-10 mb-2" />
+                    <p>{error}</p>
+                    <Button variant="outline" onClick={fetchArchivedClasses} className="mt-4">Retry</Button>
+                </div>
+            ) : classes.length === 0 ? (
+                <div className="text-center py-20 bg-gray-50/50 border-2 border-dashed border-gray-200 rounded-xl">
+                    <ArchiveRestore className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-700">No archived classes</h3>
+                    <p className="text-gray-500 mt-2">Classes you archive will appear here.</p>
+                </div>
+            ) : (
+                <motion.div
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                    variants={containerVariants}
+                    initial="hidden"
+                    animate="show"
+                >
+                    {classes.map((cl) => (
+                        <ClassCard
+                            key={cl.id}
+                            cl={cl}
+                            // No Edit on archived classes usually, but user didn't specify. 
+                            // Usually you restore then edit. I will omit onEdit to disable editing in archive.
+                            onDelete={() => handleDeleteClick(cl)}
+                            onArchive={() => handleRestoreClick(cl)} // Reusing onArchive prop for restore action
+                            showArchiveOption={true}
+                        />
+                    ))}
+                </motion.div>
+            )}
+
+            {/* Restore Confirmation Dialog */}
+            <Dialog open={!!classToRestore} onOpenChange={(open) => !open && setClassToRestore(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Restore Class</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to restore <strong>{classToRestore?.name}</strong>?
+                            It will appear on your main dashboard again.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setClassToRestore(null)} disabled={isRestoring}>
+                            Cancel
+                        </Button>
+                        <Button onClick={confirmRestore} disabled={isRestoring}>
+                            {isRestoring ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ArchiveRestore className="w-4 h-4 mr-2" />}
+                            Restore Class
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={!!classToDelete} onOpenChange={(open) => !open && setClassToDelete(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Delete Class</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete <strong>{classToDelete?.name}</strong>?
+                            This action cannot be undone and will permanently remove this class and all associated data.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setClassToDelete(null)} disabled={isDeleting}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={confirmDelete} disabled={isDeleting}>
+                            {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                            Delete Class
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </TeacherLayout>
     );
 }

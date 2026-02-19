@@ -1,0 +1,10 @@
+meta:
+  student: vaibhavi
+  attempt_id: 51e4d368-8cae-40dc-82be-611f01a46880
+  timestamp: '2026-02-17 11:14:12.119217+00:00'
+  status: success
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: detect_cycle

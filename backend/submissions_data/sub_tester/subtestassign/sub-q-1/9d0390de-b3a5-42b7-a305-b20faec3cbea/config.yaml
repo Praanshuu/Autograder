@@ -1,0 +1,9 @@
+meta:
+  student: sub_tester
+  attempt_id: 9d0390de-b3a5-42b7-a305-b20faec3cbea
+  timestamp: '2026-02-17 06:06:07.889284+00:00'
+  status: processing
+  language: python
+question_config:
+  timeout: 5
+  entry_point: solution

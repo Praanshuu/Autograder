@@ -20,6 +20,7 @@ from assignments.models import Assignment, Question, AssignmentQuestion, Content
 from submissions.models import SubmissionAttempt, AssignmentProgress, TestResult, GradebookEntry
 from analytics.models import SubmissionAnalysis, ProblemAnalytics
 from utils.pdf_parser import parse_practice_sheet
+import pytz
 
 User = get_user_model()
 
@@ -27,8 +28,8 @@ def run():
     print("--- Starting Final Data Population (With Gradebook Generation) ---")
     
     # 0. Flush existing Student Data
-    print("Flushing existing student data...")
-    User.objects.filter(role='student').delete()
+    print("Flushing existing student data... SKIPPED (Preserving Real Data)")
+    # User.objects.filter(role='student').delete()
     
     # 1. Create Teacher
     teacher_username = "Vaishnavi"
@@ -187,7 +188,15 @@ def run():
             
             aq = AssignmentQuestion.objects.get(assignment=target_assign, question=question)
 
-            SubmissionAttempt.objects.create(
+            # Randomize submission time (last 60 days)
+            # Higher score -> maybe less time? Or just random.
+            # Let's say random time within the assignment duration.
+            days_ago = random.randint(0, 60)
+            hours_ago = random.randint(0, 23)
+            minutes_ago = random.randint(0, 59)
+            submission_time = timezone.now() - timedelta(days=days_ago, hours=hours_ago, minutes=minutes_ago)
+            
+            sub = SubmissionAttempt.objects.create(
                 student=student,
                 assignment_question=aq,
                 attempt_number=1,
@@ -197,6 +206,51 @@ def run():
                 manual_score=final_score,
                 feedback_text=str(feedback)
             )
+            # Update created_at (auto_now_add makes it read-only on create, need to update after)
+            sub.created_at = submission_time
+            sub.save()
+            
+            # Create AssignmentProgress for analytics (Time Spent)
+            # Random duration between 5 mins (300s) and 4 hours (14400s)
+            time_spent_seconds = random.randint(300, 14400)
+            AssignmentProgress.objects.update_or_create(
+                student=student,
+                assignment_question=aq,
+                defaults={
+                    'current_code': str(code),
+                    'time_spent': time_spent_seconds,
+                    'last_updated': submission_time
+                }
+            )
+
+            # Create Test Results for Heatmap
+            for tc_idx in range(1, 6):
+                tc_id = f"tc_00{tc_idx}"
+                
+                is_pass = False
+                if score_pct >= 90:
+                    is_pass = True
+                elif score_pct >= 50:
+                    # Pass first 3, fail last 2
+                    is_pass = (tc_idx <= 3)
+                else:
+                    # Pass first 1, fail rest
+                    is_pass = (tc_idx <= 1)
+                
+                tr_status = 'pass' if is_pass else 'fail'
+                error_msg = ""
+                if not is_pass:
+                    errors = ["TimeoutError: Time limit exceeded", "IndexError: list index out of range", "SyntaxError: invalid syntax", "AssertionError: 5 != 3", "TypeError: unsupported operand type(s)"]
+                    error_msg = random.choice(errors)
+                
+                TestResult.objects.create(
+                    attempt=sub,
+                    test_case_id=tc_id,
+                    status=tr_status,
+                    score=1.0 if is_pass else 0.0,
+                    execution_time_ms=random.randint(10, 100),
+                    error_message=error_msg
+                )
             
             total_submissions_created += 1
             
@@ -238,11 +292,14 @@ def run():
         
         content_item = ContentItem.objects.get(id=data['assignment'].id)
         
-        GradebookEntry.objects.create(
+        GradebookEntry.objects.update_or_create(
             student=data['student'],
             content_item=content_item,
-            final_score=final_grade_pct,
-            status='graded'
+            defaults={
+                'final_score': final_grade_pct,
+                'status': 'graded',
+                'completion_date': timezone.now() - timedelta(days=random.randint(0, 5))
+            }
         )
         created_entries += 1
 

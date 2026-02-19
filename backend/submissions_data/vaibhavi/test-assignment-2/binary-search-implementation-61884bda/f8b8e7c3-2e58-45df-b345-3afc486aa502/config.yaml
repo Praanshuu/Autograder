@@ -1,0 +1,10 @@
+meta:
+  student: vaibhavi
+  attempt_id: f8b8e7c3-2e58-45df-b345-3afc486aa502
+  timestamp: '2026-02-17 10:48:11.289649+00:00'
+  status: success
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: binary_search

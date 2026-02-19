@@ -14,8 +14,10 @@ import {
     XCircle,
     Loader2,
     AlertCircle,
-    Clock
+    Clock,
+    Sparkles
 } from "lucide-react";
+import { toast } from "sonner"; // Assuming sonner or similar (or use custom toast)
 import { motion, AnimatePresence } from "framer-motion";
 
 import TeacherLayout from "../../components/layout/TeacherLayout";
@@ -52,8 +54,12 @@ export default function AssignmentDashboard() {
     const [assignment, setAssignment] = useState(null);
     const [studentsSummary, setStudentsSummary] = useState([]); // Aggregated student data
     const [submissions, setSubmissions] = useState([]); // Raw submissions (kept for Analytics)
+    const [wordCloudImage, setWordCloudImage] = useState(null);
+    const [wordCloudLoading, setWordCloudLoading] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
+    const [analysisStatus, setAnalysisStatus] = useState({ analyzed: 0, total: 0, percent: 0 });
 
     // Analytics Navigation State
     const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -75,6 +81,14 @@ export default function AssignmentDashboard() {
                 const subResponse = await submissionService.getAnalyticsSubmissions(id);
                 const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
                 setSubmissions(subData);
+
+                // 4. Check if AI analysis has been run (for progress display)
+                try {
+                    const progRes = await assignmentService.getAnalysisProgress(id);
+                    setAnalysisStatus(progRes.data);
+                } catch (_) {
+                    // Ignore — just means no analysis yet
+                }
 
                 setError(null);
             } catch (err) {
@@ -98,11 +112,78 @@ export default function AssignmentDashboard() {
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
 
+    // AI Analysis Handler
+    const handleTriggerAI = async () => {
+        try {
+            setIsAnalyzing(true);
+            toast.info("Starting AI Analysis...");
 
-    // Calculate Highest/Lowest
+            await assignmentService.triggerAIAnalysis(id);
+            toast.success("AI Analysis has been queued.");
+
+            // Start polling (handled by effect)
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to trigger AI Analysis.");
+            setIsAnalyzing(false);
+        }
+    };
+
+    // On-demand word cloud fetch
+    const handleGenerateWordCloud = async () => {
+        setWordCloudLoading(true);
+        try {
+            const wcRes = await assignmentService.getWordCloud(id);
+            if (wcRes.data?.image_base64) {
+                setWordCloudImage(wcRes.data.image_base64);
+                toast.success("Word cloud generated!");
+            }
+        } catch (e) {
+            toast.error("Failed to generate word cloud. Run Autograder+ first.");
+        } finally {
+            setWordCloudLoading(false);
+        }
+    };
+
+    // Polling progress while AI analysis is running
+    useEffect(() => {
+        if (!isAnalyzing) return;
+
+        const checkProgress = async () => {
+            try {
+                const res = await assignmentService.getAnalysisProgress(id);
+                const { analyzed, total, percent } = res.data;
+                setAnalysisStatus({ analyzed, total, percent });
+                if (total > 0 && percent >= 100) {
+                    setIsAnalyzing(false);
+                    toast.success(`AI Analysis done! ${analyzed}/${total} submissions analyzed.`, { id: "ai-progress" });
+                    // Refresh submissions
+                    const subResponse = await submissionService.getAnalyticsSubmissions(id);
+                    const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
+                    setSubmissions(subData);
+                } else {
+                    toast.loading(`Analyzing... ${analyzed}/${total} (${percent}%)`, { id: "ai-progress" });
+                }
+            } catch (e) {
+                console.error("Progress poll failed", e);
+            }
+        };
+
+        checkProgress(); // immediate first check
+        const interval = setInterval(checkProgress, 4000);
+        return () => clearInterval(interval);
+    }, [isAnalyzing, id]);
+
+    // Derived Stats
     const highestScore = scores.length > 0 ? Math.max(...scores) : 0;
     const lowestScore = scores.length > 0 ? Math.min(...scores) : 0;
     const completionRate = totalStudents > 0 ? Math.round((submittedCount / totalStudents) * 100) : 0;
+
+    // ... (rest of filtering logic)
+
+    // ...
+
+
 
     // Filter Logic (Students)
     const filteredStudents = studentsSummary.filter(item => {
@@ -301,6 +382,15 @@ export default function AssignmentDashboard() {
                             <p className="text-gray-500 text-sm mt-1">Due {new Date(assignment.due_date).toLocaleDateString()}</p>
                         </div>
                     </div>
+                    {/* Autograder+ Button */}
+                    <Button
+                        onClick={handleTriggerAI}
+                        disabled={isAnalyzing}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-lg hover:shadow-xl transition-all"
+                    >
+                        {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {isAnalyzing ? "Analyzing..." : "Autograder+"}
+                    </Button>
                 </div>
 
                 {/* Main Content Tabs */}
@@ -310,9 +400,16 @@ export default function AssignmentDashboard() {
                             <ListChecks className="w-4 h-4" />
                             Submissions
                         </TabsTrigger>
-                        <TabsTrigger value="analytics" className="flex items-center gap-2">
+                        <TabsTrigger
+                            value="analytics"
+                            className="flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={analysisStatus.analyzed === 0}
+                        >
                             <BarChart3 className="w-4 h-4" />
                             Analytics & Insights
+                            {analysisStatus.analyzed === 0 && (
+                                <span className="ml-2 text-xs text-gray-400">(Run Autograder first)</span>
+                            )}
                         </TabsTrigger>
                     </TabsList>
 
@@ -537,11 +634,36 @@ export default function AssignmentDashboard() {
                                                 />
                                             </div>
                                             <div className="lg:col-span-1 h-full">
-                                                <ErrorWordCloud
-                                                    data={wordCloudData}
-                                                    selectedTag={selectedAnalyticsTag}
-                                                    onSelectTag={setSelectedAnalyticsTag}
-                                                />
+                                                {wordCloudImage ? (
+                                                    <ErrorWordCloud
+                                                        data={wordCloudData}
+                                                        imageSrc={wordCloudImage}
+                                                        selectedTag={selectedAnalyticsTag}
+                                                        onSelectTag={setSelectedAnalyticsTag}
+                                                    />
+                                                ) : (
+                                                    <Card className="col-span-1 h-full flex flex-col items-center justify-center border-dashed bg-gray-50/50">
+                                                        <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+                                                            <Sparkles className="w-8 h-8 text-indigo-300" />
+                                                            <p className="text-sm font-medium text-gray-600">Feedback Word Cloud</p>
+                                                            <p className="text-xs text-gray-400">
+                                                                {analysisStatus.analyzed > 0
+                                                                    ? `${analysisStatus.analyzed} submissions analyzed`
+                                                                    : 'Run Autograder+ first to generate analysis'}
+                                                            </p>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="mt-2 gap-2"
+                                                                disabled={wordCloudLoading || analysisStatus.analyzed === 0}
+                                                                onClick={handleGenerateWordCloud}
+                                                            >
+                                                                {wordCloudLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                                                                {wordCloudLoading ? 'Generating...' : 'Generate Word Cloud'}
+                                                            </Button>
+                                                        </CardContent>
+                                                    </Card>
+                                                )}
                                             </div>
                                         </div>
 

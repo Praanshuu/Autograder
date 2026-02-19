@@ -1,0 +1,14 @@
+{
+    "meta": {
+        "student": "B25EE031",
+        "attempt_id": "94f1472c-1bd6-47be-8129-4137d5f7113c",
+        "timestamp": "2026-02-19 14:19:08.518931+00:00",
+        "status": "success",
+        "language": "python"
+    },
+    "question_config": {
+        "memory": 128,
+        "timeout": 2,
+        "entry_point": "recursion_power"
+    }
+}

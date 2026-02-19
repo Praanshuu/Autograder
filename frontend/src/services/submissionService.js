@@ -124,7 +124,7 @@ export const submissionService = {
 
   // Teacher Endpoints
   getAssignmentSummary: async (assignmentId) => {
-    return await api.get(`/submissions/progress/summary/?assignment_id=${assignmentId}`);
+    return await api.get(`/submissions/attempts/summary/?assignment_id=${assignmentId}`);
   },
 
   getStudentReport: async (assignmentId, studentId) => {

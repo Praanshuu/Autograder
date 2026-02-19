@@ -1,0 +1,10 @@
+meta:
+  student: vaibhavi
+  attempt_id: 8087aee8-6f65-4ca7-8d29-149c9ed410a6
+  timestamp: '2026-02-17 12:01:46.970188+00:00'
+  status: success
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: findMissingNumber

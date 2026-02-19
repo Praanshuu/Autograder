@@ -1,0 +1,6 @@
+def sum_even_numbers(nums):
+    total = 0
+    for num in nums:
+        if num % 2 == 0:
+            total += num
+    return total

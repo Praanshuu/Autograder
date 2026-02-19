@@ -1,0 +1,10 @@
+meta:
+  student: vaibhavi
+  attempt_id: 375846b6-5afc-45b4-be2b-de7a0728dd54
+  timestamp: '2026-02-17 06:56:41.720670+00:00'
+  status: fail
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: reverse_array

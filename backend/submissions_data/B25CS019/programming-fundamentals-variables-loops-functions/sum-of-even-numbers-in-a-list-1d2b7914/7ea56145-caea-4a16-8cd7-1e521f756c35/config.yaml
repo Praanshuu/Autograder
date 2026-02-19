@@ -1,0 +1,10 @@
+meta:
+  student: B25CS019
+  attempt_id: 7ea56145-caea-4a16-8cd7-1e521f756c35
+  timestamp: '2026-02-17 17:39:28.772579+00:00'
+  status: fail
+  language: python
+question_config:
+  memory: 128
+  timeout: 2
+  entry_point: sum_even_numbers

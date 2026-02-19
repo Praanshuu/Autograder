@@ -56,4 +56,19 @@ export const assignmentService = {
   updateQuestion: async (questionId, questionData) => {
     return await api.put(API_CONFIG.ENDPOINTS.ASSIGNMENTS.QUESTION_DETAIL(questionId), questionData);
   },
+
+  // Trigger AI Analysis for Assignment
+  triggerAIAnalysis: async (assignmentId) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analyze-ai/`);
+  },
+
+  // Get Word Cloud Image
+  getWordCloud: async (assignmentId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}word-cloud/`);
+  },
+
+  // Get AI Analysis Progress
+  getAnalysisProgress: async (assignmentId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analysis-progress/`);
+  }
 };

@@ -1,0 +1,21 @@
+{
+    "assignment_name": "We\u2019re testing\u2026 YOUR SKILLS! \ud83d\ude06\ud83d\udd25 - Recursive Power Function (Fast Exponentiation)",
+    "language": "python",
+    "execution_mode": {
+        "type": "program"
+    },
+    "test_cases": [
+        {
+            "input": "x = 2\nn = 10\n",
+            "points": 10,
+            "concept": "Divide and Conquer, Recursion, Time Complexity Optimization",
+            "is_hidden": false,
+            "explanation": "2\u00b9\u2070 = 1024 ",
+            "expected_output": "1024"
+        }
+    ],
+    "entry_point": "recursion_power",
+    "input_types": null,
+    "points": 100,
+    "description": "Given two integers x and n, compute \n\ud835\udc65\n\ud835\udc5b\nx\nn\n using recursion.\n\nYou must implement the solution using Divide and Conquer (Fast Exponentiation) approach.\n\nRequirements:\n\nDo not use built-in power functions.\n\nTime complexity must be O(log n).\n\nHandle negative powers as well.\n\nConstraints:\n\n-10\u2074 \u2264 x \u2264 10\u2074\n\n-10\u2079 \u2264 n \u2264 10\u2079\n\nOutput should be returned as a floating-point number if needed."
+}

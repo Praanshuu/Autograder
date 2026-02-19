@@ -50,6 +50,7 @@ urlpatterns = [
     # path('api/grading/', include('submissions.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/gamification/', include('gamification.urls')),
+    path('api/analytics/', include('analytics.urls')),
 ]
 
 # Serve media files in development

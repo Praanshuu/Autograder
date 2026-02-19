@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../..
 import { AlertCircle, Filter, X, MessageSquareWarning } from "lucide-react";
 import { Button } from "../../ui/button";
 
-export default function ErrorWordCloud({ data = [], selectedTag, onSelectTag }) {
-    if (!data || data.length === 0) {
+export default function ErrorWordCloud({ data = [], selectedTag, onSelectTag, imageSrc }) {
+    if (!imageSrc && (!data || data.length === 0)) {
         return (
             <Card className="col-span-1 border-dashed border-gray-200 bg-gray-50 h-full flex flex-col items-center justify-center p-6 text-center text-gray-500">
                 <MessageSquareWarning className="w-8 h-8 mb-2 opacity-20" />
@@ -57,25 +57,35 @@ export default function ErrorWordCloud({ data = [], selectedTag, onSelectTag }) 
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 p-4">
-                    {data.map((item, i) => (
-                        <span
-                            key={i}
-                            onClick={() => onSelectTag(selectedTag === item.text ? null : item.text)}
-                            className={`cursor-pointer transition-all hover:scale-105 hover:underline decoration-2 underline-offset-4 ${selectedTag && selectedTag !== item.text ? "opacity-30 blur-[1px]" : "opacity-100"
-                                }`}
-                            style={{
-                                fontSize: `${getFontSize(item.value)}px`,
-                                color: getColor(item),
-                                fontWeight: item.value > (maxValue / 2) ? 700 : 500,
-                            }}
-                            title={`${item.value} students`}
-                        >
-                            {item.text}
-                        </span>
-                    ))}
-                </div>
-                {selectedTag && (() => {
+                {imageSrc ? (
+                    <div className="flex items-center justify-center p-4">
+                        <img
+                            src={`data:image/png;base64,${imageSrc}`}
+                            alt="Word Cloud"
+                            className="max-w-full h-auto rounded-lg shadow-sm"
+                        />
+                    </div>
+                ) : (
+                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 p-4">
+                        {data.map((item, i) => (
+                            <span
+                                key={i}
+                                onClick={() => onSelectTag(selectedTag === item.text ? null : item.text)}
+                                className={`cursor-pointer transition-all hover:scale-105 hover:underline decoration-2 underline-offset-4 ${selectedTag && selectedTag !== item.text ? "opacity-30 blur-[1px]" : "opacity-100"
+                                    }`}
+                                style={{
+                                    fontSize: `${getFontSize(item.value)}px`,
+                                    color: getColor(item),
+                                    fontWeight: item.value > (maxValue / 2) ? 700 : 500,
+                                }}
+                                title={`${item.value} students`}
+                            >
+                                {item.text}
+                            </span>
+                        ))}
+                    </div>
+                )}
+                {selectedTag && !imageSrc && (() => {
                     const selectedItem = data.find(i => i.text === selectedTag);
                     return (
                         <div className="mt-4 p-3 bg-white border rounded-md text-sm text-gray-600 shadow-sm animate-in fade-in slide-in-from-top-2">

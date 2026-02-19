@@ -4,10 +4,10 @@ import { useAuthUser } from "../../hooks/useAuthUser";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
-import { 
-    BookOpen, 
-    Trophy, 
-    TrendingUp, 
+import {
+    BookOpen,
+    Trophy,
+    TrendingUp,
     Target,
     Star,
     Clock,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import PracticeQuestionsList from "../../components/features/student/PracticeQuestionsList";
+import { PointsDisplay } from "../../components/features/gamification";
 
 export default function StudentPractice() {
     const { user } = useAuthUser();
@@ -74,24 +75,24 @@ export default function StudentPractice() {
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <TabsList className="grid w-full grid-cols-3 sm:w-[400px] bg-gray-100 p-1 rounded-xl">
-                            <TabsTrigger 
-                                value="questions" 
+                            <TabsTrigger
+                                value="questions"
                                 className="flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all text-xs sm:text-sm"
                             >
                                 <BookOpen className="w-4 h-4" />
                                 <span className="hidden sm:inline">Questions</span>
                                 <span className="sm:hidden">Q</span>
                             </TabsTrigger>
-                            <TabsTrigger 
-                                value="progress" 
+                            <TabsTrigger
+                                value="progress"
                                 className="flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all text-xs sm:text-sm"
                             >
                                 <TrendingUp className="w-4 h-4" />
                                 <span className="hidden sm:inline">Progress</span>
                                 <span className="sm:hidden">P</span>
                             </TabsTrigger>
-                            <TabsTrigger 
-                                value="achievements" 
+                            <TabsTrigger
+                                value="achievements"
                                 className="flex items-center gap-2 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all text-xs sm:text-sm"
                             >
                                 <Trophy className="w-4 h-4" />
@@ -99,7 +100,7 @@ export default function StudentPractice() {
                                 <span className="sm:hidden">A</span>
                             </TabsTrigger>
                         </TabsList>
-                        
+
                         {/* Quick Stats */}
                         <div className="flex sm:hidden items-center justify-center gap-4 text-xs text-gray-600 bg-white p-3 rounded-lg border">
                             <div className="flex items-center gap-1">
@@ -115,7 +116,7 @@ export default function StudentPractice() {
                                 <span>0 Streak</span>
                             </div>
                         </div>
-                        
+
                         <div className="hidden md:flex items-center gap-6 text-sm text-gray-600">
                             <div className="flex items-center gap-2">
                                 <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -191,18 +192,11 @@ export default function StudentPractice() {
                                 </CardContent>
                             </Card>
 
-                            <Card className="hover:shadow-lg transition-shadow">
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                    <CardTitle className="text-sm font-medium">Total Points</CardTitle>
-                                    <Star className="h-4 w-4 text-yellow-600" />
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="text-2xl font-bold">0</div>
-                                    <p className="text-xs text-muted-foreground">
-                                        from practice questions
-                                    </p>
-                                </CardContent>
-                            </Card>
+                            <PointsDisplay
+                                showHistory={false}
+                                showBreakdown={false}
+                                className="hover:shadow-lg transition-shadow"
+                            />
 
                             <Card className="hover:shadow-lg transition-shadow">
                                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -229,7 +223,7 @@ export default function StudentPractice() {
                                         <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-400" />
                                         <p className="text-lg font-medium mb-2">Start Your Journey!</p>
                                         <p>Progress charts will appear here as you complete practice questions</p>
-                                        <Button 
+                                        <Button
                                             onClick={() => setActiveTab("questions")}
                                             className="mt-4 bg-indigo-600 hover:bg-indigo-700"
                                         >
@@ -257,13 +251,13 @@ export default function StudentPractice() {
                                         <p className="text-gray-600 mb-4">Your achievements will appear here as you progress</p>
                                         <p className="text-sm text-gray-500 mb-4">Complete practice questions to unlock badges!</p>
                                         <div className="flex gap-2 justify-center">
-                                            <Button 
+                                            <Button
                                                 onClick={() => setActiveTab("questions")}
                                                 className="bg-yellow-600 hover:bg-yellow-700 text-white"
                                             >
                                                 Start Practicing
                                             </Button>
-                                            <Button 
+                                            <Button
                                                 onClick={() => navigate('/student/dashboard')}
                                                 variant="outline"
                                                 className="border-yellow-300 text-yellow-700 hover:bg-yellow-50"

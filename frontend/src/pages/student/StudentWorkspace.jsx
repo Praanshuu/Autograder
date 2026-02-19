@@ -31,13 +31,13 @@ import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-c';
 import 'prismjs/themes/prism-tomorrow.css'; // Dark theme for code
 import { Separator } from "../../components/ui/separator";
+import ReactMarkdown from 'react-markdown';
 // import { Panel, Group } from "react-resizable-panels"; // Pro feature disabled for now
 
 // Services
 import { assignmentService } from "../../services/assignmentService";
 import { submissionService } from "../../services/submissionService";
 import QuestionPalette from "../../components/workspace/QuestionPalette";
-import { PointsDisplay } from "../../components/features/gamification";
 
 const StudentWorkspace = () => {
     const { assignmentId } = useParams();
@@ -429,20 +429,38 @@ const StudentWorkspace = () => {
             const resultData = response.data.data || response.data;
             console.log("📊 Result data:", resultData);
 
+            // Calculate if all tests passed
+            const allTestsPassed = resultData.results.every(r => r.passed);
+            const executionSuccessful = resultData.summary.execution_successful;
+
+            let status = 'error';
+            let message = 'Code execution failed';
+
+            if (executionSuccessful) {
+                if (allTestsPassed) {
+                    status = 'success';
+                    message = 'Code executed successfully and all tests passed!';
+                } else {
+                    status = 'failed';
+                    message = 'Code executed, but some test cases failed.';
+                }
+            } else {
+                status = 'error';
+                message = 'Code execution crashed or timed out.';
+            }
+
             const formattedOutput = {
-                status: resultData.summary.execution_successful ? 'success' : 'error',
-                message: resultData.summary.execution_successful ?
-                    (resultData.summary.has_output ? 'Code executed successfully!' : 'Code ran but produced no output') :
-                    'Code execution failed',
+                status: status,
+                message: message,
                 results: resultData.results.map((r, index) => ({
                     id: index,
-                    status: r.error ? 'error' : 'success', // Focus on execution, not test passing
+                    status: r.passed ? 'success' : 'error', // Individual test status
                     output: r.actual_output || '',
                     expected: r.expected_output || '',
                     error: r.error || '',
                     input: r.test_case?.input || testCases[index]?.input || '',
                     showOutputOnly: r.show_output_only || false,
-                    testPassed: r.passed // Keep test result but don't make it primary
+                    testPassed: r.passed
                 }))
             };
 
@@ -518,9 +536,72 @@ const StudentWorkspace = () => {
         }
     };
 
+    // Polling Logic for Async Submissions
+    const pollSubmission = (attemptId) => {
+        const POLL_INTERVAL = 2000; // 2s
+        const MAX_ATTEMPTS = 60; // 2 minutes max wait
+
+        let attempts = 0;
+
+        const checkStatus = async () => {
+            try {
+                if (attempts >= MAX_ATTEMPTS) {
+                    setIsSubmitting(false);
+                    alert("Submission timed out. Please check your dashboard later.");
+                    return;
+                }
+
+                const response = await submissionService.getSubmission(attemptId);
+                const attempt = response.data;
+
+                if (attempt.status === 'queued' || attempt.status === 'processing') {
+                    attempts++;
+                    // Continue polling
+                    setTimeout(checkStatus, POLL_INTERVAL);
+                } else {
+                    // Completed
+                    setIsSubmitting(false);
+                    processSubmissionResult(attempt);
+
+                    if (attempt.status === 'success') {
+                        alert("Submission Successful! All test cases passed.");
+                        setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+                    } else if (attempt.status === 'fail') {
+                        alert("Submission Completed: Some test cases failed.");
+                    } else { // error
+                        alert("Submission Error: " + (attempt.error_message || "Execution error"));
+                    }
+                }
+            } catch (err) {
+                console.error("Polling error:", err);
+                setIsSubmitting(false);
+                alert("Failed to check submission status.");
+            }
+        };
+
+        // Start polling
+        checkStatus();
+    };
+
     // Updated Submit Handler
     const handleSubmit = async () => {
-        if (!currentAQ || isReadOnly) return;
+        if (!currentAQ) {
+            console.error("Submit failed: currentAQ is missing", { assignment, currentQuestionIndex });
+            alert("Error: Question data not found. Please refresh the page.");
+            return;
+        }
+
+        if (isReadOnly) {
+            alert("This assignment is submitted and read-only.");
+            return;
+        }
+
+        console.log("Submitting code...", {
+            assignment_id: assignment.id,
+            assignment_question_id: currentAQ.id,
+            question_id: currentQuestion.id,
+            language: selectedLanguage
+        });
 
         setIsSubmitting(true);
         try {
@@ -535,13 +616,29 @@ const StudentWorkspace = () => {
                 time_spent: timeSpent
             });
 
-            // Handle Response (Show Grade Results)
-            // Backend returns the SubmissionAttempt object with test_results
+            // Handle Response
             const attempt = response.data;
-            processSubmissionResult(attempt);
+
+            if (attempt.status === 'queued' || attempt.status === 'processing') {
+                // Async: Start Polling
+                // Note: We do NOT set isSubmitting(false) here. Polling handles it.
+                pollSubmission(attempt.id);
+            } else {
+                // Sync / Immediate Result
+                processSubmissionResult(attempt);
+                setIsSubmitting(false);
+
+                if (attempt.status === 'success') {
+                    alert("Submission Successful!");
+                    setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+                } else if (attempt.status === 'fail') {
+                    alert("Submission Failed (Test Cases).");
+                }
+            }
 
         } catch (err) {
             console.error("Submission failed:", err);
+            setIsSubmitting(false);
 
             // Handle "Already Completed" (400)
             if (err.response?.status === 400 && err.response?.data?.message?.includes("already successfully completed")) {
@@ -550,8 +647,6 @@ const StudentWorkspace = () => {
             } else {
                 alert("Submission failed: " + (err.response?.data?.message || err.message));
             }
-        } finally {
-            setIsSubmitting(false);
         }
     };
 
@@ -661,16 +756,9 @@ const StudentWorkspace = () => {
                 />
 
                 <div className="flex items-center gap-3">
-                    {/* Compact Points Display */}
-                    <div className="hidden sm:block">
-                        <PointsDisplay 
-                            compact={true} 
-                            showHistory={false} 
-                            showBreakdown={false}
-                            className="border-0 shadow-none bg-transparent p-0"
-                        />
-                    </div>
-                    
+                    {/* Compact Points Display Removed */}
+
+
                     <Button
                         variant="secondary"
                         size="sm"
@@ -726,8 +814,8 @@ const StudentWorkspace = () => {
                                     disabled={isRunning || isSubmitting}
                                     className="h-9 shadow-sm gap-2"
                                 >
-                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                                    Retry
+                                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                                    Submit
                                 </Button>
 
                                 {currentQuestionIndex < totalQuestions - 1 ? (
@@ -773,8 +861,11 @@ const StudentWorkspace = () => {
                                 {currentQuestionIndex + 1}. {currentQuestion.title}
                             </h2>
                             <Separator className="my-4" />
+
                             <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
-                                {currentQuestion.description || assignment.description}
+                                <ReactMarkdown>
+                                    {currentQuestion.description || assignment.description}
+                                </ReactMarkdown>
                             </div>
                         </div>
 
@@ -883,6 +974,7 @@ const StudentWorkspace = () => {
                                 </div>
                                 {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
                                 {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                {output?.status === 'failed' && <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
                                 {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
                             </div>
                         </div>
@@ -905,15 +997,21 @@ const StudentWorkspace = () => {
                             {output && (
                                 <div className="space-y-4">
                                     {/* Status */}
-                                    <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                                    {/* Status */}
+                                    <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' :
+                                        output.status === 'failed' ? 'bg-orange-50 border-orange-200' :
+                                            'bg-red-50 border-red-200'
+                                        }`}>
                                         <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
-                                                {output.status === 'success' ? (
-                                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                                ) : (
-                                                    <XCircle className="w-4 h-4 text-red-600" />
-                                                )}
-                                                <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'}`}>
+                                                {output.status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                                                {output.status === 'failed' && <XCircle className="w-4 h-4 text-orange-600" />}
+                                                {output.status === 'error' && <XCircle className="w-4 h-4 text-red-600" />}
+
+                                                <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' :
+                                                    output.status === 'failed' ? 'text-orange-800' :
+                                                        'text-red-800'
+                                                    }`}>
                                                     {output.message}
                                                 </span>
                                             </div>
@@ -951,7 +1049,10 @@ const StudentWorkspace = () => {
                                                                 <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">OUTPUT</span>
                                                                 What your code printed:
                                                             </div>
-                                                            <div className={`p-3 rounded border-2 text-sm font-mono ${result.error ? 'bg-red-50 border-red-300 text-red-800' : 'bg-green-50 border-green-300 text-green-800'}`}>
+                                                            <div className={`p-3 rounded border-2 text-sm font-mono ${result.error ? 'bg-red-50 border-red-300 text-red-800' :
+                                                                result.testPassed ? 'bg-green-50 border-green-300 text-green-800' :
+                                                                    'bg-orange-50 border-orange-300 text-orange-900'
+                                                                }`}>
                                                                 {result.error ? (
                                                                     <div>
                                                                         <div className="font-bold text-red-600 mb-1">❌ Error:</div>
@@ -968,23 +1069,24 @@ const StudentWorkspace = () => {
                                                         {/* Test Comparison (Secondary) */}
                                                         {result.expected && (
                                                             <div className="border-t border-gray-200 pt-3 mt-3">
-                                                                <div className="text-xs font-semibold text-gray-500 mb-2">📋 Test Case Comparison:</div>
+                                                                <div className="text-xs font-semibold text-gray-500 mb-2">📋 Test Comparison:</div>
                                                                 <div className="grid grid-cols-2 gap-3 text-xs">
                                                                     <div>
                                                                         <div className="font-semibold text-gray-600 mb-1">Expected:</div>
-                                                                        <div className="bg-blue-100 p-2 rounded font-mono text-blue-800">
+                                                                        <div className="bg-blue-100 p-2 rounded font-mono text-blue-800 whitespace-pre-wrap">
                                                                             {result.expected}
                                                                         </div>
                                                                     </div>
                                                                     <div>
                                                                         <div className="font-semibold text-gray-600 mb-1">Your Output:</div>
-                                                                        <div className={`p-2 rounded font-mono ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                                                        <div className={`p-2 rounded font-mono whitespace-pre-wrap ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                                                                            }`}>
                                                                             {result.output || '(no output)'}
                                                                         </div>
                                                                     </div>
                                                                 </div>
-                                                                <div className={`mt-2 text-xs font-medium ${result.testPassed ? 'text-green-600' : 'text-yellow-600'}`}>
-                                                                    {result.testPassed ? '✅ Matches expected output' : '⚠️ Different from expected output (but your code ran successfully!)'}
+                                                                <div className={`mt-2 text-xs font-medium ${result.testPassed ? 'text-green-600' : 'text-orange-600'}`}>
+                                                                    {result.testPassed ? '✅ Matches expected output' : '❌ Output mismatch'}
                                                                 </div>
                                                             </div>
                                                         )}

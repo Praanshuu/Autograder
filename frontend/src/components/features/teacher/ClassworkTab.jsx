@@ -42,7 +42,7 @@ export default function ClassworkTab() {
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <Button className="gap-2 shadow-sm" asChild>
-                    <Link to="/teacher/assignment/create">
+                    <Link to={`/teacher/assignment/create?class_id=${classId}`}>
                         <Plus className="w-5 h-5" />
                         Create
                     </Link>

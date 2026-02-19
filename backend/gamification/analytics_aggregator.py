@@ -19,7 +19,7 @@ from django.contrib.auth import get_user_model
 
 from .models import (
     StudentAnalytics, PracticeSubmission, PracticeProgress, 
-    PracticeQuestion, UserPoints
+    UserPoints
 )
 
 logger = logging.getLogger(__name__)
@@ -358,19 +358,19 @@ class AnalyticsAggregator:
         # Get all categories from practice questions the student has attempted
         attempted_categories = PracticeProgress.objects.filter(
             student=student
-        ).values_list('practice_question__category', flat=True).distinct()
+        ).values_list('question__category', flat=True).distinct()
         
         for category in attempted_categories:
             # Count total questions in this category that the student has attempted
             total_attempted = PracticeProgress.objects.filter(
                 student=student,
-                practice_question__category=category
+                question__category=category
             ).count()
             
             # Count completed questions in this category
             completed = PracticeProgress.objects.filter(
                 student=student,
-                practice_question__category=category,
+                question__category=category,
                 is_completed=True
             ).count()
             

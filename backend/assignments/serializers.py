@@ -25,6 +25,8 @@ class QuestionSerializer(serializers.ModelSerializer):
             if not base_slug:
                 base_slug = "question"
             # Append short UUID to ensure uniqueness
+            # Truncate base_slug to 40 chars to leave room for 9 char suffix (total < 50)
+            base_slug = base_slug[:40]
             validated_data['slug'] = f"{base_slug}-{str(uuid.uuid4())[:8]}"
             
         # Ensure test_cases is a list
@@ -34,6 +36,17 @@ class QuestionSerializer(serializers.ModelSerializer):
         # Set created_by from context
         validated_data['created_by'] = self.context['request'].user
         return super().create(validated_data)
+
+    def validate_config(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Config must be a dictionary.")
+        
+        entry_point = value.get('entry_point')
+        if entry_point:
+            if not isinstance(entry_point, str) or not entry_point.isidentifier():
+                raise serializers.ValidationError(f"Invalid entry_point '{entry_point}'. Must be a valid Python identifier.")
+        
+        return value
 
 
 class AssignmentQuestionSerializer(serializers.ModelSerializer):
@@ -100,4 +113,4 @@ class StreamAssignmentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Assignment
-        fields = ['id', 'title', 'due_date', 'points_total', 'created_at', 'class_id', 'is_published', 'comments_count']
+        fields = ['id', 'title', 'description', 'due_date', 'points_total', 'created_at', 'class_id', 'is_published', 'comments_count']

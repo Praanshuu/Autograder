@@ -12,7 +12,7 @@ class ClassSerializer(serializers.ModelSerializer):
         model = Class
         fields = ['id', 'name', 'section', 'owner', 'join_code',
                   'settings', 'created_at', 'updated_at',
-                  'student_count', 'assignment_count']
+                  'student_count', 'assignment_count', 'is_archived']
         read_only_fields = ['id', 'join_code', 'created_at', 'updated_at', 'owner']
     
     def create(self, validated_data):

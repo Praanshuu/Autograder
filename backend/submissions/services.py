@@ -1,14 +1,78 @@
+import ast
 import logging
 import tempfile
 import os
+import json
+import time
 from pathlib import Path
 from django.conf import settings
-import time
-import ast
+
+# Model imports
+from assignments.models import AssignmentQuestion, ContentItem
+from submissions.models import SubmissionAttempt, GradebookEntry
+from gamification.points_calculator import PointsCalculator
+
+class SubmissionConfigGenerator:
+    """
+    Generates configuration and source files for student submissions.
+    Structure: submissions_data/{student_username}/{assignment_slug}/{question_slug}/{attempt_id}/
+    """
+    BASE_DIR = Path(settings.BASE_DIR) / "submissions_data"
+
+    @classmethod
+    def get_submission_dir(cls, attempt):
+        student_username = attempt.student.username
+        
+        # Use assignment ID for uniqueness if slug unavailable, or slugify title.
+        assignment = attempt.assignment_question.assignment
+        from django.utils.text import slugify
+        assignment_slug = slugify(assignment.title) or str(assignment.id)
+        
+        question_slug = attempt.assignment_question.question.slug
+        attempt_id = str(attempt.id)
+        
+        return cls.BASE_DIR / student_username / assignment_slug / question_slug / attempt_id
+
+    @classmethod
+    def save_artifacts(cls, attempt, language='python'):
+        submission_dir = cls.get_submission_dir(attempt)
+        submission_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Extension
+        ext_map = {'python': '.py', 'c': '.c', 'java': '.java'}
+        ext = ext_map.get(language, '.txt')
+        
+        code_path = submission_dir / f"submission{ext}"
+        with open(code_path, 'w') as f:
+            f.write(attempt.source_code)
+            
+        # 2. Save Config Snapshot
+        config_path = submission_dir / "config.json"
+        
+        # Get original config
+        question_config = attempt.assignment_question.question.config or {}
+        
+        # Merge with submission metadata
+        submission_config = {
+            'meta': {
+                'student': attempt.student.username,
+                'attempt_id': str(attempt.id),
+                'timestamp': str(attempt.created_at),
+                'status': attempt.status,
+                'language': language
+            },
+            'question_config': question_config
+        }
+        
+        with open(config_path, 'w') as f:
+            json.dump(submission_config, f, indent=4)
+            
+        return str(submission_dir)
+
 
 logger = logging.getLogger(__name__)
 
-def execute_code(code, language, test_cases):
+def execute_code(code, language, test_cases, config=None):
     """
     Execute code against test cases using a custom implementation based on Dynamic Analyzer.
     Supports Python, C, and Java with Docker-based execution.
@@ -42,7 +106,7 @@ def execute_code(code, language, test_cases):
             temp_file_path = temp_file.name
         
         # Use our custom executor that captures all outputs
-        results = _execute_with_output_capture(temp_file_path, language, test_cases)
+        results = _execute_with_output_capture(temp_file_path, language, test_cases, config)
         return results
 
 
@@ -64,7 +128,7 @@ def execute_code(code, language, test_cases):
         except Exception as e:
             logger.warning(f"Failed to clean up temporary file: {e}")
 
-def _execute_with_output_capture(code_path, language, test_cases):
+def _execute_with_output_capture(code_path, language, test_cases, config=None):
     """Execute code and capture outputs for all test cases"""
     from dynamic_analyzer import DynamicAnalyzer
     import docker
@@ -72,8 +136,25 @@ def _execute_with_output_capture(code_path, language, test_cases):
     import tarfile
     import io
     
-    # For Python, try simple execution first (no Docker needed)
-    if language == 'python':
+    # For Python, ensure config is initialized
+    if config is None:
+        config = {}
+
+    # For Python, try to detect entry point if missing
+    if language == 'python' and not config.get('entry_point'):
+        try:
+            detected = _detect_python_entry_point(code_path)
+            if detected:
+                logger.info(f"Auto-detected entry point: {detected}")
+                config['entry_point'] = detected
+        except Exception as e:
+            logger.warning(f"Entry point detection failed: {e}")
+
+    # For Python, try simple execution first if NO config/entry_point (Legacy)
+    # If entry_point exists, we MUST use DynamicAnalyzer (Batch Mode)
+    use_batch = config and config.get('entry_point')
+    
+    if language == 'python' and not use_batch:
         try:
             return _execute_python_simple(code_path, test_cases)
         except Exception as e:
@@ -95,7 +176,7 @@ def _execute_with_output_capture(code_path, language, test_cases):
     
     try:
         if language == 'python':
-            results = _execute_python_with_output(analyzer, code_path, test_cases)
+            results = _execute_python_with_output(analyzer, code_path, test_cases, config)
         elif language == 'c':
             results = _execute_c_with_output(analyzer, code_path, test_cases)
         elif language == 'java':
@@ -115,11 +196,68 @@ def _execute_with_output_capture(code_path, language, test_cases):
     
     return results
 
-def _execute_python_with_output(analyzer, code_path, test_cases):
+def _execute_python_with_output(analyzer, code_path, test_cases, config=None):
     """Execute Python code and capture all outputs"""
     results = []
     
-    # Try to use a simpler execution method first
+    # check for batch mode capability
+    entry_point = config.get('entry_point') if config else None
+    
+    if entry_point:
+        # Use new Batch Runner
+        try:
+            batch_results = analyzer._run_python_batch_tests(
+                Path(code_path), 
+                entry_point, 
+                test_cases,
+                config=config
+            )
+            
+            # Map batch results to unexpected format
+            for i, res in enumerate(batch_results):
+                 # res format: {'name':..., 'status':..., 'actual':..., 'error':..., 'execution_time':...}
+                 # We need to add comparison logic here because batch runner returns 'actual'
+                 # It converts 'run_success' to 'pass'/'fail' based on comparison.
+                 
+                 tc_data = test_cases[i] if i < len(test_cases) else {}
+                 
+                 status = res.get('status')
+                 actual = res.get('actual', '')
+                 err_msg = res.get('error', '')
+                 duration = res.get('duration', res.get('execution_time', 0))
+                 
+                 if status == 'run_success':
+                     # We need to compare actual vs expected
+                     expected = str(tc_data.get('expected_output', '')).strip()
+                     actual_norm = analyzer._normalize_output(actual)
+                     expected_norm = analyzer._normalize_output(expected)
+                     
+                     if analyzer._compare_outputs(actual_norm, expected_norm):
+                         status = 'pass'
+                     else:
+                         status = 'fail'
+                         
+                 results.append({
+                    'status': status,
+                    'console_output': actual,
+                    'error_message': err_msg,
+                    'execution_time': duration,
+                    'test_case': tc_data
+                })
+            return results
+            
+        except Exception as e:
+            logger.error(f"Batch execution error: {e}")
+            # Fallthrough to simple execution? No, distinct failure.
+            return [{
+                'status': 'error',
+                'console_output': '',
+                'error_message': f"Batch execution failed: {str(e)}",
+                'execution_time': 0,
+                'test_case': tc
+            } for tc in test_cases]
+
+    # Try to use a simpler execution method first (Legacy)
     try:
         return _execute_python_simple(code_path, test_cases)
     except Exception as e:
@@ -376,6 +514,27 @@ def _format_docker_results(docker_result, original_test_cases):
         })
     return formatted
 
+def _detect_python_entry_point(code_path):
+    """
+    Detect the entry point (function name) from Python code.
+    Returns the name of the first function defined in the code.
+    """
+    try:
+        with open(code_path, 'r') as f:
+            code = f.read()
+            
+        tree = ast.parse(code)
+        
+        # Look for the first top-level function definition
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef):
+                return node.name
+                
+    except Exception as e:
+        logger.warning(f"Error parsing Python code for entry point: {e}")
+        
+    return None
+
 def analyze_code_structure(code):
     """
     Analyze Python code structure using AST.
@@ -426,3 +585,132 @@ def analyze_code_structure(code):
         pass
         
     return tags
+
+
+def update_gradebook(student, assignment):
+    """
+    Recalculate total score for assignment and update gradebook.
+    Logic: Weighted by number of test cases (Total Passed / Total Tests).
+    If Manual Score is present, it counts as (Score% * NumTests) passed.
+    """
+    aqs = AssignmentQuestion.objects.filter(assignment=assignment)
+    total_questions = aqs.count()
+    
+    sum_question_percentages = 0
+    questions_counted = 0
+    total_points_earned = 0
+    
+    for aq in aqs:
+        # Get latest attempt
+        latest = SubmissionAttempt.objects.filter(
+            student=student,
+            assignment_question=aq
+        ).order_by('-created_at').first()
+        
+        # Determine score for this question (0-100 scale)
+        question_score = 0
+        
+        # Get Max Points for this question
+        max_points = aq.custom_points if aq.custom_points is not None else 10 
+        if max_points <= 0: max_points = 10
+
+        test_cases = aq.question.test_cases or []
+        num_tests = len(test_cases)
+        
+        if latest:
+            if latest.manual_score is not None:
+                # Manual override
+                question_score = (latest.manual_score / max_points) * 100
+                if question_score > 100: question_score = 100
+            elif num_tests > 0:
+                # Auto-calculated based on tests
+                results = latest.test_results.all()
+                if results:
+                     passed = results.filter(status='pass').count()
+                     passed = min(passed, num_tests)
+                     question_score = (passed / num_tests) * 100
+            else:
+                question_score = 0
+                
+            # Calculate points earned for this question
+            try:
+                test_results_data = []
+                for test_result in latest.test_results.all():
+                    test_results_data.append({
+                        'status': test_result.status,
+                        'score': test_result.score
+                    })
+                
+                if test_results_data:
+                    calculator = PointsCalculator()
+                    question_points = calculator.calculate_assignment_points(
+                        test_results=test_results_data,
+                        attempt_number=latest.attempt_number,
+                        assignment_question=aq
+                    )
+                    total_points_earned += question_points
+            except Exception as e:
+                logger.error(f"Error calculating points for gradebook: {e}")
+        else:
+            question_score = 0
+        
+        sum_question_percentages += question_score
+        questions_counted += 1
+
+    # Final Calculation: Average of Question Scores
+    final_assignment_score = 0
+    if total_questions > 0:
+        final_assignment_score = sum_question_percentages / total_questions
+            
+    # Update Gradebook
+    content_item = ContentItem.objects.get(id=assignment.id)
+    entry, _ = GradebookEntry.objects.get_or_create(student=student, content_item=content_item)
+    entry.final_score = final_assignment_score
+    entry.points_earned = total_points_earned
+    
+    if total_points_earned > 0:
+        logger.info(f"Assignment {assignment.id} for {student.username}: {total_points_earned} points earned")
+    
+    # Determine status
+    has_manual = SubmissionAttempt.objects.filter(
+        student=student, 
+        assignment_question__assignment=assignment, 
+        manual_score__isnull=False
+    ).exists()
+    
+    has_any_submission = SubmissionAttempt.objects.filter(
+        student=student,
+        assignment_question__assignment=assignment,
+    ).exists()
+    
+    if has_manual:
+        entry.status = 'graded'
+    elif has_any_submission:
+        # Auto-graded: mark as submitted so the dashboard shows the score
+        entry.status = 'submitted'
+        
+    entry.save()
+    logger.info(f"Gradebook updated for {student.username} on {assignment.title}: score={final_assignment_score:.1f}%, status={entry.status}")
+
+def award_assignment_points(submission_attempt, test_results_data):
+    """
+    Award points for assignment submissions using the gamification system.
+    """
+    try:
+        calculator = PointsCalculator()
+        points_awarded = calculator.calculate_and_award_assignment_points(
+            submission_attempt=submission_attempt,
+            test_results=test_results_data
+        )
+        
+        if points_awarded > 0:
+            logger.info(
+                f"Awarded {points_awarded} assignment points to {submission_attempt.student.username} "
+                f"for {submission_attempt.assignment_question}"
+            )
+            
+    except Exception as e:
+        logger.error(
+            f"Error awarding assignment points for submission {submission_attempt.id}: {e}",
+            exc_info=True
+        )

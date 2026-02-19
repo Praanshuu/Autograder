@@ -30,7 +30,7 @@ class SubmissionAttemptSerializer(serializers.ModelSerializer):
         fields = ['id', 'assignment_question', 'question', 'attempt_number', 'status', 
                   'test_results', 'created_at', 'student', 'final_score', 'is_graded', 
                   'feedback_tags', 'assignment_id', 'assignment_title', 'manual_score', 'feedback_text', 
-                  'code_content', 'time_spent']
+                  'code_content', 'time_spent', 'ai_analysis_data']
 
     def get_question(self, obj):
         from assignments.serializers import QuestionSerializer
@@ -221,6 +221,15 @@ class SubmissionAnalyticsSerializer(serializers.ModelSerializer):
 
         if not found_tags:
             found_tags = ['general feedback'] if obj.status == 'success' else ['needs review']
+            
+        # Merge with AI Analysis Tags
+        if obj.ai_analysis_data:
+            ai_tags = obj.ai_analysis_data.get('tags', [])
+            # Simple deduplication
+            for t in ai_tags:
+                if t.lower() not in found_tags:
+                    found_tags.append(t.lower())
+                    
         return ','.join(found_tags)
 
 

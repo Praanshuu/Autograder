@@ -1,0 +1,17 @@
+{
+    "meta": {
+        "student": "B25EE031",
+        "attempt_id": "6c96533d-9c71-419a-a917-ec5f08c8b44b",
+        "timestamp": "2026-02-19 14:15:09.708576+00:00",
+        "status": "success",
+        "language": "python"
+    },
+    "question_config": {
+        "timeout": 2,
+        "language": "python",
+        "entry_point": "reverse_string",
+        "execution_mode": {
+            "type": "function"
+        }
+    }
+}

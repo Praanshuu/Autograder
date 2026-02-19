@@ -29,6 +29,11 @@ export const classService = {
     return await api.put(API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId), classData);
   },
 
+  // Regenerate join code
+  regenerateJoinCode: async (classId) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}regenerate-code/`);
+  },
+
   // Delete class
   deleteClass: async (classId) => {
     return await api.delete(API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId));

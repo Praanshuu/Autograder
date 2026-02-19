@@ -17,6 +17,7 @@ class Class(models.Model):
     section = models.CharField(max_length=100)
     join_code = models.CharField(max_length=10, unique=True, default=generate_join_code)
     settings = models.JSONField(default=dict, blank=True)
+    is_archived = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

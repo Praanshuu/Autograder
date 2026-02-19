@@ -1,0 +1,13 @@
+meta:
+  student: student_crash
+  attempt_id: 7718a2ea-31ff-4355-9f4a-91d7e73cc8ca
+  timestamp: '2026-02-17 06:25:02.263263+00:00'
+  status: success
+  language: python
+question_config:
+  timeout: 2
+  language: python
+  entry_point: solution
+  execution_mode:
+    type: function
+    entry_point: solution

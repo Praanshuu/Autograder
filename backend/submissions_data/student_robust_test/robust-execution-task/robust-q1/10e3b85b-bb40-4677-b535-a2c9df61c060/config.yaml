@@ -1,0 +1,10 @@
+meta:
+  student: student_robust_test
+  attempt_id: 10e3b85b-bb40-4677-b535-a2c9df61c060
+  timestamp: '2026-02-17 07:18:13.962971+00:00'
+  status: success
+  language: python
+question_config:
+  timeout: 2
+  language: python
+  entry_point: sum_nums

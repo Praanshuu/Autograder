@@ -22,7 +22,7 @@ class ClassViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        archived = self.request.query_params.get('archived', None)
+        archived = self.request.query_params.get('archived', 'false').lower() == 'true'
         
         enrollments = Enrollment.objects.filter(
             user=user
@@ -32,6 +32,9 @@ class ClassViewSet(viewsets.ModelViewSet):
         all_class_ids = list(set(list(enrollments) + list(owned_classes)))
         
         queryset = Class.objects.filter(id__in=all_class_ids)
+        
+        if self.action == 'list':
+            queryset = queryset.filter(is_archived=archived)
         
         return queryset.select_related('owner').prefetch_related('enrollments').annotate(
             student_count=Count('enrollments', filter=Q(enrollments__role='student'), distinct=True),
@@ -72,6 +75,14 @@ class ClassViewSet(viewsets.ModelViewSet):
                 {'message': 'Invalid join code'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # Check for enrollment lock
+        settings = class_obj.settings or {}
+        if settings.get('enrollment_locked', False):
+             return Response(
+                {'message': 'Enrollment is currently locked for this class.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         
         # Check if already enrolled
         enrollment, created = Enrollment.objects.get_or_create(
@@ -99,8 +110,55 @@ class ClassViewSet(viewsets.ModelViewSet):
     def join(self, request, pk=None):
         """Join a class using join code (legacy, requires ID)"""
         return self.join_by_code(request)
+
+    @action(detail=True, methods=['post'], url_path='regenerate-code')
+    def regenerate_code(self, request, pk=None):
+        """Regenerate the join code for a class"""
+        class_obj = self.get_object()
+        
+        # Only owner/teacher can regenerate
+        if class_obj.owner != request.user:
+             return Response(
+                {'message': 'Not authorized. Only the class owner can regenerate the code.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        from .models import generate_join_code
+        new_code = generate_join_code()
+        # Ensure uniqueness (simple retry)
+        while Class.objects.filter(join_code=new_code).exists():
+            new_code = generate_join_code()
+            
+        class_obj.join_code = new_code
+        class_obj.save()
+        
+        return Response({
+            'success': True,
+            'message': 'Join code regenerated successfully',
+            'join_code': new_code
+        })
     
-    # Archive action removed as is_archived field is gone
+    @action(detail=True, methods=['post'])
+    def archive(self, request, pk=None):
+        """Archive or Unarchive a class"""
+        class_obj = self.get_object()
+        
+        # Only owner can archive
+        if class_obj.owner != request.user:
+             return Response(
+                {'message': 'Not authorized. Only the class owner can archive.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        # Toggle status
+        class_obj.is_archived = not class_obj.is_archived
+        class_obj.save()
+        
+        return Response({
+            'success': True,
+            'message': f"Class {'archived' if class_obj.is_archived else 'unarchived'} successfully",
+            'class': ClassSerializer(class_obj).data
+        })
     
     @action(detail=True, methods=['get'])
     def people(self, request, pk=None):

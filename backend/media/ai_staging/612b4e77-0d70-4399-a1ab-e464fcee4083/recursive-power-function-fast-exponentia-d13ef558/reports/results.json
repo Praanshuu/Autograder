@@ -1,0 +1,68 @@
+[
+    {
+        "student_id": "B25EE031",
+        "language": "python",
+        "code_path": "/home/anshul/Projects/Autograder/backend/media/ai_staging/612b4e77-0d70-4399-a1ab-e464fcee4083/recursive-power-function-fast-exponentia-d13ef558/submissions/B25EE031/main.py",
+        "code": "def recursion_power(x, n):\n    # Base case\n    if n == 0:\n        return 1.0\n    \n    # Handle negative powers\n    if n < 0:\n        return 1 / recursion_power(x, -n)\n    \n    # Divide step\n    half = recursion_power(x, n // 2)\n    \n    # Conquer step\n    if n % 2 == 0:\n        return half * half\n    else:\n        return x * half * half\n",
+        "code_no_comments": "def recursion_power(x, n):\n               \n    if n == 0:\n        return 1.0\n    \n                            \n    if n < 0:\n        return 1 / recursion_power(x, -n)\n    \n                 \n    half = recursion_power(x, n // 2)\n    \n                  \n    if n % 2 == 0:\n        return half * half\n    else:\n        return x * half * half\n",
+        "config": {
+            "assignment_name": "We\u2019re testing\u2026 YOUR SKILLS! \ud83d\ude06\ud83d\udd25 - Recursive Power Function (Fast Exponentiation)",
+            "language": "python",
+            "execution_mode": {
+                "type": "program"
+            },
+            "test_cases": [
+                {
+                    "input": "x = 2\nn = 10\n",
+                    "points": 10,
+                    "concept": "Divide and Conquer, Recursion, Time Complexity Optimization",
+                    "is_hidden": false,
+                    "explanation": "2\u00b9\u2070 = 1024 ",
+                    "expected_output": "1024"
+                }
+            ],
+            "entry_point": "recursion_power",
+            "input_types": null,
+            "points": 100,
+            "description": "Given two integers x and n, compute \n\ud835\udc65\n\ud835\udc5b\nx\nn\n using recursion.\n\nYou must implement the solution using Divide and Conquer (Fast Exponentiation) approach.\n\nRequirements:\n\nDo not use built-in power functions.\n\nTime complexity must be O(log n).\n\nHandle negative powers as well.\n\nConstraints:\n\n-10\u2074 \u2264 x \u2264 10\u2074\n\n-10\u2079 \u2264 n \u2264 10\u2079\n\nOutput should be returned as a floating-point number if needed."
+        },
+        "analysis": {
+            "static": {
+                "syntax_valid": true,
+                "errors": [],
+                "constructs_found": [
+                    "if_statements: 3",
+                    "function_definitions: 1"
+                ],
+                "metrics": {
+                    "for_loops": 0,
+                    "while_loops": 0,
+                    "if_statements": 3,
+                    "function_definitions": 1
+                },
+                "style_issues": [],
+                "conceptual_warnings": []
+            },
+            "dynamic": [
+                {
+                    "actual": "1024.0",
+                    "error": "",
+                    "status": "pass",
+                    "duration": 2,
+                    "name": "test_1"
+                }
+            ],
+            "embedding": {
+                "model": "./other_module/contrastive_learning/finetuned_nomic_mulsupcon_bs16_2",
+                "code_embedding": null
+            },
+            "feedback": {
+                "generative_model": "llama3.2:3b-autograder-kto-v2",
+                "technical_summary": "The provided recursive solution demonstrates clear and concise code structure, making it easy to follow. Its time complexity is likely O(log n) due to the exponentiation by squaring approach, which is a standard result for this problem. Given the low confidence level, it's reasonable to consider the complexity as typical for binary exponentiation under these constraints.",
+                "summarized_construct": "function: recursion_power",
+                "error_explanation": null,
+                "identified_concepts": []
+            }
+        }
+    }
+]
