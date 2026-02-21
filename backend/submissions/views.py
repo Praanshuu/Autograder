@@ -43,10 +43,28 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='analytics')
     def analytics(self, request):
-        """Lightweight endpoint for analytics charts — no pagination, 
-        minimal fields, much smaller response payload."""
+        """Lightweight endpoint for analytics charts — no pagination,
+        minimal fields. Uses prefetch + annotation to eliminate N+1 queries."""
         from .serializers import SubmissionAnalyticsSerializer
-        queryset = self.get_queryset()
+        from django.db.models import Count, Q
+
+        assignment_id = request.query_params.get('assignment_id')
+
+        # Lean queryset — only the related fields analytics needs
+        # We use prefetch_related for test_results and count them in Python (in the serializer)
+        # to avoid a massive SQL GROUP BY that takes >2.5s and locks the database.
+        queryset = SubmissionAttempt.objects.select_related(
+            'assignment_question',
+            'assignment_question__question',
+            'student',
+        ).prefetch_related(
+            'test_results'
+        )
+        if assignment_id:
+            queryset = queryset.filter(assignment_question__assignment_id=assignment_id)
+        if request.user.role == 'student':
+            queryset = queryset.filter(student=request.user)
+
         serializer = SubmissionAnalyticsSerializer(queryset, many=True)
         return Response(serializer.data)
 

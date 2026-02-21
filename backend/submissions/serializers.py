@@ -158,12 +158,13 @@ class SubmissionAnalyticsSerializer(serializers.ModelSerializer):
                 return round((obj.manual_score / max_points) * 100, 1)
             except (ZeroDivisionError, AttributeError):
                 return obj.manual_score
-        results = obj.test_results.all()
+        
+        # Iterate already-prefetched test_results (in memory, no extra DB query)
+        results = list(obj.test_results.all())
         if not results:
             return 0
         passed = sum(1 for r in results if r.status == 'pass')
-        total = len(results)
-        return round((passed / total) * 100) if total else 0
+        return round((passed / len(results)) * 100)
 
     def get_time_spent(self, obj):
         if not hasattr(self, '_progress_cache'):

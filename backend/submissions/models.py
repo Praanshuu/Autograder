@@ -98,3 +98,48 @@ class GradebookEntry(models.Model):
     class Meta:
         db_table = 'gradebook_entries'
         unique_together = ('student', 'content_item')
+
+
+class AIAnalysisTask(models.Model):
+    """
+    Tracks a bulk AI analysis run for an assignment.
+    Stores Celery task IDs per batch so we can cancel mid-run,
+    and exposes real-time progress (completed_batches / total_batches).
+    """
+    STATUS_CHOICES = [
+        ('pending',   'Pending'),
+        ('running',   'Running'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+        ('failed',    'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    assignment = models.ForeignKey(
+        'assignments.Assignment',
+        on_delete=models.CASCADE,
+        related_name='ai_analysis_tasks'
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # Celery task IDs for each batch — stored so we can revoke them on cancel
+    task_ids = models.JSONField(default=list)
+
+    total_batches     = models.IntegerField(default=0)
+    completed_batches = models.IntegerField(default=0)
+    total_submissions = models.IntegerField(default=0)
+    analyzed          = models.IntegerField(default=0)
+
+    error_message = models.TextField(blank=True, default='')
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'ai_analysis_tasks'
+        ordering = ['-created_at']
+
+    @property
+    def percent(self):
+        if self.total_batches == 0:
+            return 0
+        return round((self.completed_batches / self.total_batches) * 100)

@@ -258,19 +258,65 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='analysis-progress')
     def analysis_progress(self, request, pk=None):
         """
-        Returns how many submissions for this assignment have been AI-analyzed.
-        Computes from DB so no Celery task tracking dependency.
+        Returns the current AI analysis progress for this assignment.
+        Pulls from the most recent AIAnalysisTask record for accurate batch counts,
+        and falls back to counting ai_analysis_data on submissions for the analyzed count.
         """
-        from submissions.models import SubmissionAttempt
+        from submissions.models import AIAnalysisTask, SubmissionAttempt
+
+        # Total submissions for this assignment
         total = SubmissionAttempt.objects.filter(
             assignment_question__assignment_id=pk
         ).count()
+
+        # Get the most recent task record (any status)
+        ai_task = AIAnalysisTask.objects.filter(
+            assignment_id=pk
+        ).order_by('-created_at').first()
+
+        if ai_task:
+            # Use the task record's own analyzed counter while running,
+            # fall back to DB count so it's always accurate after completion.
+            if ai_task.status == 'completed':
+                analyzed = SubmissionAttempt.objects.filter(
+                    assignment_question__assignment_id=pk,
+                    ai_analysis_data__isnull=False
+                ).count()
+            else:
+                analyzed = ai_task.analyzed or 0
+
+            percent = round((analyzed / total) * 100) if total > 0 else 0
+
+            # While the master task hasn't set total_batches yet (race window),
+            # return 'queuing' so the frontend shows a sensible message.
+            effective_status = ai_task.status
+            if effective_status in ('pending', 'running') and ai_task.total_batches == 0:
+                effective_status = 'queuing'
+
+            return Response({
+                'status': effective_status,
+                'completed_batches': ai_task.completed_batches,
+                'total_batches': ai_task.total_batches,
+                'analyzed': analyzed,
+                'total': total,
+                'percent': percent,
+                'task_id': str(ai_task.id),
+            })
+
+        # No task record at all — show raw DB count
         analyzed = SubmissionAttempt.objects.filter(
             assignment_question__assignment_id=pk,
             ai_analysis_data__isnull=False
         ).count()
         percent = round((analyzed / total) * 100) if total > 0 else 0
-        return Response({'total': total, 'analyzed': analyzed, 'percent': percent})
+        return Response({
+            'status': 'none',
+            'completed_batches': 0,
+            'total_batches': 0,
+            'analyzed': analyzed,
+            'total': total,
+            'percent': percent,
+        })
 
     @action(detail=True, methods=['get'], url_path='word-cloud')
     def generate_word_cloud(self, request, pk=None):
@@ -380,66 +426,139 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='analyze-ai')
     def analyze_ai(self, request, pk=None):
         """
-        Trigger Bulk AI Analysis for this assignment.
+        Trigger Bulk AI Analysis for this assignment (batched, parallel Celery tasks).
         """
         from submissions.tasks import analyze_assignment_ai_task
-        
+        from submissions.models import AIAnalysisTask
+
         assignment = self.get_object()
-        
-        # Check permissions (Teachers/Admins only)
+
+        # Permissions: owner / teacher / admin only
         class_owner = assignment.module.class_obj.owner
         is_owner = class_owner == request.user
         is_teacher = Enrollment.objects.filter(
-            class_obj=assignment.module.class_obj, 
-            user=request.user, 
+            class_obj=assignment.module.class_obj,
+            user=request.user,
             role='teacher'
         ).exists()
         is_admin = request.user.role == 'admin'
-        
+
         if not (is_owner or is_teacher or is_admin):
-             return Response(
+            return Response(
                 {'message': 'Not authorized. Only Teachers can trigger AI analysis.'},
                 status=status.HTTP_403_FORBIDDEN
             )
-            
-        # Trigger Celery Task
-        task = analyze_assignment_ai_task.delay(assignment.id)
-        
+
+        # Removed global guard to allow concurrent AI analyses and rely on Celery for queue management.
+
+        # Block duplicate runs FOR THIS ASSIGNMENT — reject if already pending or running
+        active_task = AIAnalysisTask.objects.filter(
+            assignment=assignment, status__in=['pending', 'running']
+        ).order_by('-created_at').first()
+
+        if active_task:
+            # Tell the frontend about the existing task so it can resume polling
+            total = assignment.assignmentquestion_set.count()
+            return Response({
+                'success': False,
+                'already_running': True,
+                'task_id': str(active_task.id),
+                'message': f'An AI analysis is already in progress (status: {active_task.status}). '
+                           f'Batch {active_task.completed_batches}/{active_task.total_batches}. '
+                           f'Cancel it first before starting a new one.',
+            }, status=status.HTTP_409_CONFLICT)
+
+        # Create a tracking record first (so progress endpoint works immediately)
+        ai_task = AIAnalysisTask.objects.create(
+            assignment=assignment,
+            status='pending',
+        )
+
+        # Dispatch master task
+        celery_task = analyze_assignment_ai_task.delay(
+            str(assignment.id),
+            str(ai_task.id)
+        )
+
         return Response({
             'success': True,
-            'task_id': task.id,
-            'message': 'AI Analysis started in background.'
+            'task_id': str(ai_task.id),
+            'celery_task_id': celery_task.id,
+            'message': 'AI Analysis started in background.',
         })
+
+    @action(detail=True, methods=['post'], url_path='cancel-ai')
+    def cancel_ai_analysis(self, request, pk=None):
+        """
+        Cancel the currently running AI analysis for this assignment.
+        Revokes all pending Celery batch tasks.
+        """
+        from celery import current_app
+        from submissions.models import AIAnalysisTask
+
+        ai_task = AIAnalysisTask.objects.filter(
+            assignment_id=pk, status__in=['pending', 'running']
+        ).first()
+
+        if not ai_task:
+            return Response({'message': 'No active analysis to cancel.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Revoke all spawned batch tasks
+        for task_id in ai_task.task_ids:
+            try:
+                current_app.control.revoke(task_id, terminate=True)
+            except Exception as e:
+                logger.warning(f"Could not revoke task {task_id}: {e}")
+
+        ai_task.status = 'cancelled'
+        ai_task.save(update_fields=['status'])
+
+        return Response({'success': True, 'message': 'Analysis cancelled.'})
 
     @action(detail=True, methods=['get'], url_path='analysis-progress')
     def analysis_progress(self, request, pk=None):
         """
-        Get progress of AI analysis for the latest submissions of this assignment.
+        Returns real-time batch progress from the AIAnalysisTask model.
+        Falls back to counting DB records if no task record exists or hasn't been
+        populated yet (race condition window right after task is created).
         """
-        from submissions.models import SubmissionAttempt
-        
-        # Filter for this assignment
-        qs = SubmissionAttempt.objects.filter(assignment_question__assignment_id=pk)
-        
-        # Get latest attempts only (matching the task logic)
-        latest_attempts = qs.order_by('student_id', 'assignment_question_id', '-created_at').distinct('student_id', 'assignment_question_id')
-        
-        total = latest_attempts.count()
-        
-        # Count how many of these *latest* attempts have AI data
-        # We can't easily filter the distinct QuerySet directly for a property without losing distinct in some DBs or versions,
-        # but in Postgres with Django distinct(), we can chaining filter? 
-        # Actually, filter() after distinct() is tricky. 
-        # Let's count in python for safety if list is small, or use a subquery.
-        # Given potential scale, subquery is better.
-        
-        latest_ids = latest_attempts.values_list('id', flat=True)
-        analyzed = SubmissionAttempt.objects.filter(id__in=latest_ids, ai_analysis_data__isnull=False).count()
-        
+        from submissions.models import AIAnalysisTask, SubmissionAttempt
+
+        ai_task = AIAnalysisTask.objects.filter(assignment_id=pk).first()
+
+        if ai_task:
+            # If the master task hasn't populated total yet, get a real count from DB
+            total = ai_task.total_submissions
+            if total == 0:
+                total = SubmissionAttempt.objects.filter(
+                    assignment_question__assignment_id=pk
+                ).values('student_id', 'assignment_question_id').distinct().count()
+
+            analyzed = ai_task.analyzed
+            percent = round(analyzed / total * 100) if total > 0 else 0
+
+            return Response({
+                'status':            ai_task.status,
+                'total_batches':     ai_task.total_batches,
+                'completed_batches': ai_task.completed_batches,
+                'total':             total,
+                'analyzed':          analyzed,
+                'percent':           percent,
+            })
+
+        # No task record at all — count directly from DB
+        total    = SubmissionAttempt.objects.filter(
+            assignment_question__assignment_id=pk
+        ).values('student_id', 'assignment_question_id').distinct().count()
+        analyzed = SubmissionAttempt.objects.filter(
+            assignment_question__assignment_id=pk,
+            ai_analysis_data__isnull=False
+        ).count()
         return Response({
-            'total': total,
+            'status':  'unknown',
+            'total':   total,
             'analyzed': analyzed,
-            'percent': round((analyzed / total * 100), 1) if total > 0 else 0
+            'percent': round(analyzed / total * 100, 1) if total > 0 else 0,
         })
 
 

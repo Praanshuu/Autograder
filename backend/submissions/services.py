@@ -150,15 +150,8 @@ def _execute_with_output_capture(code_path, language, test_cases, config=None):
         except Exception as e:
             logger.warning(f"Entry point detection failed: {e}")
 
-    # For Python, try simple execution first if NO config/entry_point (Legacy)
-    # If entry_point exists, we MUST use DynamicAnalyzer (Batch Mode)
-    use_batch = config and config.get('entry_point')
-    
-    if language == 'python' and not use_batch:
-        try:
-            return _execute_python_simple(code_path, test_cases)
-        except Exception as e:
-            logger.warning(f"Simple Python execution failed: {e}")
+    # If entry_point exists, DynamicAnalyzer will use Batch Mode automatically
+    # otherwise it will use simple mode
     
     # Initialize analyzer for Docker-based execution
     analyzer = DynamicAnalyzer()
@@ -257,13 +250,7 @@ def _execute_python_with_output(analyzer, code_path, test_cases, config=None):
                 'test_case': tc
             } for tc in test_cases]
 
-    # Try to use a simpler execution method first (Legacy)
-    try:
-        return _execute_python_simple(code_path, test_cases)
-    except Exception as e:
-        logger.warning(f"Simple Python execution failed, falling back to analyzer: {e}")
-    
-    # Fallback to analyzer method
+    # Fallback to analyzer method (Loop Mode)
     for i, test_case in enumerate(test_cases):
         try:
             input_str = str(test_case.get('input', ''))

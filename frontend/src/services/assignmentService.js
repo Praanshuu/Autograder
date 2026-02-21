@@ -70,5 +70,10 @@ export const assignmentService = {
   // Get AI Analysis Progress
   getAnalysisProgress: async (assignmentId) => {
     return await api.get(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analysis-progress/`);
-  }
+  },
+
+  // Cancel running AI Analysis
+  cancelAIAnalysis: async (assignmentId) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}cancel-ai/`);
+  },
 };

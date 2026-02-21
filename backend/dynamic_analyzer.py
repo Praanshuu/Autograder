@@ -328,15 +328,28 @@ def worker(test_case, result_queue):
 
                 # Strategy 2: Single Block Parse (Legacy / Standard)
                 if not args:
-                    try: val = json.loads(inp_raw); args = [val]
+                    try:
+                        val = json.loads(inp_raw)
+                        if isinstance(val, list) and expected_args > 1 and len(val) == expected_args:
+                            args = val
+                        else:
+                            args = [val]
                     except:
-                        try: val = ast.literal_eval(inp_raw); args = [val]
+                        try:
+                            val = ast.literal_eval(inp_raw)
+                            if isinstance(val, (list, tuple)) and expected_args > 1 and len(val) == expected_args:
+                                args = list(val)
+                            else:
+                                args = [val]
                         except:
                             parts = inp_raw.split()
                             if parts and all(p.replace('.', '', 1).isdigit() or (p.startswith('-') and p[1:].isdigit()) for p in parts):
                                 val = [float(p) if '.' in p else int(p) for p in parts]
                                 if len(val) > 1 and isinstance(val[0], int) and val[0] == len(val) - 1: val = val[1:]
-                                args = [val]
+                                if expected_args > 1 and len(val) == expected_args:
+                                    args = val
+                                else:
+                                    args = [val]
                             else: args = [inp_raw]
             else:
                 # Smart List unpacking if function expects multiple args
@@ -575,6 +588,105 @@ if __name__ == "__main__":
                     # Container will be auto-removed due to remove=True
                 except Exception:
                     pass
+
+    def _generate_python_runner(self, module_name: str, mode: dict, input_path: str) -> str:
+        """
+        Runner reads input_path. If program mode: redirects stdin and executes module as __main__.
+        If function mode: loads JSON input and calls entry_point.
+        """
+        exec_type = mode.get("type", "program")
+        entry_point = mode.get("entry_point")
+        output_map = mode.get("output_map", None)
+
+        # We keep this runner self-contained (no external deps)
+        return f"""\
+import sys
+import os
+import json
+import importlib
+import runpy
+import contextlib
+import io
+
+WORKDIR = {CONTAINER_WORKING_DIR!r}
+INPUT_PATH = {input_path!r}
+MODULE = {module_name!r}
+EXEC_TYPE = {exec_type!r}
+ENTRY = {entry_point!r}
+OUTPUT_MAP = {output_map!r}
+
+if WORKDIR not in sys.path:
+    sys.path.insert(0, WORKDIR)
+
+def _read_input_text():
+    try:
+        with open(INPUT_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception:
+        return ""
+
+def _read_input_json():
+    txt = _read_input_text().strip()
+    if not txt:
+        return None
+    try:
+        return json.loads(txt)
+    except Exception:
+        # If not JSON, pass raw string
+        return txt
+
+def _call_function(func, inp):
+    # Common conventions:
+    # - dict => **kwargs
+    # - list/tuple => *args
+    # - other => single argument
+    if isinstance(inp, dict):
+        return func(**inp)
+    if isinstance(inp, (list, tuple)):
+        return func(*inp)
+    return func(inp)
+
+error_occurred = False
+
+try:
+    if EXEC_TYPE == "program":
+        # redirect stdin from input file
+        txt = _read_input_text()
+        buf_in = io.StringIO(txt)
+        sys.stdin = buf_in
+        runpy.run_module(MODULE, run_name="__main__")
+        # Any prints from student program are already on stdout
+    else:
+        if not ENTRY:
+            raise ValueError("Function mode requires execution_mode.entry_point in config.")
+        mod = importlib.import_module(MODULE)
+        if not hasattr(mod, ENTRY):
+            raise AttributeError(f"Function '{{ENTRY}}' not found in module '{{MODULE}}'")
+        func = getattr(mod, ENTRY)
+
+        inp = _read_input_json()
+
+        out_buf = io.StringIO()
+        with contextlib.redirect_stdout(out_buf):
+            result = _call_function(func, inp)
+
+        printed = out_buf.getvalue().strip()
+
+        if result is not None:
+            if isinstance(result, bool) and OUTPUT_MAP:
+                print(OUTPUT_MAP.get("true_value","True") if result else OUTPUT_MAP.get("false_value","False"))
+            else:
+                print(result)
+        else:
+            if printed:
+                print(printed)
+
+except Exception as e:
+    print(f"[RUNNER ERROR] {{e.__class__.__name__}}: {{e}}", file=sys.stderr)
+    error_occurred = True
+
+sys.exit(1 if error_occurred else 0)
+"""
 
     # ----------------------------
     # C / Java (compile once per submission, run many tests)

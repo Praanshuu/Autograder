@@ -146,3 +146,12 @@ backend/db.sqlite3
 db.sqlite3.backup
 venv/
 .kiro/
+
+# Generated Data
+backend/submissions_data/
+backend/media/
+backend/ai_staging/
+
+# Local System Config
+autograder-daphne.service
+

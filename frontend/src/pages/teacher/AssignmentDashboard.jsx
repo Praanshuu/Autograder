@@ -12,6 +12,7 @@ import {
     ChevronRight,
     Target,
     XCircle,
+    StopCircle,
     Loader2,
     AlertCircle,
     Clock,
@@ -59,7 +60,11 @@ export default function AssignmentDashboard() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [analysisStatus, setAnalysisStatus] = useState({ analyzed: 0, total: 0, percent: 0 });
+    const [analysisStatus, setAnalysisStatus] = useState({
+        status: 'unknown',
+        analyzed: 0, total: 0, percent: 0,
+        completed_batches: 0, total_batches: 0,
+    });
 
     // Analytics Navigation State
     const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -116,16 +121,32 @@ export default function AssignmentDashboard() {
     const handleTriggerAI = async () => {
         try {
             setIsAnalyzing(true);
-            toast.info("Starting AI Analysis...");
-
-            await assignmentService.triggerAIAnalysis(id);
-            toast.success("AI Analysis has been queued.");
-
-            // Start polling (handled by effect)
+            toast.loading("Queuing AI Analysis...", { id: "ai-progress" });
+            const res = await assignmentService.triggerAIAnalysis(id);
+            // 200: successfully started
+            if (res.data?.success) return; // polling effect takes over
         } catch (err) {
+            // 409 Conflict = a run is already in progress; resume polling it
+            if (err.response?.status === 409) {
+                const data = err.response.data;
+                toast.loading(`Resuming existing analysis… Batch ${data.completed_batches ?? 0}/${data.total_batches ?? '?'}`, { id: 'ai-progress' });
+                return; // keep isAnalyzing=true so polling loop starts
+            }
             console.error(err);
             toast.error("Failed to trigger AI Analysis.");
             setIsAnalyzing(false);
+        }
+    };
+
+    // Cancel AI Analysis
+    const handleCancelAI = async () => {
+        try {
+            await assignmentService.cancelAIAnalysis(id);
+            setIsAnalyzing(false);
+            toast.warning("AI Analysis cancelled.", { id: "ai-progress" });
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to cancel analysis.");
         }
     };
 
@@ -152,24 +173,52 @@ export default function AssignmentDashboard() {
         const checkProgress = async () => {
             try {
                 const res = await assignmentService.getAnalysisProgress(id);
-                const { analyzed, total, percent } = res.data;
-                setAnalysisStatus({ analyzed, total, percent });
-                if (total > 0 && percent >= 100) {
+                const data = res.data;
+                setAnalysisStatus(data);
+
+                const { status, completed_batches, total_batches, analyzed, total, percent } = data;
+
+                if (status === 'cancelled' || status === 'failed') {
                     setIsAnalyzing(false);
-                    toast.success(`AI Analysis done! ${analyzed}/${total} submissions analyzed.`, { id: "ai-progress" });
-                    // Refresh submissions
+                    toast.warning(
+                        status === 'failed' ? 'Analysis failed. Check server logs.' : 'Analysis was cancelled.',
+                        { id: 'ai-progress' }
+                    );
+                } else if (status === 'none') {
+                    // No task exists anymore — stop polling
+                    setIsAnalyzing(false);
+                    toast.dismiss('ai-progress');
+                } else if (status === 'completed' || (total_batches > 0 && completed_batches >= total_batches)) {
+                    setIsAnalyzing(false);
+                    toast.success(
+                        `AI Analysis done! ${analyzed} submissions analyzed.`,
+                        { id: 'ai-progress' }
+                    );
+                    // Refresh submissions in-place
                     const subResponse = await submissionService.getAnalyticsSubmissions(id);
-                    const subData = Array.isArray(subResponse.data) ? subResponse.data : (subResponse.data?.results || []);
+                    const subData = Array.isArray(subResponse.data)
+                        ? subResponse.data
+                        : (subResponse.data?.results || []);
                     setSubmissions(subData);
+                } else if (status === 'queuing') {
+                    // Master task hasn't dispatched batches yet
+                    toast.loading('Queuing batches…', { id: 'ai-progress' });
                 } else {
-                    toast.loading(`Analyzing... ${analyzed}/${total} (${percent}%)`, { id: "ai-progress" });
+                    // Running normally
+                    const batchInfo = total_batches > 0
+                        ? ` · Batch ${completed_batches}/${total_batches}`
+                        : '';
+                    toast.loading(
+                        `Analyzing… ${analyzed}/${total} (${percent}%)${batchInfo}`,
+                        { id: 'ai-progress' }
+                    );
                 }
             } catch (e) {
-                console.error("Progress poll failed", e);
+                console.error('Progress poll failed', e);
             }
         };
 
-        checkProgress(); // immediate first check
+        checkProgress();
         const interval = setInterval(checkProgress, 4000);
         return () => clearInterval(interval);
     }, [isAnalyzing, id]);
@@ -382,15 +431,32 @@ export default function AssignmentDashboard() {
                             <p className="text-gray-500 text-sm mt-1">Due {new Date(assignment.due_date).toLocaleDateString()}</p>
                         </div>
                     </div>
-                    {/* Autograder+ Button */}
-                    <Button
-                        onClick={handleTriggerAI}
-                        disabled={isAnalyzing}
-                        className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-lg hover:shadow-xl transition-all"
-                    >
-                        {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                        {isAnalyzing ? "Analyzing..." : "Autograder+"}
-                    </Button>
+                    {/* Autograder+ Button Group */}
+                    <div className="flex items-center gap-2">
+                        <Button
+                            onClick={handleTriggerAI}
+                            disabled={isAnalyzing}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-lg hover:shadow-xl transition-all"
+                        >
+                            {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                            {isAnalyzing
+                                ? (analysisStatus?.total_batches > 0
+                                    ? `Batch ${analysisStatus?.completed_batches}/${analysisStatus?.total_batches}`
+                                    : "Queuing...")
+                                : "Autograder+"}
+                        </Button>
+                        {isAnalyzing && (
+                            <Button
+                                onClick={handleCancelAI}
+                                variant="outline"
+                                size="icon"
+                                className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400"
+                                title="Cancel AI Analysis"
+                            >
+                                <StopCircle className="w-4 h-4" />
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Main Content Tabs */}
@@ -403,11 +469,11 @@ export default function AssignmentDashboard() {
                         <TabsTrigger
                             value="analytics"
                             className="flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                            disabled={analysisStatus.analyzed === 0}
+                            disabled={!analysisStatus?.analyzed}
                         >
                             <BarChart3 className="w-4 h-4" />
                             Analytics & Insights
-                            {analysisStatus.analyzed === 0 && (
+                            {!analysisStatus?.analyzed && (
                                 <span className="ml-2 text-xs text-gray-400">(Run Autograder first)</span>
                             )}
                         </TabsTrigger>
@@ -647,15 +713,15 @@ export default function AssignmentDashboard() {
                                                             <Sparkles className="w-8 h-8 text-indigo-300" />
                                                             <p className="text-sm font-medium text-gray-600">Feedback Word Cloud</p>
                                                             <p className="text-xs text-gray-400">
-                                                                {analysisStatus.analyzed > 0
-                                                                    ? `${analysisStatus.analyzed} submissions analyzed`
+                                                                {analysisStatus?.analyzed > 0
+                                                                    ? `${analysisStatus?.analyzed} submissions analyzed`
                                                                     : 'Run Autograder+ first to generate analysis'}
                                                             </p>
                                                             <Button
                                                                 size="sm"
                                                                 variant="outline"
                                                                 className="mt-2 gap-2"
-                                                                disabled={wordCloudLoading || analysisStatus.analyzed === 0}
+                                                                disabled={wordCloudLoading || !analysisStatus?.analyzed}
                                                                 onClick={handleGenerateWordCloud}
                                                             >
                                                                 {wordCloudLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
