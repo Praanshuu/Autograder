@@ -27,6 +27,7 @@ import AllAssignments from "./pages/teacher/AllAssignments";
 import TeacherCalendar from "./pages/teacher/TeacherCalendar";
 import PracticeQuestionManager from "./pages/teacher/PracticeQuestionManager";
 import ClassSettings from "./pages/teacher/ClassSettings";
+import AIAnalysisTasks from "./pages/admin/AIAnalysisTasks";
 
 // Student Pages
 import StudentDashboard from "./pages/student/StudentDashboard";
@@ -144,6 +145,15 @@ function App() {
             element={
               <ProtectedRoute requiredRole={['teacher', 'ta']}>
                 <PracticeQuestionManager />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/admin/ai-analysis-tasks"
+            element={
+              <ProtectedRoute requiredRole={['admin', 'teacher', 'ta']}>
+                <AIAnalysisTasks />
               </ProtectedRoute>
             }
           />

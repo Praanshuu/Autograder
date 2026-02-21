@@ -1,5 +1,5 @@
 from rest_framework import viewsets, status
-from django.db import models
+from django.db import models, transaction
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -170,20 +170,19 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             assignment_question=aq,
             attempt_number=SubmissionAttempt.objects.filter(student=request.user, assignment_question=aq).count() + 1,
             status='processing',
-            source_code=code, # Save the code
-            detected_keywords=keywords
+            source_code=code,  # Save the code
+            detected_keywords=keywords,
         )
-        
-        # Execute Code (Async)
+
+        # Execute Code (Async) — enqueue only after DB commit so worker sees the attempt
         from .tasks import execute_submission_task
-        
-        # Enqueue task
-        transaction_on_commit = getattr(timezone, 'now', None) # minimal dummy
-        # Better: use django transaction.on_commit if wrapped in atomicty, 
-        # but view is not atomic by default.
-        
-        execute_submission_task.delay(attempt.id, language)
-        
+
+        def _enqueue_task():
+            task = execute_submission_task.delay(attempt.id, language)
+            logger.info(f"Enqueued execute_submission_task for attempt {attempt.id}, task_id={task.id}")
+
+        transaction.on_commit(_enqueue_task)
+
         serializer = self.get_serializer(attempt)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

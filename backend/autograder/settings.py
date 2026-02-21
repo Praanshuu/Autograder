@@ -251,3 +251,6 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+# Run tasks synchronously when broker/worker delivery fails (e.g. submission timeouts).
+# Set CELERY_TASK_ALWAYS_EAGER=1 to enable. Tasks run in-process; no Celery worker needed for submissions.
+CELERY_TASK_ALWAYS_EAGER = config('CELERY_TASK_ALWAYS_EAGER', default=False, cast=bool)

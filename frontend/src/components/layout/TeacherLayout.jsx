@@ -162,6 +162,14 @@ export default function TeacherLayout({ children }) {
                             active={location.pathname === "/teacher/settings"}
                         />
                     </SidebarSection>
+                    <SidebarSection title={user?.role === 'admin' ? 'Admin' : 'Tools'}>
+                        <SidebarItem
+                            icon={Brain}
+                            label="AI analysis tasks"
+                            href="/admin/ai-analysis-tasks"
+                            active={location.pathname === "/admin/ai-analysis-tasks"}
+                        />
+                    </SidebarSection>
                 </div>
 
                 <div className="p-4 border-t border-gray-100">

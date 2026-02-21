@@ -21,13 +21,15 @@ BATCH_SIZE = int(os.environ.get('AI_BATCH_SIZE', '50'))
 def execute_submission_task(attempt_id, language='python'):
     """
     Background task to execute student code.
+    Ensures terminal status updates via robust try/except/finally block.
     """
+    attempt = None
     try:
         attempt = SubmissionAttempt.objects.get(id=attempt_id)
         attempt.status = 'processing'
-        attempt.save()
+        attempt.save(update_fields=['status'])
 
-        logger.info(f"Processing submission attempt {attempt_id} for {attempt.student.username}")
+        logger.info(f"--- [TASK START] Submission {attempt_id} for {attempt.student.username} ---")
 
         aq = attempt.assignment_question
         question = aq.question
@@ -35,7 +37,10 @@ def execute_submission_task(attempt_id, language='python'):
         test_cases = question.test_cases or []
         code = attempt.source_code
 
+        # Log sub-process start
+        logger.info(f"[{attempt_id}] Executing {language} code in sandbox...")
         results = execute_code(code, language, test_cases, config=config)
+        logger.info(f"[{attempt_id}] Sandbox execution finished.")
 
         passed_count = 0
         test_results_data = []
@@ -57,41 +62,44 @@ def execute_submission_task(attempt_id, language='python'):
             )
             test_results_data.append({'status': status_res, 'score': test_result.score})
 
-        attempt.status = 'success' if passed_count == len(results) and len(results) > 0 else 'fail'
-        attempt.save()
+        # Calculate final status
+        if results and passed_count == len(results):
+            attempt.status = 'success'
+        else:
+            attempt.status = 'fail'
 
+        # Optional: AI/Gamification/Artifacts (non-critical, fail gracefully)
         try:
             award_assignment_points(attempt, test_results_data)
         except Exception as e:
-            logger.error(f"Failed to award points for {attempt_id}: {e}", exc_info=True)
+            logger.error(f"[{attempt_id}] Points failed: {e}")
 
         try:
             artifact_path = SubmissionConfigGenerator.save_artifacts(attempt, language)
             attempt.code_blob_ref = artifact_path
-            attempt.save(update_fields=['code_blob_ref'])
         except Exception as e:
-            logger.error(f"Failed to save artifacts for {attempt_id}: {e}", exc_info=True)
+            logger.error(f"[{attempt_id}] Artifacts failed: {e}")
 
         try:
             update_gradebook(attempt.student, aq.assignment)
         except Exception as e:
-            logger.error(f"Failed to update gradebook for {attempt_id}: {e}", exc_info=True)
+            logger.error(f"[{attempt_id}] Gradebook failed: {e}")
 
-        logger.info(f"Completed submission {attempt_id}: {attempt.status}")
         return attempt.status
 
     except SubmissionAttempt.DoesNotExist:
-        logger.error(f"SubmissionAttempt {attempt_id} not found")
+        logger.error(f"SubmissionAttempt {attempt_id} not found in DB")
         return "not_found"
     except Exception as e:
-        logger.error(f"Task failed for {attempt_id}: {e}", exc_info=True)
-        try:
-            attempt = SubmissionAttempt.objects.get(id=attempt_id)
+        logger.error(f"--- [TASK CRASHED] {attempt_id}: {e} ---", exc_info=True)
+        if attempt:
             attempt.status = 'error'
-            attempt.save()
-        except Exception:
-            pass
         return "error"
+    finally:
+        if attempt:
+            # The critical save. Status is now guaranteed to be 'success', 'fail', or 'error'.
+            attempt.save()
+            logger.info(f"--- [TASK END] {attempt_id}: status={attempt.status} ---")
 
 
 @shared_task(bind=True)
@@ -120,6 +128,16 @@ def analyze_assignment_ai_task(self, assignment_id, ai_task_id):
         main_script = str(autograder_plus_root / "main.py")
         venv_python = autograder_plus_root / "newgrade" / "bin" / "python"
         python_bin = str(venv_python) if venv_python.exists() else "python3"
+        # If venv was created on another machine (bad interpreter), fall back to system python
+        import subprocess as _sp
+        try:
+            _sp.run([python_bin, "--version"], capture_output=True, timeout=5, check=True)
+        except (OSError, _sp.TimeoutExpired, _sp.CalledProcessError) as _e:
+            logger.warning(
+                f"Autograder_plus venv python failed ({_e}), using python3. "
+                "Recreate the venv in Autograder_plus with: python3 -m venv newgrade"
+            )
+            python_bin = "python3"
 
         batch_task_ids = []
         total_batches = 0
@@ -183,7 +201,13 @@ def analyze_assignment_ai_task(self, assignment_id, ai_task_id):
         ).count()
         ai_task.save(update_fields=['task_ids', 'total_batches', 'total_submissions'])
 
-        logger.info(f"Master task done: spawned {total_batches} batch tasks for {assignment_id}")
+        # If no batches (no submissions), mark completed immediately
+        if total_batches == 0:
+            ai_task.status = 'completed'
+            ai_task.save(update_fields=['status'])
+            logger.info(f"Master task done: no submissions for {assignment_id}, marked completed.")
+        else:
+            logger.info(f"Master task done: spawned {total_batches} batch tasks for {assignment_id}")
         return f"Spawned {total_batches} batches"
 
     except Exception as e:
@@ -225,10 +249,10 @@ def analyze_batch_task(assignment_id, ai_task_id, attempt_ids, config_data,
         target_ext = ext_map.get(language, '.py')
         target_filename = "Main.java" if language == 'java' else f"main{target_ext}"
 
-        # Set up staging directory
+        # Set up staging directory (ignore permission errors on leftover dirs from other runs)
         if staging_path.exists():
-            shutil.rmtree(staging_path)
-        staging_path.mkdir(parents=True)
+            shutil.rmtree(staging_path, ignore_errors=True)
+        staging_path.mkdir(parents=True, exist_ok=True)
         submissions_dir = staging_path / "submissions"
         submissions_dir.mkdir()
 
@@ -295,11 +319,11 @@ def analyze_batch_task(assignment_id, ai_task_id, attempt_ids, config_data,
                 f"[{staging_path.name}] TIMEOUT — batch exceeded {ai_timeout}s hard limit. "
                 f"Increase AI_TIMEOUT_SECONDS or reduce AI_BATCH_SIZE."
             )
-        except OSError as oom_err:
+        except OSError as os_err:
             logger.error(
-                f"[{staging_path.name}] OOM/OS ERROR — subprocess killed by {_mem_limit_mb} MB "
-                f"virtual memory limit. Error: {oom_err}. "
-                f"Increase AI_MEMORY_LIMIT_MB (currently {_mem_limit_mb} MB) to fix this."
+                f"[{staging_path.name}] Subprocess failed to run. "
+                f"Error: {os_err}. "
+                f"If you see 'bad interpreter', recreate Autograder_plus venv: cd Autograder_plus && python3 -m venv newgrade && newgrade/bin/pip install -r requirements.txt"
             )
 
         saved_count = 0

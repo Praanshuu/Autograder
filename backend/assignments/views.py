@@ -255,68 +255,6 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
 
 
-    @action(detail=True, methods=['get'], url_path='analysis-progress')
-    def analysis_progress(self, request, pk=None):
-        """
-        Returns the current AI analysis progress for this assignment.
-        Pulls from the most recent AIAnalysisTask record for accurate batch counts,
-        and falls back to counting ai_analysis_data on submissions for the analyzed count.
-        """
-        from submissions.models import AIAnalysisTask, SubmissionAttempt
-
-        # Total submissions for this assignment
-        total = SubmissionAttempt.objects.filter(
-            assignment_question__assignment_id=pk
-        ).count()
-
-        # Get the most recent task record (any status)
-        ai_task = AIAnalysisTask.objects.filter(
-            assignment_id=pk
-        ).order_by('-created_at').first()
-
-        if ai_task:
-            # Use the task record's own analyzed counter while running,
-            # fall back to DB count so it's always accurate after completion.
-            if ai_task.status == 'completed':
-                analyzed = SubmissionAttempt.objects.filter(
-                    assignment_question__assignment_id=pk,
-                    ai_analysis_data__isnull=False
-                ).count()
-            else:
-                analyzed = ai_task.analyzed or 0
-
-            percent = round((analyzed / total) * 100) if total > 0 else 0
-
-            # While the master task hasn't set total_batches yet (race window),
-            # return 'queuing' so the frontend shows a sensible message.
-            effective_status = ai_task.status
-            if effective_status in ('pending', 'running') and ai_task.total_batches == 0:
-                effective_status = 'queuing'
-
-            return Response({
-                'status': effective_status,
-                'completed_batches': ai_task.completed_batches,
-                'total_batches': ai_task.total_batches,
-                'analyzed': analyzed,
-                'total': total,
-                'percent': percent,
-                'task_id': str(ai_task.id),
-            })
-
-        # No task record at all — show raw DB count
-        analyzed = SubmissionAttempt.objects.filter(
-            assignment_question__assignment_id=pk,
-            ai_analysis_data__isnull=False
-        ).count()
-        percent = round((analyzed / total) * 100) if total > 0 else 0
-        return Response({
-            'status': 'none',
-            'completed_batches': 0,
-            'total_batches': 0,
-            'analyzed': analyzed,
-            'total': total,
-            'percent': percent,
-        })
 
     @action(detail=True, methods=['get'], url_path='word-cloud')
     def generate_word_cloud(self, request, pk=None):
@@ -458,11 +396,14 @@ class AssignmentViewSet(viewsets.ModelViewSet):
 
         if active_task:
             # Tell the frontend about the existing task so it can resume polling
-            total = assignment.assignmentquestion_set.count()
             return Response({
                 'success': False,
                 'already_running': True,
                 'task_id': str(active_task.id),
+                'completed_batches': active_task.completed_batches,
+                'total_batches': active_task.total_batches,
+                'analyzed': active_task.analyzed,
+                'total': active_task.total_submissions or assignment.assignmentquestion_set.count(),
                 'message': f'An AI analysis is already in progress (status: {active_task.status}). '
                            f'Batch {active_task.completed_batches}/{active_task.total_batches}. '
                            f'Cancel it first before starting a new one.',
@@ -514,6 +455,33 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         ai_task.save(update_fields=['status'])
 
         return Response({'success': True, 'message': 'Analysis cancelled.'})
+
+    @action(detail=False, methods=['get'], url_path='ai-analysis-tasks')
+    def list_ai_analysis_tasks(self, request):
+        """List active (pending/running) AI analysis tasks. Admin: all; teacher/ta: only their assignments."""
+        from submissions.models import AIAnalysisTask
+        tasks_qs = AIAnalysisTask.objects.filter(
+            status__in=['pending', 'running']
+        ).select_related('assignment__module__class_obj')
+        if getattr(request.user, 'role', None) != 'admin':
+            # Teacher/TA: only assignments in classes they own or teach
+            allowed_classes = set()
+            from classes.models import Class
+            owned = Class.objects.filter(owner=request.user).values_list('id', flat=True)
+            allowed_classes.update(owned)
+            taught = Enrollment.objects.filter(user=request.user, role='teacher').values_list('class_obj_id', flat=True)
+            allowed_classes.update(taught)
+            tasks_qs = tasks_qs.filter(assignment__module__class_obj_id__in=allowed_classes)
+        tasks = tasks_qs.order_by('-created_at')
+        data = [{
+            'task_id': str(t.id),
+            'assignment_id': str(t.assignment_id),
+            'assignment_title': t.assignment.title,
+            'status': t.status,
+            'completed_batches': t.completed_batches,
+            'total_batches': t.total_batches,
+        } for t in tasks]
+        return Response(data)
 
     @action(detail=True, methods=['get'], url_path='analysis-progress')
     def analysis_progress(self, request, pk=None):

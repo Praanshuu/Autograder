@@ -29,6 +29,7 @@ export const API_CONFIG = {
     ASSIGNMENTS: {
       LIST: '/assignments/',
       DETAIL: (id) => `/assignments/${id}/`,
+      AI_ANALYSIS_TASKS: '/assignments/ai-analysis-tasks/',
       PUBLISH: (id) => `/assignments/${id}/publish/`,
       CLOSE: (id) => `/assignments/${id}/close/`,
       QUESTIONS: '/assignments/questions/',

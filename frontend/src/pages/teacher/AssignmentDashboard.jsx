@@ -129,7 +129,17 @@ export default function AssignmentDashboard() {
             // 409 Conflict = a run is already in progress; resume polling it
             if (err.response?.status === 409) {
                 const data = err.response.data;
-                toast.loading(`Resuming existing analysis… Batch ${data.completed_batches ?? 0}/${data.total_batches ?? '?'}`, { id: 'ai-progress' });
+                setAnalysisStatus({
+                    status: 'running',
+                    completed_batches: data.completed_batches ?? 0,
+                    total_batches: data.total_batches ?? 0,
+                    analyzed: data.analyzed ?? 0,
+                    total: data.total ?? 0,
+                });
+                const batchInfo = (data.total_batches ?? 0) > 0
+                    ? ` Batch ${data.completed_batches ?? 0}/${data.total_batches}`
+                    : '';
+                toast.loading(`Resuming existing analysis…${batchInfo}`, { id: 'ai-progress' });
                 return; // keep isAnalyzing=true so polling loop starts
             }
             console.error(err);
@@ -184,8 +194,8 @@ export default function AssignmentDashboard() {
                         status === 'failed' ? 'Analysis failed. Check server logs.' : 'Analysis was cancelled.',
                         { id: 'ai-progress' }
                     );
-                } else if (status === 'none') {
-                    // No task exists anymore — stop polling
+                } else if (status === 'none' || status === 'unknown') {
+                    // No task exists — stop polling (backend returns 'unknown' when no AIAnalysisTask)
                     setIsAnalyzing(false);
                     toast.dismiss('ai-progress');
                 } else if (status === 'completed' || (total_batches > 0 && completed_batches >= total_batches)) {
@@ -200,11 +210,11 @@ export default function AssignmentDashboard() {
                         ? subResponse.data
                         : (subResponse.data?.results || []);
                     setSubmissions(subData);
-                } else if (status === 'queuing') {
-                    // Master task hasn't dispatched batches yet
+                } else if (status === 'pending' || status === 'queuing') {
+                    // Master task hasn't populated batches yet (backend uses 'pending')
                     toast.loading('Queuing batches…', { id: 'ai-progress' });
                 } else {
-                    // Running normally
+                    // Running normally (status === 'running')
                     const batchInfo = total_batches > 0
                         ? ` · Batch ${completed_batches}/${total_batches}`
                         : '';

@@ -76,4 +76,9 @@ export const assignmentService = {
   cancelAIAnalysis: async (assignmentId) => {
     return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}cancel-ai/`);
   },
+
+  // Admin: list active AI analysis tasks
+  getAIAnalysisTasks: async () => {
+    return await api.get(API_CONFIG.ENDPOINTS.ASSIGNMENTS.AI_ANALYSIS_TASKS);
+  },
 };

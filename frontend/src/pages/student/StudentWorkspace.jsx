@@ -554,9 +554,12 @@ const StudentWorkspace = () => {
                 const response = await submissionService.getSubmission(attemptId);
                 const attempt = response.data;
 
-                if (attempt.status === 'queued' || attempt.status === 'processing') {
+                // Terminal states that should stop polling
+                const terminalStates = ['success', 'fail', 'error'];
+
+                if (!terminalStates.includes(attempt.status)) {
                     attempts++;
-                    // Continue polling
+                    // Continue polling for all other states (pending, queued, processing, etc.)
                     setTimeout(checkStatus, POLL_INTERVAL);
                 } else {
                     // Completed

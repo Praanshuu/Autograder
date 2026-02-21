@@ -157,11 +157,11 @@ fi
 ok "Daphne watchdog running (PID $DAPHNE_PID) — auto-restarts on crash"
 
 # ─── 8. Start Celery Worker ───────────────────────────────────────────────────
-log "Starting Celery worker (concurrency=2, max-memory=250MB)..."
+log "Starting Celery worker (concurrency=4, max-memory=350MB)..."
 (cd backend && celery -A autograder worker \
     --loglevel=info \
-    --concurrency=2 \
-    --max-memory-per-child=250000 \
+    --concurrency=4 \
+    --max-memory-per-child=350000 \
     --logfile=/tmp/celery.log 2>&1) &
 CELERY_PID=$!
 PIDS+=($CELERY_PID)
