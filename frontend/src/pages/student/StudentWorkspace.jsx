@@ -22,14 +22,8 @@ import { Button } from "../../components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import { motion, AnimatePresence } from "framer-motion";
 
-// --- PRO DEPENDENCIES ---
-import Editor from 'react-simple-code-editor';
-import { highlight, languages } from 'prismjs/components/prism-core';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/themes/prism-tomorrow.css'; // Dark theme for code
+// --- MONACO EDITOR ---
+import MonacoEditor from '@monaco-editor/react';
 import { Separator } from "../../components/ui/separator";
 import ReactMarkdown from 'react-markdown';
 // import { Panel, Group } from "react-resizable-panels"; // Pro feature disabled for now
@@ -63,6 +57,15 @@ const StudentWorkspace = () => {
     const [isCompleted, setIsCompleted] = useState(false); // Track completion status
     const [isReadOnly, setIsReadOnly] = useState(false); // Locked mode after finish
 
+    // --- Anti-Cheat State ---
+    const [warnings, setWarnings] = useState(0);
+    const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+    const [warningModal, setWarningModal] = useState(null); // { message, isFinal }
+    const MAX_WARNINGS = 3;
+    // Ref-based lock: prevents re-entrant cheat detection (alert() itself triggers blur/visibilitychange)
+    const isCheatHandlingRef = useRef(false);
+    const warningsRef = useRef(0); // Mirror of warnings state, readable inside event handlers
+
     // Timer state
     const [timeSpent, setTimeSpent] = useState(0); // in seconds (for backend tracking)
     const [timeRemaining, setTimeRemaining] = useState(0); // countdown timer in seconds
@@ -79,21 +82,34 @@ const StudentWorkspace = () => {
             extension: "py",
             defaultCode: "",
             icon: "🐍",
-            prismLang: languages.python
+            monacoLang: "python"
         },
         java: {
             name: "Java",
             extension: "java",
             defaultCode: "",
             icon: "☕",
-            prismLang: languages.java
+            monacoLang: "java"
         },
         c: {
             name: "C",
             extension: "c",
             defaultCode: "",
             icon: "🔧",
-            prismLang: languages.c
+            monacoLang: "c"
+        }
+    };
+
+    // Monaco editor ref for disabling copy/paste actions
+    const monacoEditorRef = useRef(null);
+
+    const handleMonacoMount = (editor, monaco) => {
+        monacoEditorRef.current = editor;
+        if (!isReadOnly) {
+            // Disable copy and paste commands
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
+            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
         }
     };
 
@@ -246,6 +262,87 @@ const StudentWorkspace = () => {
 
         return () => clearInterval(autoSaveInterval);
     }, [assignment, timeSpent, isReadOnly]);
+
+    // --- Anti-Cheat Tracking (Tab/Window Switches & Fullscreen) ---
+    useEffect(() => {
+        if (isReadOnly || loading || !assignment) return;
+
+        // 1. Fullscreen monitoring
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+        // 2. Tab/Window Switch monitoring
+        const handleVisibilityChange = () => {
+            if (document.hidden && document.fullscreenElement !== null) {
+                handleCheatDetected("You switched tabs or windows!");
+            }
+        };
+
+        // 3. Window blur monitoring (do NOT also handle visibilitychange to avoid double-counting)
+        const handleWindowBlur = () => {
+            // Only fire if fullscreen is active AND page is still visible (pure window-blur, not tab switch)
+            if (document.fullscreenElement !== null && !document.hidden) {
+                handleCheatDetected("Focus lost from the exam window!");
+            }
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("blur", handleWindowBlur);
+
+        return () => {
+            document.removeEventListener("fullscreenchange", handleFullscreenChange);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            window.removeEventListener("blur", handleWindowBlur);
+        };
+        // NOTE: 'warnings' intentionally NOT in deps — we use warningsRef to read current count
+        // inside the handler without re-registering listeners on every warning increment.
+    }, [isReadOnly, loading, assignment]);
+
+    const handleCheatDetected = (reason) => {
+        // Guard against re-entrant calls (native alert() triggers blur/visibilitychange itself)
+        if (isCheatHandlingRef.current) return;
+        isCheatHandlingRef.current = true;
+
+        warningsRef.current += 1;
+        const newWarnings = warningsRef.current;
+        setWarnings(newWarnings); // Keep UI state in sync
+
+        if (newWarnings >= MAX_WARNINGS) {
+            // Immediately disable further detection before showing modal
+            setIsReadOnly(true);
+            setWarningModal({
+                message: reason,
+                count: newWarnings,
+                isFinal: true,
+            });
+            // Auto-submit is triggered when the user dismisses the modal (onClose)
+        } else {
+            setWarningModal({
+                message: reason,
+                count: newWarnings,
+                isFinal: false,
+            });
+        }
+        // Release lock after a short delay to allow React to re-render the modal
+        // before any further events could arrive
+        setTimeout(() => { isCheatHandlingRef.current = false; }, 1000);
+    };
+
+    const enterFullscreen = () => {
+        const docElm = document.documentElement;
+        const requestFS = docElm.requestFullscreen || docElm.mozRequestFullScreen || docElm.webkitRequestFullScreen || docElm.msRequestFullscreen;
+
+        if (requestFS) {
+            requestFS.call(docElm).catch(err => {
+                console.error("Fullscreen request failed", err);
+                alert("Could not automatically enter fullscreen. please ensure your browser allows it.");
+            });
+        } else {
+            alert("Your browser does not support fullscreen functionality.");
+        }
+    };
 
     // Timer functions
     const startTimer = async () => {
@@ -457,7 +554,7 @@ const StudentWorkspace = () => {
                     status: r.passed ? 'success' : 'error', // Individual test status
                     output: r.actual_output || '',
                     expected: r.expected_output || '',
-                    error: r.error || '',
+                    error: r.error || r.error_message || '',
                     input: r.test_case?.input || testCases[index]?.input || '',
                     showOutputOnly: r.show_output_only || false,
                     testPassed: r.passed
@@ -538,8 +635,8 @@ const StudentWorkspace = () => {
 
     // Polling Logic for Async Submissions
     const pollSubmission = (attemptId) => {
-        const POLL_INTERVAL = 2000; // 2s
-        const MAX_ATTEMPTS = 60; // 2 minutes max wait
+        const POLL_INTERVAL = 1000; // 1s — faster feedback
+        const MAX_ATTEMPTS = 120; // 2 minutes max wait
 
         let attempts = 0;
 
@@ -547,7 +644,7 @@ const StudentWorkspace = () => {
             try {
                 if (attempts >= MAX_ATTEMPTS) {
                     setIsSubmitting(false);
-                    alert("Submission timed out. Please check your dashboard later.");
+                    setWarningModal({ message: "Submission is taking too long. Please check your dashboard later.", count: 0, isFinal: false });
                     return;
                 }
 
@@ -567,18 +664,15 @@ const StudentWorkspace = () => {
                     processSubmissionResult(attempt);
 
                     if (attempt.status === 'success') {
-                        alert("Submission Successful! All test cases passed.");
                         setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-                    } else if (attempt.status === 'fail') {
-                        alert("Submission Completed: Some test cases failed.");
-                    } else { // error
-                        alert("Submission Error: " + (attempt.error_message || "Execution error"));
+                        setShowConfetti(true); // 
                     }
+                    // fail/error details are already shown in the output panel
                 }
             } catch (err) {
                 console.error("Polling error:", err);
                 setIsSubmitting(false);
-                alert("Failed to check submission status.");
+                // Don't alert — just log; student sees nothing changed in the output panel
             }
         };
 
@@ -705,7 +799,70 @@ const StudentWorkspace = () => {
 
     return (
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
-            {/* Completed Banner */}
+
+            {/* Anti-Cheat Fullscreen Blocking Overlay */}
+            {!isReadOnly && !loading && !error && assignment && !isFullscreen && (
+                <div className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full border-t-4 border-indigo-600">
+                        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Settings className="w-8 h-8 text-indigo-600 animate-spin-slow" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2">Strict Mode Active</h2>
+                        <div className="text-gray-600 text-sm mb-6 space-y-2">
+                            <p>This assignment runs in a restricted environment.</p>
+                            <ul className="text-left bg-gray-50 p-3 rounded-lg border border-gray-100 space-y-1 text-xs">
+                                <li>• You must remain in Fullscreen mode.</li>
+                                <li>• Switching tabs or windows is recorded.</li>
+                                <li>• 3 warnings will result in auto-submission.</li>
+                                <li>• Copying/pasting is disabled.</li>
+                            </ul>
+                        </div>
+                        <Button
+                            onClick={enterFullscreen}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 h-auto"
+                        >
+                            Enter Fullscreen to Start
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Anti-Cheat Warning Modal — replaces alert() to avoid focus-loss cascade */}
+            {warningModal && (
+                <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+                    <div className={`bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full border-t-4 ${warningModal.isFinal ? 'border-red-600' : 'border-amber-500'}`}>
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${warningModal.isFinal ? 'bg-red-100' : 'bg-amber-100'}`}>
+                            <span className="text-2xl">{warningModal.isFinal ? '🚨' : '⚠️'}</span>
+                        </div>
+                        <h3 className={`text-lg font-bold text-center mb-2 ${warningModal.isFinal ? 'text-red-700' : 'text-amber-700'}`}>
+                            {warningModal.isFinal ? 'Maximum Warnings Reached' : `Warning ${warningModal.count}/${MAX_WARNINGS}`}
+                        </h3>
+                        <p className="text-gray-700 text-sm text-center mb-2">{warningModal.message}</p>
+                        {warningModal.isFinal ? (
+                            <p className="text-red-600 text-sm text-center font-medium mb-4">
+                                Your assignment is being automatically submitted.
+                            </p>
+                        ) : (
+                            <p className="text-gray-500 text-xs text-center mb-4">
+                                {MAX_WARNINGS - warningModal.count} more warning(s) will trigger auto-submission.
+                            </p>
+                        )}
+                        <button
+                            className={`w-full py-2 rounded-lg font-semibold text-white transition-colors ${warningModal.isFinal ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-500 hover:bg-amber-600'}`}
+                            onClick={() => {
+                                const wasFinal = warningModal.isFinal;
+                                setWarningModal(null);
+                                if (wasFinal) {
+                                    handleTimeUp(); // Trigger auto-submit AFTER modal is closed
+                                }
+                            }}
+                        >
+                            {warningModal.isFinal ? 'Acknowledged — Submit Now' : 'I Understand, Return to Exam'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Completed Banner */}
             {isReadOnly && (
                 <div className="bg-amber-100 border-b border-amber-200 px-4 py-2 text-amber-800 text-sm font-medium flex items-center justify-center gap-2">
@@ -860,12 +1017,12 @@ const StudentWorkspace = () => {
                 <div className="w-[35%] min-w-[300px] max-w-[600px] bg-white border-r border-gray-200 flex flex-col h-full">
                     <div className="flex-1 overflow-y-auto p-6">
                         <div className="mb-6">
-                            <h2 className="text-xl font-bold text-gray-900 mb-2">
+                            <h2 className="text-xl font-bold text-gray-900 mb-2 select-none">
                                 {currentQuestionIndex + 1}. {currentQuestion.title}
                             </h2>
                             <Separator className="my-4" />
 
-                            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
+                            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap select-none">
                                 <ReactMarkdown>
                                     {currentQuestion.description || assignment.description}
                                 </ReactMarkdown>
@@ -943,24 +1100,37 @@ const StudentWorkspace = () => {
                             </span>
                         </div>
 
-                        <div className="flex-1 relative overflow-hidden bg-[#2d2d2d]">
-                            <div className="h-full w-full overflow-auto">
-                                <Editor
-                                    value={code}
-                                    onValueChange={code => setCode(code)}
-                                    highlight={code => highlight(code, languageConfig[selectedLanguage].prismLang)}
-                                    padding={20}
-                                    disabled={isReadOnly}
-                                    style={{
-                                        fontFamily: '"Fira Code", "Fira Mono", monospace',
-                                        fontSize: 14,
-                                        backgroundColor: isReadOnly ? '#1e1e1e' : '#2d2d2d',
-                                        color: isReadOnly ? '#aaa' : '#f8f8f2',
-                                        minHeight: '100%'
-                                    }}
-                                    className="min-h-full"
-                                />
-                            </div>
+                        <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+                            <MonacoEditor
+                                height="100%"
+                                language={languageConfig[selectedLanguage].monacoLang}
+                                value={code}
+                                theme="vs-dark"
+                                onChange={(value) => setCode(value || '')}
+                                onMount={handleMonacoMount}
+                                options={{
+                                    fontSize: 14,
+                                    fontFamily: '"Fira Code", "Fira Mono", monospace',
+                                    fontLigatures: true,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    readOnly: isReadOnly,
+                                    automaticLayout: true,
+                                    tabSize: 4,
+                                    insertSpaces: true,
+                                    autoIndent: 'full',
+                                    formatOnType: true,
+                                    bracketPairColorization: { enabled: true },
+                                    autoClosingBrackets: 'always',
+                                    autoClosingQuotes: 'always',
+                                    lineNumbers: 'on',
+                                    renderLineHighlight: 'all',
+                                    scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                                    padding: { top: 12, bottom: 12 },
+                                    contextmenu: false, // disable right-click copy/paste menu
+                                }}
+                            />
                         </div>
                     </div>
 

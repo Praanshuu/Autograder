@@ -216,7 +216,7 @@ def _execute_python_with_output(analyzer, code_path, test_cases, config=None):
                  
                  status = res.get('status')
                  actual = res.get('actual', '')
-                 err_msg = res.get('error', '')
+                 err_msg = res.get('error_message', res.get('error', ''))
                  duration = res.get('duration', res.get('execution_time', 0))
                  
                  if status == 'run_success':

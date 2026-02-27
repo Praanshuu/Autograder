@@ -48,6 +48,23 @@ class QuestionSerializer(serializers.ModelSerializer):
         
         return value
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if not ret.get('starter_code'):
+            config = instance.config or {}
+            entry_point = config.get('entry_point')
+            if entry_point:
+                ret['starter_code'] = (
+                    f"# Write your solution below\n"
+                    f"# The function '{entry_point}' will be called with the test case inputs.\n"
+                    f"def {entry_point}():\n"
+                    f"    pass\n"
+                )
+            else:
+                ret['starter_code'] = "# Write your solution below\n"
+        return ret
+
+
 
 class AssignmentQuestionSerializer(serializers.ModelSerializer):
     question = QuestionSerializer(read_only=True)
@@ -108,9 +125,10 @@ class StreamAssignmentSerializer(serializers.ModelSerializer):
     Lightweight serializer for stream/list view.
     Excludes questions and heavy computed fields.
     """
-    class_id = serializers.UUIDField(source='module.class_obj.id', read_only=True)
+    class_id = serializers.UUIDField(source='module.class_obj.id', read_only=True, allow_null=True)
+    class_name = serializers.CharField(source='module.class_obj.name', read_only=True, allow_null=True)
     comments_count = serializers.IntegerField(read_only=True)
     
     class Meta:
         model = Assignment
-        fields = ['id', 'title', 'description', 'due_date', 'points_total', 'created_at', 'class_id', 'is_published', 'comments_count']
+        fields = ['id', 'title', 'description', 'due_date', 'points_total', 'created_at', 'class_id', 'class_name', 'is_published', 'comments_count']

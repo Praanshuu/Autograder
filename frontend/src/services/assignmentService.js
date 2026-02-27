@@ -58,8 +58,8 @@ export const assignmentService = {
   },
 
   // Trigger AI Analysis for Assignment
-  triggerAIAnalysis: async (assignmentId) => {
-    return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analyze-ai/`);
+  triggerAIAnalysis: async (assignmentId, force = false) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analyze-ai/`, { force });
   },
 
   // Get Word Cloud Image

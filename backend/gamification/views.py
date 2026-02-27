@@ -164,13 +164,15 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                 execution_time = result.get('execution_time', 0)
                 total_execution_time += execution_time
                 
+                err_msg = result.get('error_message', '')
                 formatted_results.append({
                     'test_case_id': i,
                     'input': test_case.get('input', ''),
                     'expected_output': test_case.get('expected_output', ''),
                     'actual_output': result.get('console_output', ''),
                     'status': result_status,
-                    'error_message': result.get('error_message', ''),
+                    'error_message': err_msg,
+                    'error': err_msg,
                     'execution_time_ms': execution_time,
                     'passed': result_status == 'pass'
                 })
@@ -312,13 +314,15 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                 if result_status != 'pass':
                     all_passed = False
                 
+                err_msg = result.get('error_message', '')
                 formatted_results.append({
                     'test_case_id': i,
                     'input': test_case.get('input', ''),
                     'expected_output': test_case.get('expected_output', ''),
                     'actual_output': result.get('console_output', ''),
                     'status': result_status,
-                    'error_message': result.get('error_message', ''),
+                    'error_message': err_msg,
+                    'error': err_msg,
                     'execution_time_ms': result.get('execution_time', 0),
                     'passed': result_status == 'pass'
                 })

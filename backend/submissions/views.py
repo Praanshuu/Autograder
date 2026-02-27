@@ -222,11 +222,13 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             
             formatted_results = []
             for r in results:
+                err = r.get('error_message') if r.get('status') != 'pass' else None
                 formatted_results.append({
                     'actual_output': r.get('console_output'),
                     'expected_output': r.get('test_case', {}).get('expected_output') if isinstance(r.get('test_case'), dict) else '',
                     'passed': r.get('status') == 'pass',
-                    'error': r.get('error_message') if r.get('status') in ['error', 'timeout'] else None,
+                    'error': err,
+                    'error_message': err,
                     'status': r.get('status'),
                     'test_case': r.get('test_case')
                 })

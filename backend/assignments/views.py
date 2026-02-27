@@ -390,24 +390,37 @@ class AssignmentViewSet(viewsets.ModelViewSet):
         # Removed global guard to allow concurrent AI analyses and rely on Celery for queue management.
 
         # Block duplicate runs FOR THIS ASSIGNMENT — reject if already pending or running
+        # unless 'force=true' is passed OR the task is clearly stale.
+        force_restart = str(request.data.get('force', '')).lower() == 'true'
+        from django.utils import timezone
+        from datetime import timedelta
+
         active_task = AIAnalysisTask.objects.filter(
             assignment=assignment, status__in=['pending', 'running']
         ).order_by('-created_at').first()
 
         if active_task:
-            # Tell the frontend about the existing task so it can resume polling
-            return Response({
-                'success': False,
-                'already_running': True,
-                'task_id': str(active_task.id),
-                'completed_batches': active_task.completed_batches,
-                'total_batches': active_task.total_batches,
-                'analyzed': active_task.analyzed,
-                'total': active_task.total_submissions or assignment.assignmentquestion_set.count(),
-                'message': f'An AI analysis is already in progress (status: {active_task.status}). '
-                           f'Batch {active_task.completed_batches}/{active_task.total_batches}. '
-                           f'Cancel it first before starting a new one.',
-            }, status=status.HTTP_409_CONFLICT)
+            is_stale = (timezone.now() - active_task.created_at) > timedelta(minutes=30)
+            
+            if force_restart or (is_stale and active_task.status == 'pending'):
+                logger.info(f"Overriding {'stale ' if is_stale else ''}AI task {active_task.id} for assignment {pk}")
+                active_task.status = 'cancelled'
+                active_task.save(update_fields=['status'])
+                active_task = None # Allow creation of new task below
+            else:
+                # Tell the frontend about the existing task so it can resume polling
+                return Response({
+                    'success': False,
+                    'already_running': True,
+                    'task_id': str(active_task.id),
+                    'completed_batches': active_task.completed_batches,
+                    'total_batches': active_task.total_batches,
+                    'analyzed': active_task.analyzed,
+                    'total': active_task.total_submissions or assignment.assignmentquestion_set.count(),
+                    'message': f'An AI analysis is already in progress (status: {active_task.status}). '
+                               f'Batch {active_task.completed_batches}/{active_task.total_batches}. '
+                               f'Cancel it first before starting a new one.',
+                }, status=status.HTTP_409_CONFLICT)
 
         # Create a tracking record first (so progress endpoint works immediately)
         ai_task = AIAnalysisTask.objects.create(

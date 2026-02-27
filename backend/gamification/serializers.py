@@ -105,6 +105,23 @@ class PracticeQuestionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 
+    def to_representation(self, instance):
+        ret = super().to_representation(instance)
+        if not ret.get('starter_code'):
+            config = instance.config or {}
+            entry_point = config.get('entry_point')
+            if entry_point:
+                ret['starter_code'] = (
+                    f"# Write your solution below\n"
+                    f"# The function '{entry_point}' will be called with the test case inputs.\n"
+                    f"def {entry_point}():\n"
+                    f"    pass\n"
+                )
+            else:
+                ret['starter_code'] = "# Write your solution below\n"
+        return ret
+
+
 
 class PracticeQuestionLibrarySerializer(serializers.ModelSerializer):
     """Serializer for practice question library entries"""

@@ -69,6 +69,11 @@ export const classService = {
     return await api.post(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}add-member/`, data);
   },
 
+  // Remove member from class
+  removeMember: async (classId, userId) => {
+    return await api.delete(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}remove-member/`, { data: { user_id: userId } });
+  },
+
   // Get student topic grades
   getStudentTopicGrades: async (classId, studentId) => {
     return await api.get(`${API_CONFIG.ENDPOINTS.CLASSES.DETAIL(classId)}student-topic-grades/?student_id=${studentId}`);

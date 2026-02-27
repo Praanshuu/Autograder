@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from django.conf import settings
 
 class ConfigGenerator:
     """
@@ -62,5 +64,21 @@ class ConfigGenerator:
         # Write to file
         with open(config_path, 'w') as f:
             json.dump(data, f, indent=4)
+            
+        # Write starter code boilerplate if none exists
+        if not question.starter_code:
+            if data['execution_mode']['type'] == 'function':
+                # Create a boilerplate python function based on the entry_point name
+                boilerplate = (
+                    f"# Write your solution below\n"
+                    f"# The function '{entry_point}' will be called with the test case inputs.\n"
+                    f"def {entry_point}():\n"
+                    f"    pass\n"
+                )
+            else:
+                boilerplate = "# Write your solution below\n"
+            
+            question.starter_code = boilerplate
+            question.save(update_fields=['starter_code'])
             
         return str(config_path)

@@ -118,11 +118,13 @@ export default function AssignmentDashboard() {
 
 
     // AI Analysis Handler
-    const handleTriggerAI = async () => {
+    const handleTriggerAI = async (forceParam = false) => {
+        // Ensure force is a boolean (prevents React event objects from being passed via onClick)
+        const force = forceParam === true;
         try {
             setIsAnalyzing(true);
-            toast.loading("Queuing AI Analysis...", { id: "ai-progress" });
-            const res = await assignmentService.triggerAIAnalysis(id);
+            toast.loading(force ? "Force Restarting AI Analysis..." : "Queuing AI Analysis...", { id: "ai-progress" });
+            const res = await assignmentService.triggerAIAnalysis(id, force);
             // 200: successfully started
             if (res.data?.success) return; // polling effect takes over
         } catch (err) {
@@ -139,11 +141,19 @@ export default function AssignmentDashboard() {
                 const batchInfo = (data.total_batches ?? 0) > 0
                     ? ` Batch ${data.completed_batches ?? 0}/${data.total_batches}`
                     : '';
-                toast.loading(`Resuming existing analysis…${batchInfo}`, { id: 'ai-progress' });
-                return; // keep isAnalyzing=true so polling loop starts
+
+                toast.error(`An AI analysis is already running.${batchInfo}`, {
+                    id: 'ai-progress',
+                    action: {
+                        label: "Force Restart",
+                        onClick: () => handleTriggerAI(true)
+                    },
+                    duration: 5000
+                });
+                return;
             }
             console.error(err);
-            toast.error("Failed to trigger AI Analysis.");
+            toast.error("Failed to trigger AI Analysis.", { id: 'ai-progress' });
             setIsAnalyzing(false);
         }
     };

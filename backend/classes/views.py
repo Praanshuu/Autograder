@@ -292,6 +292,37 @@ class ClassViewSet(viewsets.ModelViewSet):
         
         return Response({'success': True, 'message': f'Added {user_to_add.email} as {role}'})
 
+    @action(detail=True, methods=['delete'], url_path='remove-member')
+    def remove_member(self, request, pk=None):
+        """Remove a member from the class"""
+        class_obj = self.get_object()
+
+        # Only owner or teacher can remove members
+        is_owner = class_obj.owner == request.user
+        is_teacher = Enrollment.objects.filter(class_obj=class_obj, user=request.user, role='teacher').exists()
+
+        if not (is_owner or is_teacher):
+            return Response({'message': 'Not authorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        user_id = request.data.get('user_id')
+        if not user_id:
+            return Response({'message': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Cannot remove the class owner
+        if class_obj.owner_id == int(user_id):
+            return Response({'message': 'Cannot remove the class owner'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Cannot remove yourself
+        if request.user.id == int(user_id):
+            return Response({'message': 'You cannot remove yourself from the class'}, status=status.HTTP_400_BAD_REQUEST)
+
+        deleted_count, _ = Enrollment.objects.filter(class_obj=class_obj, user_id=user_id).delete()
+
+        if deleted_count == 0:
+            return Response({'message': 'Member not found in this class'}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({'success': True, 'message': 'Member removed from class'})
+
     @action(detail=True, methods=['get'])
     def grades(self, request, pk=None):
         """Get gradebook data (Assignments x Students)"""

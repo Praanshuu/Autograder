@@ -25,6 +25,8 @@ export default function PeopleTab({ classId }) {
     const [loading, setLoading] = useState(true);
     const [inviteLoading, setInviteLoading] = useState(false);
     const [inviteOpen, setInviteOpen] = useState(false);
+    const [removeTarget, setRemoveTarget] = useState(null); // member to confirm-remove
+    const [removeLoading, setRemoveLoading] = useState(false);
 
     const loadClassMembers = async () => {
         if (!classId) return;
@@ -91,6 +93,25 @@ export default function PeopleTab({ classId }) {
         setInviteOpen(true);
     };
 
+    const handleRemove = async () => {
+        if (!removeTarget) return;
+        try {
+            setRemoveLoading(true);
+            const response = await classService.removeMember(classId, removeTarget.id);
+            if (response.success) {
+                setRemoveTarget(null);
+                await loadClassMembers();
+            } else {
+                alert(response.message || "Failed to remove member");
+            }
+        } catch (error) {
+            console.error('Remove failed:', error);
+            alert("Failed to remove member.");
+        } finally {
+            setRemoveLoading(false);
+        }
+    };
+
     const renderMemberRow = (member) => {
         const isCurrentUser = user && member.id === user.id;
 
@@ -124,8 +145,7 @@ export default function PeopleTab({ classId }) {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    {!isCurrentUser && (
+<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">                    {!isCurrentUser && (
                         <>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50">
                                 <Mail className="w-4 h-4" />
@@ -137,7 +157,10 @@ export default function PeopleTab({ classId }) {
                                     </Button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end">
-                                    <DropdownMenuItem className="text-red-600 focus:text-red-600 focus:bg-red-50 gap-2">
+                                    <DropdownMenuItem
+                                        className="text-red-600 focus:text-red-600 focus:bg-red-50 gap-2"
+                                        onSelect={(e) => { e.preventDefault(); setTimeout(() => setRemoveTarget(member), 0); }}
+                                    >
                                         <Trash2 className="w-4 h-4" />
                                         Remove from class
                                     </DropdownMenuItem>
@@ -174,6 +197,26 @@ export default function PeopleTab({ classId }) {
                                 {inviteLoading ? "Sending Invite..." : "Send Invitation"}
                             </Button>
                         </div>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Remove Confirmation Dialog */}
+            <Dialog open={!!removeTarget} onOpenChange={(open) => { if (!open) setRemoveTarget(null); }}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Remove from class?</DialogTitle>
+                        <DialogDescription>
+                            <strong>{removeTarget?.name}</strong> will lose access to this class immediately. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex justify-end gap-3 pt-2">
+                        <Button variant="outline" onClick={() => setRemoveTarget(null)} disabled={removeLoading}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={handleRemove} disabled={removeLoading}>
+                            {removeLoading ? "Removing..." : "Remove"}
+                        </Button>
                     </div>
                 </DialogContent>
             </Dialog>

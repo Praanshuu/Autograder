@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
     ChevronLeft,
@@ -23,14 +23,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Separator } from "../../ui/separator";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Code Editor
-import Editor from 'react-simple-code-editor';
-import { highlight, languages } from 'prismjs/components/prism-core';
-import 'prismjs/components/prism-clike';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-java';
-import 'prismjs/components/prism-c';
-import 'prismjs/themes/prism-tomorrow.css';
+// Monaco Editor
+import MonacoEditor from '@monaco-editor/react';
 
 // Services
 import { practiceService } from "../../../services/practiceService";
@@ -66,6 +60,14 @@ const PracticeWorkspace = () => {
     const [showSuccess, setShowSuccess] = useState(false);
     const [pointsEarned, setPointsEarned] = useState(0);
 
+    // --- Anti-Cheat State ---
+    const [warnings, setWarnings] = useState(0);
+    const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+    const [warningModal, setWarningModal] = useState(null);
+    const MAX_WARNINGS = 3;
+    const isCheatHandlingRef = useRef(false);
+    const warningsRef = useRef(0);
+
     // Language configuration - Limited to 3 languages supported by dynamic analyzer
     const languageConfig = {
         python: {
@@ -73,21 +75,21 @@ const PracticeWorkspace = () => {
             extension: "py",
             defaultCode: "# Write your solution here\n",
             icon: "🐍",
-            prismLang: languages.python
+            monacoLang: "python"
         },
         java: {
             name: "Java",
             extension: "java",
             defaultCode: "// Write your solution here\n",
             icon: "☕",
-            prismLang: languages.java
+            monacoLang: "java"
         },
         c: {
             name: "C",
             extension: "c",
             defaultCode: "// Write your solution here\n",
             icon: "🔧",
-            prismLang: languages.c
+            monacoLang: "c"
         }
     };
 
@@ -141,6 +143,69 @@ const PracticeWorkspace = () => {
         }
     }, [question, progress, questionId]);
 
+    // --- Anti-Cheat Tracking ---
+    useEffect(() => {
+        const isCompleted = progress?.is_completed;
+        if (isCompleted || loading || !question) return;
+
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener("fullscreenchange", handleFullscreenChange);
+
+        const handleVisibilityChange = () => {
+            if (document.hidden && document.fullscreenElement !== null) {
+                handleCheatDetected("You switched tabs or windows!");
+            }
+        };
+
+        const handleWindowBlur = () => {
+            if (document.fullscreenElement !== null && !document.hidden) {
+                handleCheatDetected("Focus lost from the practice window!");
+            }
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("blur", handleWindowBlur);
+
+        return () => {
+            document.removeEventListener("fullscreenchange", handleFullscreenChange);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            window.removeEventListener("blur", handleWindowBlur);
+        };
+        // 'warnings' intentionally omitted — warningsRef used instead to avoid re-registering listeners
+    }, [progress?.is_completed, loading, question]);
+
+    const handleCheatDetected = (reason) => {
+        if (isCheatHandlingRef.current) return;
+        isCheatHandlingRef.current = true;
+
+        warningsRef.current += 1;
+        const newWarnings = warningsRef.current;
+        setWarnings(newWarnings);
+
+        if (newWarnings >= MAX_WARNINGS) {
+            setWarningModal({ message: reason, count: newWarnings, isFinal: true });
+        } else {
+            setWarningModal({ message: reason, count: newWarnings, isFinal: false });
+        }
+        setTimeout(() => { isCheatHandlingRef.current = false; }, 1000);
+    };
+
+    const enterFullscreen = () => {
+        const docElm = document.documentElement;
+        const requestFS = docElm.requestFullscreen || docElm.mozRequestFullScreen || docElm.webkitRequestFullScreen || docElm.msRequestFullscreen;
+
+        if (requestFS) {
+            requestFS.call(docElm).catch(err => {
+                console.error("Fullscreen request failed", err);
+                alert("Could not automatically enter fullscreen. please ensure your browser allows it.");
+            });
+        } else {
+            alert("Your browser does not support fullscreen functionality.");
+        }
+    };
+
     const handleLanguageChange = (newLanguage) => {
         setSelectedLanguage(newLanguage);
 
@@ -179,7 +244,7 @@ const PracticeWorkspace = () => {
                     status: r.error ? 'error' : 'success',
                     output: r.actual_output || '',
                     expected: r.expected_output || '',
-                    error: r.error || '',
+                    error: r.error || r.error_message || '',
                     input: r.test_case?.input || question.test_cases[index]?.input || '',
                     testPassed: r.passed
                 }))
@@ -212,13 +277,14 @@ const PracticeWorkspace = () => {
 
             const submissionData = response.data;
 
-            // Process submission result
-            const formattedResults = submissionData.test_results.map((r, idx) => ({
+            // Process submission result — API may return test_results or results
+            const rawResults = submissionData.test_results || submissionData.results || [];
+            const formattedResults = rawResults.map((r, idx) => ({
                 id: idx,
                 status: r.status === 'pass' ? 'success' : 'error',
                 output: r.actual_output || '',
                 expected: question.test_cases[idx]?.expected_output || '',
-                error: r.error_message || '',
+                error: r.error || r.error_message || '',
                 input: question.test_cases[idx]?.input || '',
                 testPassed: r.status === 'pass'
             }));
@@ -303,6 +369,64 @@ const PracticeWorkspace = () => {
 
     return (
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
+
+            {/* Anti-Cheat Fullscreen Blocking Overlay */}
+            {!isCompleted && !loading && !error && question && !isFullscreen && (
+                <div className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
+                    <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full border-t-4 border-indigo-600">
+                        <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <Target className="w-8 h-8 text-indigo-600 animate-pulse" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-gray-900 mb-2">Practice Focus Mode</h2>
+                        <div className="text-gray-600 text-sm mb-6 space-y-2">
+                            <p>This practice session runs in a focused environment.</p>
+                            <ul className="text-left bg-gray-50 p-3 rounded-lg border border-gray-100 space-y-1 text-xs">
+                                <li>• You must remain in Fullscreen mode.</li>
+                                <li>• Switching tabs or windows is recorded.</li>
+                                <li>• 3 warnings will result in auto-submission & exit.</li>
+                                <li>• Copying/pasting is disabled to encourage typing out logic.</li>
+                            </ul>
+                        </div>
+                        <Button
+                            onClick={enterFullscreen}
+                            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 h-auto"
+                        >
+                            Enter Fullscreen to Start
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Anti-Cheat Warning Modal */}
+            {warningModal && (
+                <div className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4">
+                    <div className={`bg-white rounded-xl shadow-2xl p-6 max-w-sm w-full border-t-4 ${warningModal.isFinal ? 'border-red-600' : 'border-amber-500'}`}>
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4 ${warningModal.isFinal ? 'bg-red-100' : 'bg-amber-100'}`}>
+                            <span className="text-2xl">{warningModal.isFinal ? '🚨' : '⚠️'}</span>
+                        </div>
+                        <h3 className={`text-lg font-bold text-center mb-2 ${warningModal.isFinal ? 'text-red-700' : 'text-amber-700'}`}>
+                            {warningModal.isFinal ? 'Maximum Warnings Reached' : `Warning ${warningModal.count}/${MAX_WARNINGS}`}
+                        </h3>
+                        <p className="text-gray-700 text-sm text-center mb-2">{warningModal.message}</p>
+                        {warningModal.isFinal ? (
+                            <p className="text-red-600 text-sm text-center font-medium mb-4">Your practice session is being automatically submitted.</p>
+                        ) : (
+                            <p className="text-gray-500 text-xs text-center mb-4">{MAX_WARNINGS - warningModal.count} more warning(s) will trigger auto-submission.</p>
+                        )}
+                        <button
+                            className={`w-full py-2 rounded-lg font-semibold text-white transition-colors ${warningModal.isFinal ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-500 hover:bg-amber-600'}`}
+                            onClick={() => {
+                                const wasFinal = warningModal.isFinal;
+                                setWarningModal(null);
+                                if (wasFinal) handleSubmit();
+                            }}
+                        >
+                            {warningModal.isFinal ? 'Acknowledged — Submit Now' : 'I Understand, Return to Practice'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
             {/* Completion Banner */}
             {isCompleted && (
                 <div className="bg-green-100 border-b border-green-200 px-4 py-2 text-green-800 text-sm font-medium flex items-center justify-center gap-2">
@@ -376,7 +500,7 @@ const PracticeWorkspace = () => {
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-4">
                                 <BookOpen className="w-5 h-5 text-indigo-600" />
-                                <h2 className="text-xl font-bold text-gray-900">
+                                <h2 className="text-xl font-bold text-gray-900 select-none">
                                     {question.title}
                                 </h2>
                             </div>
@@ -391,7 +515,7 @@ const PracticeWorkspace = () => {
 
                             <Separator className="my-4" />
 
-                            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap">
+                            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-wrap select-none">
                                 {question.description || <span className="text-gray-400 italic">No description available.</span>}
                             </div>
                         </div>
@@ -482,23 +606,43 @@ const PracticeWorkspace = () => {
                             </span>
                         </div>
 
-                        <div className="flex-1 relative overflow-hidden bg-[#2d2d2d]">
-                            <div className="h-full w-full overflow-auto">
-                                <Editor
-                                    value={code}
-                                    onValueChange={setCode}
-                                    highlight={code => highlight(code, languageConfig[selectedLanguage].prismLang)}
-                                    padding={20}
-                                    style={{
-                                        fontFamily: '"Fira Code", "Fira Mono", monospace',
-                                        fontSize: 14,
-                                        backgroundColor: '#2d2d2d',
-                                        color: '#f8f8f2',
-                                        minHeight: '100%'
-                                    }}
-                                    className="min-h-full"
-                                />
-                            </div>
+                        <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+                            <MonacoEditor
+                                height="100%"
+                                language={languageConfig[selectedLanguage].monacoLang}
+                                value={code}
+                                theme="vs-dark"
+                                onChange={(value) => setCode(value || '')}
+                                onMount={(editor, monaco) => {
+                                    if (!isCompleted) {
+                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
+                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
+                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
+                                    }
+                                }}
+                                options={{
+                                    fontSize: 14,
+                                    fontFamily: '"Fira Code", "Fira Mono", monospace',
+                                    fontLigatures: true,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    readOnly: isCompleted,
+                                    automaticLayout: true,
+                                    tabSize: 4,
+                                    insertSpaces: true,
+                                    autoIndent: 'full',
+                                    formatOnType: true,
+                                    bracketPairColorization: { enabled: true },
+                                    autoClosingBrackets: 'always',
+                                    autoClosingQuotes: 'always',
+                                    lineNumbers: 'on',
+                                    renderLineHighlight: 'all',
+                                    scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                                    padding: { top: 12, bottom: 12 },
+                                    contextmenu: false,
+                                }}
+                            />
                         </div>
                     </div>
 
