@@ -151,8 +151,8 @@ export default function StudentAssignments() {
                 {/* Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">My Assignments</h1>
-                        <p className="text-gray-500">Track and manage your coding tasks</p>
+                        <h1 className="text-2xl font-bold text-gray-900">My Classwork</h1>
+                        <p className="text-gray-500">Track and manage your tasks, exams, and quizzes</p>
                     </div>
                 </div>
 
@@ -256,6 +256,12 @@ export default function StudentAssignments() {
                                                         <h3 className="font-bold text-lg text-gray-900 group-hover:text-indigo-600 transition-colors">
                                                             {assignment.title}
                                                         </h3>
+                                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${assignment.type === 'quiz' ? "bg-purple-50 text-purple-700 border-purple-200" :
+                                                                assignment.mode === 'exam' ? "bg-red-50 text-red-700 border-red-200" :
+                                                                    "bg-blue-50 text-blue-700 border-blue-200"
+                                                            } capitalize`}>
+                                                            {assignment.type === 'quiz' ? 'Quiz' : assignment.mode === 'exam' ? 'Exam' : 'Assignment'}
+                                                        </span>
                                                         {getStatusBadge(assignment)}
                                                     </div>
 
@@ -334,12 +340,13 @@ export default function StudentAssignments() {
 
                             {selectedAssignment.is_submitted ? (
                                 <p className="text-gray-500 mb-6">
-                                    You have already submitted this assignment. You can view your code in read-only mode.
+                                    You have already submitted this {selectedAssignment.type === 'quiz' ? 'quiz' : selectedAssignment.mode === 'exam' ? 'exam' : 'assignment'}. You can view your code in read-only mode.
                                 </p>
                             ) : (
                                 <p className="text-gray-500 mb-6">
-                                    Once you start, the timer will begin and you can only exit by submitting your solution.
-                                    Are you ready to begin?
+                                    {selectedAssignment.mode === 'exam'
+                                        ? "This is an EXAM. Once started, you must remain in fullscreen. Leaving the exam or switching tabs will result in automatic submission. Are you ready?"
+                                        : `Once you start, the timer will begin and you can only exit by submitting your solution. Are you ready to begin?`}
                                 </p>
                             )}
 
@@ -355,10 +362,10 @@ export default function StudentAssignments() {
                                     onClick={handleConfirmStart}
                                     className={`flex-1 text-white ${selectedAssignment.is_submitted
                                         ? "bg-green-600 hover:bg-green-700"
-                                        : "bg-indigo-600 hover:bg-indigo-700"
+                                        : selectedAssignment.mode === 'exam' ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700"
                                         }`}
                                 >
-                                    {selectedAssignment.is_submitted ? "View Submission" : "Start Assignment"}
+                                    {selectedAssignment.is_submitted ? "View Submission" : `Start ${selectedAssignment.type === 'quiz' ? 'Quiz' : selectedAssignment.mode === 'exam' ? 'Exam' : 'Assignment'}`}
                                 </Button>
                             </div>
                         </motion.div>

@@ -27,6 +27,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { MarkdownEditor } from "../../components/ui/markdown-editor";
 import QuestionEditorDialog from "../../components/features/teacher/QuestionEditorDialog";
+import McqEditorDialog from "../../components/features/teacher/McqEditorDialog";
 import PracticeQuestionsPanel from "../../components/features/teacher/PracticeQuestionsPanel";
 import { SortableQuestionItem } from "../../components/features/teacher/SortableQuestionItem";
 
@@ -60,8 +61,12 @@ export default function CreateAssignment() {
     const editId = searchParams.get("id");
     const paramClassId = searchParams.get("class_id");
     const isEditMode = searchParams.get("edit") === "true";
+    const initialType = searchParams.get("type") || "assignment";
+    const initialMode = searchParams.get("mode") || "practice";
 
     // Form State
+    const [itemType, setItemType] = useState(initialType);
+    const [itemMode, setItemMode] = useState(initialMode);
     const [title, setTitle] = useState("");
     const [instructions, setInstructions] = useState("");
     const [selectedClassId, setSelectedClassId] = useState("");
@@ -96,13 +101,13 @@ export default function CreateAssignment() {
 
         const timer = setTimeout(() => {
             if (title || instructions || questions.length > 0) {
-                const draft = { title, instructions, selectedClassId, difficulty, points, dueDate, questions };
+                const draft = { itemType, itemMode, title, instructions, selectedClassId, difficulty, points, dueDate, questions };
                 localStorage.setItem("assignment_draft", JSON.stringify(draft));
                 setSaveStatus("Saved to draft");
             }
         }, 1000);
         return () => clearTimeout(timer);
-    }, [title, instructions, selectedClassId, difficulty, points, dueDate, questions, isEditMode]);
+    }, [itemType, itemMode, title, instructions, selectedClassId, difficulty, points, dueDate, questions, isEditMode]);
 
     // Load Data
     useEffect(() => {
@@ -116,6 +121,8 @@ export default function CreateAssignment() {
                     const assignRes = await assignmentService.getAssignment(editId);
                     const source = assignRes.data;
 
+                    setItemType(source.type || "assignment");
+                    setItemMode(source.mode || "practice");
                     setTitle(source.title);
                     setInstructions(source.description);
                     setDifficulty(source.difficulty || "Medium");
@@ -143,6 +150,8 @@ export default function CreateAssignment() {
                 else if (copyId) {
                     const assignRes = await assignmentService.getAssignment(copyId);
                     const source = assignRes.data;
+                    setItemType(source.type || "assignment");
+                    setItemMode(source.mode || "practice");
                     setTitle(`${source.title} (Copy)`);
                     setInstructions(source.description);
                     setDifficulty(source.questions?.[0]?.question?.difficulty || "Medium");
@@ -169,6 +178,8 @@ export default function CreateAssignment() {
                     let parsedData = null;
                     if (saved) {
                         parsedData = JSON.parse(saved);
+                        setItemType(parsedData.itemType || initialType);
+                        setItemMode(parsedData.itemMode || initialMode);
                         setTitle(parsedData.title || "");
                         setInstructions(parsedData.instructions || "");
                         setDifficulty(parsedData.difficulty || "Medium");
@@ -233,6 +244,17 @@ export default function CreateAssignment() {
     };
 
     const handleAddFromBank = (question) => {
+        const mappedTestCases = (question.test_cases || []).map(tc => ({
+            input: tc.input || "",
+            output: tc.expected_output || tc.output || "",
+            expected_output: tc.expected_output || tc.output || "",
+            explanation: tc.explanation || "",
+            concept: tc.concept || "",
+            points: tc.points || 10
+        }));
+
+        const parsedFunctionName = question.config?.entry_point || question.functionName || "solution";
+
         // Check if already added
         if (questions.some(q => q.id === question.id)) {
             if (!confirm(`Question "${question.title}" is already in the assignment. Add it again?`)) {
@@ -242,12 +264,17 @@ export default function CreateAssignment() {
             const newQ = {
                 ...question,
                 id: `copy-${question.id}-${Date.now()}`,
-                testCases: question.test_cases || []
+                functionName: parsedFunctionName,
+                testCases: mappedTestCases
             };
             setQuestions([...questions, newQ]);
         } else {
             // Add directly
-            setQuestions([...questions, { ...question, testCases: question.test_cases || [] }]);
+            setQuestions([...questions, {
+                ...question,
+                functionName: parsedFunctionName,
+                testCases: mappedTestCases
+            }]);
         }
     };
 
@@ -269,26 +296,35 @@ export default function CreateAssignment() {
             const finalQuestionIds = [];
 
             for (const q of questions) {
-                // Prepare Test Cases
-                const testCases = (q.testCases || []).filter(tc => tc.input || tc.output).map(tc => ({
-                    input: tc.input || "",
-                    expected_output: tc.expected_output || tc.output || "",
-                    explanation: tc.explanation || "",
-                    concept: tc.concept || "",
-                    is_hidden: false,
-                    points: tc.points || 10
-                }));
+                // Prepare Test Cases — different logic for MCQ vs coding
+                let testCases;
+                if (q.question_type === 'mcq') {
+                    // For MCQ, store the correct option index as an integer.
+                    // McqEditorDialog emits testCases: [{ correct_option: N }]
+                    const correctIdx = q.correctOptionIndex ?? q.testCases?.[0]?.correct_option ?? 0;
+                    testCases = [{ correct_option: correctIdx, points: 10 }];
+                } else {
+                    testCases = (q.testCases || []).filter(tc => tc.input || tc.output).map(tc => ({
+                        input: tc.input || "",
+                        expected_output: tc.expected_output || tc.output || "",
+                        explanation: tc.explanation || "",
+                        concept: tc.concept || "",
+                        is_hidden: false,
+                        points: tc.points || 10
+                    }));
+                }
 
                 const questionPayload = {
                     title: q.title,
                     description: q.description,
                     difficulty: q.difficulty,
+                    question_type: q.question_type || "coding",
                     test_cases: testCases,
                     time_limit: 1.0,
                     memory_limit: 128,
                     allowed_languages: ["python"],
                     starter_code: q.starterCode || "",
-                    config: {
+                    config: q.config || {
                         entry_point: q.functionName || "solution",
                         timeout: 2.0,
                         memory: 128
@@ -318,6 +354,8 @@ export default function CreateAssignment() {
                 description: instructions,
                 question_ids: finalQuestionIds,
                 points: points,
+                type: itemType,
+                mode: itemMode,
                 due_date: dueDate ? new Date(dueDate).toISOString() : null,
                 is_published: isPublished
             };
@@ -394,11 +432,11 @@ export default function CreateAssignment() {
                                 </Link>
                             </Button>
                             <div>
-                                <h1 className="text-xl font-bold text-gray-900">
-                                    {isEditMode ? "Edit Assignment" : "Create Assignment"}
+                                <h1 className="text-xl font-bold text-gray-900 capitalize">
+                                    {isEditMode ? `Edit ${itemType}` : `Create ${itemType === 'quiz' ? 'Quiz' : itemMode === 'exam' ? 'Exam' : 'Assignment'}`}
                                 </h1>
                                 <p className="text-gray-500 text-sm">
-                                    {isEditMode ? "Modify existing assignment" : "Draft a new coding assignment"}
+                                    {isEditMode ? `Modify existing ${itemType}` : `Draft a new ${itemType === 'quiz' ? 'quiz' : itemMode === 'exam' ? 'exam' : 'coding assignment'}`}
                                 </p>
                             </div>
                         </div>
@@ -434,7 +472,7 @@ export default function CreateAssignment() {
                         {/* Left Sidebar: Question Bank */}
                         <div className="w-1/3 min-w-[350px] max-w-[450px] border-r border-gray-200 bg-gray-50 flex flex-col">
                             <div className="flex-1 p-4 overflow-hidden">
-                                <PracticeQuestionsPanel onAddQuestion={handleAddFromBank} />
+                                <PracticeQuestionsPanel onAddQuestion={handleAddFromBank} questionType={itemType === 'quiz' ? 'mcq' : 'coding'} />
                             </div>
                         </div>
 
@@ -452,7 +490,7 @@ export default function CreateAssignment() {
                                     {/* Basic Info */}
                                     <Card>
                                         <CardHeader>
-                                            <CardTitle>Assignment Details</CardTitle>
+                                            <CardTitle className="capitalize">{itemType} Details</CardTitle>
                                         </CardHeader>
                                         <CardContent className="space-y-6">
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -470,10 +508,10 @@ export default function CreateAssignment() {
                                                     </Select>
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="title">Assignment Title</Label>
+                                                    <Label htmlFor="title" className="capitalize">{itemType} Title</Label>
                                                     <Input
                                                         id="title"
-                                                        placeholder="e.g. Dynamic Programming Basics"
+                                                        placeholder={`e.g. ${itemMode === 'exam' ? 'Midterm Exam 1' : 'Dynamic Programming Basics'}`}
                                                         value={title}
                                                         onChange={(e) => setTitle(e.target.value)}
                                                     />
@@ -582,12 +620,21 @@ export default function CreateAssignment() {
                     ) : null}
                 </DragOverlay>
 
-                <QuestionEditorDialog
-                    open={isQuestionDialogOpen}
-                    onOpenChange={setIsQuestionDialogOpen}
-                    questionToEdit={editingQuestion}
-                    onSave={handleSaveQuestion}
-                />
+                {itemType === 'quiz' ? (
+                    <McqEditorDialog
+                        open={isQuestionDialogOpen}
+                        onOpenChange={setIsQuestionDialogOpen}
+                        questionToEdit={editingQuestion}
+                        onSave={handleSaveQuestion}
+                    />
+                ) : (
+                    <QuestionEditorDialog
+                        open={isQuestionDialogOpen}
+                        onOpenChange={setIsQuestionDialogOpen}
+                        questionToEdit={editingQuestion}
+                        onSave={handleSaveQuestion}
+                    />
+                )}
             </DndContext>
         </TeacherLayout>
     );

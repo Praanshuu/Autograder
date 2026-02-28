@@ -44,7 +44,13 @@ class Question(models.Model):
     starter_code = models.TextField(blank=True)
     reference_solution = models.TextField(blank=True)
     
-    # JSONB for test cases (Input/Output/Hidden/Points)
+    QUESTION_TYPES = [
+        ('coding', 'Coding'),
+        ('mcq', 'Multiple Choice'),
+    ]
+    question_type = models.CharField(max_length=20, choices=QUESTION_TYPES, default='coding')
+    
+    # JSONB for test cases (Input/Output/Hidden/Points) or MCQ correct answer index
     test_cases = models.JSONField(default=list)
     
     # Tags for Topic Analysis
@@ -95,6 +101,7 @@ class Assignment(ContentItem):
     config = models.JSONField(default=dict)
     
     questions = models.ManyToManyField(Question, through='AssignmentQuestion', related_name='assignments')
+    questions_released = models.BooleanField(default=False)
     
     class Meta:
         db_table = 'assignments'

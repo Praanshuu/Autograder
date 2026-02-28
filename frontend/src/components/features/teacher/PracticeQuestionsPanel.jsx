@@ -39,10 +39,10 @@ function DraggableQuestion({ question, onAdd }) {
                         <Badge
                             variant="secondary"
                             className={`text-[10px] px-1.5 py-0 ${question.difficulty === 'Easy'
-                                    ? 'bg-green-50 text-green-700'
-                                    : question.difficulty === 'Medium'
-                                        ? 'bg-yellow-50 text-yellow-700'
-                                        : 'bg-red-50 text-red-700'
+                                ? 'bg-green-50 text-green-700'
+                                : question.difficulty === 'Medium'
+                                    ? 'bg-yellow-50 text-yellow-700'
+                                    : 'bg-red-50 text-red-700'
                                 }`}
                         >
                             {question.difficulty}
@@ -67,7 +67,7 @@ function DraggableQuestion({ question, onAdd }) {
     );
 }
 
-export default function PracticeQuestionsPanel({ onAddQuestion }) {
+export default function PracticeQuestionsPanel({ onAddQuestion, questionType }) {
     const [questions, setQuestions] = useState([]);
     const [loading, setLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -81,8 +81,21 @@ export default function PracticeQuestionsPanel({ onAddQuestion }) {
     const loadQuestions = async () => {
         try {
             setLoading(true);
-            const res = await practiceService.getPracticeQuestions();
-            setQuestions(Array.isArray(res.data) ? res.data : res.data.results || []);
+            const res = await practiceService.getPracticeLibrary();
+            const rawData = Array.isArray(res.data) ? res.data : res.data.results || [];
+            // Extract the actual question objects from the library entries
+            const extractedQuestions = rawData.map(item => item.question).filter(Boolean);
+            console.log("Extracted Questions:", extractedQuestions);
+            console.log("Expected questionType:", questionType);
+
+            // Filter by question_type if provided
+            const typeFiltered = questionType
+                ? extractedQuestions.filter(q => q.question_type === questionType)
+                : extractedQuestions;
+
+            console.log("Type Filtered Questions:", typeFiltered);
+
+            setQuestions(typeFiltered);
         } catch (err) {
             console.error('Failed to load practice questions:', err);
         } finally {
@@ -102,6 +115,10 @@ export default function PracticeQuestionsPanel({ onAddQuestion }) {
 
         return matchesSearch && matchesDifficulty && matchesCategory;
     });
+
+    useEffect(() => {
+        loadQuestions();
+    }, [questionType]);
 
     return (
         <div className="flex flex-col h-full bg-gray-50/50 rounded-xl border border-gray-200 overflow-hidden">

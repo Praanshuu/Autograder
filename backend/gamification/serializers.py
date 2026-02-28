@@ -101,7 +101,7 @@ class PracticeQuestionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'difficulty', 'category',
             'test_cases', 'starter_code', 'point_value', 'created_by',
-            'is_active', 'created_at', 'updated_at'
+            'is_active', 'created_at', 'updated_at', 'config', 'question_type'
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 

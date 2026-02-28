@@ -106,18 +106,119 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def submit(self, request, pk=None):
         """
-        Submit code for a practice question.
-        Processes the submission and awards points if successful.
+        Submit a practice question answer.
+        Supports both coding (source_code) and MCQ (selected_option) questions.
         """
         practice_question = self.get_object()
-        
+
         # Only students can submit
         if request.user.role not in ['student']:
             return Response(
                 {'success': False, 'message': 'Only students can submit practice questions'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
+
+        # ── MCQ Branch ─────────────────────────────────────────────────────
+        if practice_question.question_type == 'mcq':
+            selected_option = request.data.get('selected_option')
+            if selected_option is None:
+                return Response(
+                    {'success': False, 'message': 'selected_option is required for MCQ questions'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # MCQ grading: read the correct answer from config.correct_option (integer index).
+            # config = { "options": [...], "correct_option": 2 }  — set by McqEditorDialog.
+            correct_option = practice_question.config.get('correct_option')
+
+            if correct_option is None:
+                return Response(
+                    {
+                        'success': False,
+                        'message': (
+                            'This MCQ question has no answer configured. '
+                            'Please ask your teacher to re-save the quiz/assignment to fix this.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            all_passed = int(selected_option) == int(correct_option)
+
+            current_attempts = PracticeSubmission.objects.filter(
+                student=request.user, question=practice_question
+            ).count()
+            attempt_number = current_attempts + 1
+
+            formatted_results = [{
+                'test_case_id': 0,
+                'selected_option': selected_option,
+                'correct_option': correct_option,
+                'status': 'pass' if all_passed else 'fail',
+                'passed': all_passed
+            }]
+
+            submission = PracticeSubmission.objects.create(
+                student=request.user,
+                question=practice_question,
+                source_code=f"selected_option:{selected_option}",
+                language='mcq',
+                status='success' if all_passed else 'fail',
+                test_results=formatted_results,
+                attempt_number=attempt_number,
+                execution_time_ms=0
+            )
+
+            points_awarded = 0
+            if all_passed:
+                try:
+                    calculator = PointsCalculator()
+                    points_awarded = calculator.calculate_and_award_practice_points(submission=submission)
+                except Exception as e:
+                    logger.error(f"Points calculation failed for MCQ: {e}")
+
+            # Update progress
+            progress, created = PracticeProgress.objects.get_or_create(
+                student=request.user,
+                question=practice_question,
+                defaults={
+                    'attempts_count': attempt_number,
+                    'best_score': 100.0 if all_passed else 0.0,
+                    'time_spent': 0
+                }
+            )
+            if not created:
+                progress.attempts_count = attempt_number
+                if all_passed and not progress.is_completed:
+                    progress.is_completed = True
+                    progress.completed_at = timezone.now()
+                    progress.best_score = 100.0
+                progress.save()
+            elif all_passed:
+                progress.is_completed = True
+                progress.completed_at = timezone.now()
+                progress.best_score = 100.0
+                progress.save()
+
+            return Response({
+                'success': True,
+                'data': {
+                    'submission_id': str(submission.id),
+                    'status': submission.status,
+                    'all_passed': all_passed,
+                    'points_awarded': points_awarded,
+                    'attempt_number': attempt_number,
+                    'results': formatted_results,
+                    'summary': {
+                        'total_tests': 1,
+                        'passed_tests': 1 if all_passed else 0,
+                        'execution_time_ms': 0,
+                        'is_completed': all_passed
+                    }
+                }
+            })
+
+        # ── Coding Branch ────────────────────────────────────────────────────
         # Validate required fields
         source_code = request.data.get('source_code', '').strip()
         if not source_code:
@@ -125,45 +226,45 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                 {'success': False, 'message': 'Source code is required'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         # Check if practice question has test cases
         if not practice_question.test_cases:
             return Response(
                 {'success': False, 'message': 'This practice question has no test cases configured'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
         try:
             from submissions.services import execute_code
-            
+
             language = request.data.get('language', 'python')
             test_cases = practice_question.test_cases
-            
+
             # Get current attempt number
             current_attempts = PracticeSubmission.objects.filter(
                 student=request.user,
                 question=practice_question
             ).count()
             attempt_number = current_attempts + 1
-            
+
             # Execute code using the existing service
             execution_results = execute_code(source_code, language, test_cases)
-            
+
             # Process results and determine success
             all_passed = True
             formatted_results = []
             total_execution_time = 0
-            
+
             for i, result in enumerate(execution_results):
                 test_case = test_cases[i] if i < len(test_cases) else {}
-                
+
                 result_status = result.get('status', 'fail')
                 if result_status != 'pass':
                     all_passed = False
-                
+
                 execution_time = result.get('execution_time', 0)
                 total_execution_time += execution_time
-                
+
                 err_msg = result.get('error_message', '')
                 formatted_results.append({
                     'test_case_id': i,
@@ -176,7 +277,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                     'execution_time_ms': execution_time,
                     'passed': result_status == 'pass'
                 })
-            
+
             # Create submission record
             submission = PracticeSubmission.objects.create(
                 student=request.user,
@@ -188,7 +289,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                 attempt_number=attempt_number,
                 execution_time_ms=total_execution_time
             )
-            
+
             # Award points if successful (this will be handled by signals)
             points_awarded = 0
             if all_passed:
@@ -196,6 +297,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                 points_awarded = calculator.calculate_and_award_practice_points(
                     submission=submission
                 )
+
             
             # Update or create progress record
             progress, created = PracticeProgress.objects.get_or_create(

@@ -196,6 +196,21 @@ if ! kill -0 $CELERY_AI_PID 2>/dev/null; then
 fi
 ok "AI Celery worker running (PID $CELERY_AI_PID) → logs: /tmp/celery_ai.log"
 
+# ─── 8c. Celery Beat Scheduler (periodic tasks: exam question auto-release) ──
+log "Starting Celery Beat scheduler..."
+(cd backend && celery -A autograder beat \
+    --loglevel=info \
+    --logfile=/tmp/celery_beat.log 2>&1) &
+CELERY_BEAT_PID=$!
+PIDS+=($CELERY_BEAT_PID)
+
+sleep 2
+if ! kill -0 $CELERY_BEAT_PID 2>/dev/null; then
+    err "Celery Beat failed to start! Check /tmp/celery_beat.log."
+    exit 1
+fi
+ok "Celery Beat running (PID $CELERY_BEAT_PID) → logs: /tmp/celery_beat.log"
+
 # ─── 9. Frontend ─────────────────────────────────────────────────────────────
 log "Setting up frontend..."
 cd frontend
@@ -233,6 +248,7 @@ echo -e "${GREEN}╠════════════════════
 echo -e "${GREEN}║  Backend  →  http://localhost:8000               ║${NC}"
 echo -e "${GREEN}║  Frontend →  http://localhost:5173               ║${NC}"
 echo -e "${GREEN}║  Celery   →  /tmp/celery.log                     ║${NC}"
+echo -e "${GREEN}║  Beat     →  /tmp/celery_beat.log                ║${NC}"
 echo -e "${GREEN}║                                                  ║${NC}"
 echo -e "${GREEN}║  Press Ctrl+C to stop everything                 ║${NC}"
 echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"

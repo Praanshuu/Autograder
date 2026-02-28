@@ -86,19 +86,23 @@ export default function StreamTab() {
                     const rawAssignments = Array.isArray(assignmentsRes.data) ? assignmentsRes.data : (assignmentsRes.data.results || []);
                     assignmentsForUpcoming = rawAssignments;
 
-                    const assignmentPosts = rawAssignments.map(a => ({
-                        id: a.id,
-                        type: 'assignment',
-                        author: { first_name: 'New', last_name: 'Assignment' }, // Placeholder or use Class Owner
-                        title: a.title,
-                        date: new Date(a.created_at),
-                        content: `New Assignment Posted: ${a.title}`,
-                        comments: [], // Assignments usually don't have comments in list view initially or need separate fetch
-                        commentsCount: a.comments_count || 0,
-                        showComments: false,
-                        dueDate: a.due_date,
-                        raw: a
-                    }));
+                    const assignmentPosts = rawAssignments.map(a => {
+                        const displayType = a.type === 'quiz' ? 'Quiz' : a.mode === 'exam' ? 'Exam' : 'Assignment';
+                        return {
+                            id: a.id,
+                            type: 'assignment',
+                            displayType: displayType,
+                            author: { first_name: 'New', last_name: displayType }, // Placeholder
+                            title: a.title,
+                            date: new Date(a.created_at),
+                            content: `New ${displayType} Posted: ${a.title}`,
+                            comments: [],
+                            commentsCount: a.comments_count || 0,
+                            showComments: false,
+                            dueDate: a.due_date,
+                            raw: a
+                        };
+                    });
                     allPosts = [...allPosts, ...assignmentPosts];
                 }
 
@@ -110,12 +114,15 @@ export default function StreamTab() {
                 const upcoming = assignmentsForUpcoming
                     .filter(a => new Date(a.due_date) >= new Date())
                     .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
-                    .map(a => ({
-                        id: a.id,
-                        title: a.title,
-                        due: new Date(a.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                        type: a.type || 'Assignment'
-                    }));
+                    .map(a => {
+                        const displayType = a.type === 'quiz' ? 'Quiz' : a.mode === 'exam' ? 'Exam' : 'Assignment';
+                        return {
+                            id: a.id,
+                            title: a.title,
+                            due: new Date(a.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            type: displayType
+                        };
+                    });
                 setUpcomingWork(upcoming);
 
             } catch (error) {
@@ -372,7 +379,7 @@ export default function StreamTab() {
 
                                     <div>
                                         <h3 className="font-semibold text-gray-900">
-                                            {post.type === 'assignment' ? post.author.first_name + " posted a new assignment: " + post.title : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
+                                            {post.type === 'assignment' ? post.author.first_name + " posted a new " + post.displayType.toLowerCase() + ": " + post.title : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
                                         </h3>
                                         <p className="text-xs text-gray-500">{post.date.toLocaleDateString()} {post.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
@@ -428,7 +435,7 @@ export default function StreamTab() {
                                         <StickyNote className="w-5 h-5" />
                                     </div>
                                     <span className="text-sm font-medium text-indigo-600 hover:underline">
-                                        View Assignment
+                                        View {post.displayType || 'Assignment'}
                                     </span>
                                 </div>
                             )}

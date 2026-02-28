@@ -143,25 +143,28 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
         
     def create(self, request, *args, **kwargs):
         assignment_question_id = request.data.get('assignment_question_id')
-        code = request.data.get('code_content') # Client sends code_content
+        code = request.data.get('code_content') # Client sends code_content for coding
+        response_data = request.data.get('response_data') # Client sends response_data for MCQ
         
-        if not assignment_question_id or code is None:
+        if not assignment_question_id:
              return Response({'message': 'Missing data'}, status=status.HTTP_400_BAD_REQUEST)
              
         try:
-            aq = AssignmentQuestion.objects.get(id=assignment_question_id)
+            aq = AssignmentQuestion.objects.select_related('question', 'assignment').get(id=assignment_question_id)
         except AssignmentQuestion.DoesNotExist:
             return Response({'message': 'Invalid assignment question'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Check for existing successful attempt (Optional: Block if strict exam, but usually allowed)
-        # if SubmissionAttempt.objects.filter(student=request.user, assignment_question=aq, status='success').exists():
-        #    return Response({'message': 'You have already successfully completed this question.'}, status=status.HTTP_400_BAD_REQUEST)
-            
-        language = request.data.get('language', 'python')  # Get language from request
+        is_mcq = aq.question.question_type == 'mcq'
+        if not is_mcq and code is None:
+            return Response({'message': 'Missing code content'}, status=status.HTTP_400_BAD_REQUEST)
+        if is_mcq and response_data is None:
+            return Response({'message': 'Missing response data'}, status=status.HTTP_400_BAD_REQUEST)
+
+        language = request.data.get('language', 'python')
         
         # Analyze code structure
         keywords = []
-        if language == 'python' and code:
+        if not is_mcq and language == 'python' and code:
              keywords = analyze_code_structure(code)
 
         # Create Attempt
@@ -170,11 +173,42 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
             assignment_question=aq,
             attempt_number=SubmissionAttempt.objects.filter(student=request.user, assignment_question=aq).count() + 1,
             status='processing',
-            source_code=code,  # Save the code
+            source_code=code if not is_mcq else '',
+            response_data=response_data if is_mcq else None,
             detected_keywords=keywords,
         )
 
-        # Execute Code (Async) — enqueue only after DB commit so worker sees the attempt
+        if is_mcq:
+            # Synchronous Grading for MCQ
+            # Expected answer stored in test_cases[0]['expected_output'] usually
+            test_cases = aq.question.test_cases or []
+            expected = ""
+            if test_cases and len(test_cases) > 0:
+                expected = str(test_cases[0].get('expected_output', '')).strip()
+                
+            actual_answer = str(response_data.get('answer', '')).strip() if isinstance(response_data, dict) else str(response_data).strip()
+            
+            passed = (actual_answer == expected)
+            
+            TestResult.objects.create(
+                attempt=attempt,
+                test_case_id='mcq_1',
+                status='pass' if passed else 'fail',
+                score=100.0 if passed else 0.0,
+                actual_output=actual_answer,
+                error_message='' if passed else 'Incorrect answer'
+            )
+            
+            attempt.status = 'success' # Overall success means completed execution, test_results determine pass/fail
+            attempt.save()
+            
+            # Update Gradebook immediately
+            self._update_gradebook(request.user, aq.assignment)
+            
+            serializer = self.get_serializer(attempt)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        # Execute Code (Async) for Coding Questions
         from .tasks import execute_submission_task
 
         def _enqueue_task():

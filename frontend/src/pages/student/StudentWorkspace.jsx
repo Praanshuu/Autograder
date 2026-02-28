@@ -32,6 +32,7 @@ import ReactMarkdown from 'react-markdown';
 import { assignmentService } from "../../services/assignmentService";
 import { submissionService } from "../../services/submissionService";
 import QuestionPalette from "../../components/workspace/QuestionPalette";
+import McqWorkspaceRenderer from "../../components/workspace/McqWorkspaceRenderer";
 
 const StudentWorkspace = () => {
     const { assignmentId } = useParams();
@@ -105,8 +106,8 @@ const StudentWorkspace = () => {
 
     const handleMonacoMount = (editor, monaco) => {
         monacoEditorRef.current = editor;
-        if (!isReadOnly) {
-            // Disable copy and paste commands
+        if (!isReadOnly && assignment?.mode === 'exam') {
+            // Disable copy and paste commands only for exams
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
@@ -265,7 +266,7 @@ const StudentWorkspace = () => {
 
     // --- Anti-Cheat Tracking (Tab/Window Switches & Fullscreen) ---
     useEffect(() => {
-        if (isReadOnly || loading || !assignment) return;
+        if (isReadOnly || loading || !assignment || assignment.mode !== 'exam') return;
 
         // 1. Fullscreen monitoring
         const handleFullscreenChange = () => {
@@ -330,17 +331,23 @@ const StudentWorkspace = () => {
         setTimeout(() => { isCheatHandlingRef.current = false; }, 1000);
     };
 
-    const enterFullscreen = () => {
-        const docElm = document.documentElement;
-        const requestFS = docElm.requestFullscreen || docElm.mozRequestFullScreen || docElm.webkitRequestFullScreen || docElm.msRequestFullscreen;
-
-        if (requestFS) {
-            requestFS.call(docElm).catch(err => {
-                console.error("Fullscreen request failed", err);
-                alert("Could not automatically enter fullscreen. please ensure your browser allows it.");
-            });
-        } else {
-            alert("Your browser does not support fullscreen functionality.");
+    const enterFullscreen = async () => {
+        try {
+            const docElm = document.documentElement;
+            if (docElm.requestFullscreen) {
+                await docElm.requestFullscreen();
+            } else if (docElm.mozRequestFullScreen) { /* Firefox */
+                await docElm.mozRequestFullScreen();
+            } else if (docElm.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+                await docElm.webkitRequestFullscreen();
+            } else if (docElm.msRequestFullscreen) { /* IE/Edge */
+                await docElm.msRequestFullscreen();
+            } else {
+                alert("Your browser does not support fullscreen functionality.");
+            }
+        } catch (err) {
+            console.error("Fullscreen request failed", err);
+            alert("Could not automatically enter fullscreen. Please ensure your browser allows it, or click anywhere on the page and try again.");
         }
     };
 
@@ -704,14 +711,21 @@ const StudentWorkspace = () => {
         try {
             await updateTimerOnBackend();
 
-            const response = await submissionService.submitCode({
+            const isMcq = currentQuestion?.question_type === 'mcq';
+            const payload = {
                 assignment_id: assignment.id,
                 assignment_question_id: currentAQ.id,
                 question_id: currentQuestion.id,
-                code_content: code,
                 language: selectedLanguage,
                 time_spent: timeSpent
-            });
+            };
+            if (isMcq) {
+                payload.response_data = { answer: code };
+            } else {
+                payload.code_content = code;
+            }
+
+            const response = await submissionService.submitCode(payload);
 
             // Handle Response
             const attempt = response.data;
@@ -726,10 +740,10 @@ const StudentWorkspace = () => {
                 setIsSubmitting(false);
 
                 if (attempt.status === 'success') {
-                    alert("Submission Successful!");
                     setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+                    setShowConfetti(true); // Optional: show confetti for immediate success too
                 } else if (attempt.status === 'fail') {
-                    alert("Submission Failed (Test Cases).");
+                    // Fail details are already in the output panel
                 }
             }
 
@@ -801,7 +815,7 @@ const StudentWorkspace = () => {
         <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
 
             {/* Anti-Cheat Fullscreen Blocking Overlay */}
-            {!isReadOnly && !loading && !error && assignment && !isFullscreen && (
+            {!isReadOnly && !loading && !error && assignment && assignment.mode === 'exam' && !isFullscreen && (
                 <div className="fixed inset-0 z-50 bg-gray-900/90 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
                     <div className="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full border-t-4 border-indigo-600">
                         <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -919,16 +933,18 @@ const StudentWorkspace = () => {
                     {/* Compact Points Display Removed */}
 
 
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleRunCode}
-                        disabled={isRunning || isSubmitting}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 h-9"
-                    >
-                        {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-                        Run
-                    </Button>
+                    {currentQuestion.question_type !== 'mcq' && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleRunCode}
+                            disabled={isRunning || isSubmitting}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 h-9"
+                        >
+                            {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                            Run
+                        </Button>
+                    )}
 
                     {/* Read-Only Mode Navigation */}
                     {isReadOnly ? (
@@ -1073,213 +1089,225 @@ const StudentWorkspace = () => {
 
                 {/* RIGHT PANEL: Editor & Output - TAKES REMAINING SPACE */}
                 <div className="flex-1 bg-white flex flex-col h-full">
-                    {/* EDITOR */}
-                    <div className="flex-[60] min-h-0 flex flex-col bg-[#2d2d2d]">
-                        <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                                {/* Language Dropdown */}
-                                <div className="relative">
-                                    <select
-                                        value={selectedLanguage}
-                                        onChange={(e) => handleLanguageChange(e.target.value)}
-                                        className="bg-[#3d3d3d] text-blue-400 font-medium border border-[#555] rounded px-2 py-1 text-xs cursor-pointer hover:bg-[#4d4d4d] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                    >
-                                        {Object.entries(languageConfig).map(([key, lang]) => (
-                                            <option key={key} value={key} className="bg-[#3d3d3d] text-white">
-                                                {lang.icon} {lang.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                            <span
-                                className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                onClick={() => setCode(languageConfig[selectedLanguage].defaultCode)}
-                            >
-                                <RotateCcw className="w-3 h-3" /> Reset
-                            </span>
-                        </div>
-
-                        <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
-                            <MonacoEditor
-                                height="100%"
-                                language={languageConfig[selectedLanguage].monacoLang}
-                                value={code}
-                                theme="vs-dark"
-                                onChange={(value) => setCode(value || '')}
-                                onMount={handleMonacoMount}
-                                options={{
-                                    fontSize: 14,
-                                    fontFamily: '"Fira Code", "Fira Mono", monospace',
-                                    fontLigatures: true,
-                                    minimap: { enabled: false },
-                                    scrollBeyondLastLine: false,
-                                    wordWrap: 'on',
-                                    readOnly: isReadOnly,
-                                    automaticLayout: true,
-                                    tabSize: 4,
-                                    insertSpaces: true,
-                                    autoIndent: 'full',
-                                    formatOnType: true,
-                                    bracketPairColorization: { enabled: true },
-                                    autoClosingBrackets: 'always',
-                                    autoClosingQuotes: 'always',
-                                    lineNumbers: 'on',
-                                    renderLineHighlight: 'all',
-                                    scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
-                                    padding: { top: 12, bottom: 12 },
-                                    contextmenu: false, // disable right-click copy/paste menu
-                                }}
+                    {currentQuestion?.question_type === 'mcq' ? (
+                        <div className="flex-1 overflow-hidden">
+                            <McqWorkspaceRenderer
+                                question={currentQuestion}
+                                selectedOption={code}
+                                onChange={setCode}
+                                disabled={isReadOnly || isSubmitting}
                             />
                         </div>
-                    </div>
-
-                    {/* DIVIDER */}
-                    <div className="h-1 bg-gray-800 flex-shrink-0" />
-
-                    {/* CONSOLE - SIMPLIFIED VERSION */}
-                    <div className="flex-[40] min-h-0 bg-white flex flex-col">
-                        <div className="h-9 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
-                                    <Terminal className="w-3.5 h-3.5" />
-                                    Output
+                    ) : (
+                        <div className="flex-[60] min-h-0 flex flex-col bg-[#2d2d2d]">
+                            <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    {/* Language Dropdown */}
+                                    <div className="relative">
+                                        <select
+                                            value={selectedLanguage}
+                                            onChange={(e) => handleLanguageChange(e.target.value)}
+                                            className="bg-[#3d3d3d] text-blue-400 font-medium border border-[#555] rounded px-2 py-1 text-xs cursor-pointer hover:bg-[#4d4d4d] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                        >
+                                            {Object.entries(languageConfig).map(([key, lang]) => (
+                                                <option key={key} value={key} className="bg-[#3d3d3d] text-white">
+                                                    {lang.icon} {lang.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
-                                {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
-                                {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                {output?.status === 'failed' && <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
-                                {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                <span
+                                    className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
+                                    onClick={() => setCode(languageConfig[selectedLanguage].defaultCode)}
+                                >
+                                    <RotateCcw className="w-3 h-3" /> Reset
+                                </span>
+                            </div>
+
+                            <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+                                <MonacoEditor
+                                    height="100%"
+                                    language={languageConfig[selectedLanguage].monacoLang}
+                                    value={code}
+                                    theme="vs-dark"
+                                    onChange={(value) => setCode(value || '')}
+                                    onMount={handleMonacoMount}
+                                    options={{
+                                        fontSize: 14,
+                                        fontFamily: '"Fira Code", "Fira Mono", monospace',
+                                        fontLigatures: true,
+                                        minimap: { enabled: false },
+                                        scrollBeyondLastLine: false,
+                                        wordWrap: 'on',
+                                        readOnly: isReadOnly || isSubmitting,
+                                        automaticLayout: true,
+                                        tabSize: 4,
+                                        insertSpaces: true,
+                                        autoIndent: 'full',
+                                        formatOnType: true,
+                                        bracketPairColorization: { enabled: true },
+                                        autoClosingBrackets: 'always',
+                                        autoClosingQuotes: 'always',
+                                        lineNumbers: 'on',
+                                        renderLineHighlight: 'all',
+                                        scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                                        padding: { top: 12, bottom: 12 },
+                                        contextmenu: false, // disable right-click copy/paste menu
+                                    }}
+                                />
                             </div>
                         </div>
+                    )}
 
-                        <div className="flex-1 overflow-auto p-4">
-                            {!output && !isRunning && (
-                                <div className="flex flex-col items-center justify-center text-gray-400 h-full">
-                                    <Terminal className="w-12 h-12 mb-2 opacity-50" />
-                                    <span className="text-sm">Click "Run Code" to see your output here</span>
+                    {/* DIVIDER */}
+                    {currentQuestion?.question_type !== 'mcq' && <div className="h-1 bg-gray-800 flex-shrink-0" />}
+
+                    {/* CONSOLE - SIMPLIFIED VERSION */}
+                    {currentQuestion?.question_type !== 'mcq' && (
+                        <div className="flex-[40] min-h-0 bg-white flex flex-col">
+                            <div className="h-9 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
+                                        <Terminal className="w-3.5 h-3.5" />
+                                        Output
+                                    </div>
+                                    {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
+                                    {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                    {output?.status === 'failed' && <span className="w-1.5 h-1.5 rounded-full bg-orange-500" />}
+                                    {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
                                 </div>
-                            )}
+                            </div>
 
-                            {isRunning && (
-                                <div className="flex flex-col items-center justify-center text-blue-600 h-full">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                                    <span className="text-sm">Running your Python code...</span>
-                                </div>
-                            )}
+                            <div className="flex-1 overflow-auto p-4">
+                                {!output && !isRunning && (
+                                    <div className="flex flex-col items-center justify-center text-gray-400 h-full">
+                                        <Terminal className="w-12 h-12 mb-2 opacity-50" />
+                                        <span className="text-sm">Click "Run Code" to see your output here</span>
+                                    </div>
+                                )}
 
-                            {output && (
-                                <div className="space-y-4">
-                                    {/* Status */}
-                                    {/* Status */}
-                                    <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' :
-                                        output.status === 'failed' ? 'bg-orange-50 border-orange-200' :
-                                            'bg-red-50 border-red-200'
-                                        }`}>
-                                        <div className="flex flex-col gap-2">
-                                            <div className="flex items-center gap-2">
-                                                {output.status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                                                {output.status === 'failed' && <XCircle className="w-4 h-4 text-orange-600" />}
-                                                {output.status === 'error' && <XCircle className="w-4 h-4 text-red-600" />}
+                                {isRunning && (
+                                    <div className="flex flex-col items-center justify-center text-blue-600 h-full">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                                        <span className="text-sm">Running your Python code...</span>
+                                    </div>
+                                )}
 
-                                                <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' :
-                                                    output.status === 'failed' ? 'text-orange-800' :
-                                                        'text-red-800'
-                                                    }`}>
-                                                    {output.message}
-                                                </span>
+                                {output && (
+                                    <div className="space-y-4">
+                                        {/* Status */}
+                                        {/* Status */}
+                                        <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' :
+                                            output.status === 'failed' ? 'bg-orange-50 border-orange-200' :
+                                                'bg-red-50 border-red-200'
+                                            }`}>
+                                            <div className="flex flex-col gap-2">
+                                                <div className="flex items-center gap-2">
+                                                    {output.status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                                                    {output.status === 'failed' && <XCircle className="w-4 h-4 text-orange-600" />}
+                                                    {output.status === 'error' && <XCircle className="w-4 h-4 text-red-600" />}
+
+                                                    <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' :
+                                                        output.status === 'failed' ? 'text-orange-800' :
+                                                            'text-red-800'
+                                                        }`}>
+                                                        {output.message}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
 
-                                    {/* Main Output Display */}
-                                    {output.results && output.results.length > 0 && (
-                                        <div className="space-y-3">
-                                            {output.results.map((result, idx) => (
-                                                <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    {/* Output Header */}
-                                                    <div className="bg-blue-50 px-4 py-2 border-b border-blue-200">
-                                                        <h3 className="font-semibold text-blue-800 text-sm flex items-center gap-2">
-                                                            <Terminal className="w-4 h-4" />
-                                                            Your Code Output
-                                                            {result.error && <span className="text-red-600 text-xs">(Error)</span>}
-                                                        </h3>
-                                                    </div>
-
-                                                    <div className="p-4 space-y-3">
-                                                        {/* Input (if any) */}
-                                                        {result.input && (
-                                                            <div>
-                                                                <div className="text-xs font-semibold text-gray-500 mb-1">INPUT PROVIDED:</div>
-                                                                <div className="bg-gray-100 p-2 rounded text-sm font-mono border">
-                                                                    {result.input}
-                                                                </div>
-                                                            </div>
-                                                        )}
-
-                                                        {/* Main Output - Most Important */}
-                                                        <div>
-                                                            <div className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
-                                                                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">OUTPUT</span>
-                                                                What your code printed:
-                                                            </div>
-                                                            <div className={`p-3 rounded border-2 text-sm font-mono ${result.error ? 'bg-red-50 border-red-300 text-red-800' :
-                                                                result.testPassed ? 'bg-green-50 border-green-300 text-green-800' :
-                                                                    'bg-orange-50 border-orange-300 text-orange-900'
-                                                                }`}>
-                                                                {result.error ? (
-                                                                    <div>
-                                                                        <div className="font-bold text-red-600 mb-1">❌ Error:</div>
-                                                                        <div className="whitespace-pre-wrap">{result.error}</div>
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className="whitespace-pre-wrap">
-                                                                        {result.output || <span className="text-gray-500 italic">(no output)</span>}
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                                        {/* Main Output Display */}
+                                        {output.results && output.results.length > 0 && (
+                                            <div className="space-y-3">
+                                                {output.results.map((result, idx) => (
+                                                    <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
+                                                        {/* Output Header */}
+                                                        <div className="bg-blue-50 px-4 py-2 border-b border-blue-200">
+                                                            <h3 className="font-semibold text-blue-800 text-sm flex items-center gap-2">
+                                                                <Terminal className="w-4 h-4" />
+                                                                Your Code Output
+                                                                {result.error && <span className="text-red-600 text-xs">(Error)</span>}
+                                                            </h3>
                                                         </div>
 
-                                                        {/* Test Comparison (Secondary) */}
-                                                        {result.expected && (
-                                                            <div className="border-t border-gray-200 pt-3 mt-3">
-                                                                <div className="text-xs font-semibold text-gray-500 mb-2">📋 Test Comparison:</div>
-                                                                <div className="grid grid-cols-2 gap-3 text-xs">
-                                                                    <div>
-                                                                        <div className="font-semibold text-gray-600 mb-1">Expected:</div>
-                                                                        <div className="bg-blue-100 p-2 rounded font-mono text-blue-800 whitespace-pre-wrap">
-                                                                            {result.expected}
-                                                                        </div>
-                                                                    </div>
-                                                                    <div>
-                                                                        <div className="font-semibold text-gray-600 mb-1">Your Output:</div>
-                                                                        <div className={`p-2 rounded font-mono whitespace-pre-wrap ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                                                                            }`}>
-                                                                            {result.output || '(no output)'}
-                                                                        </div>
+                                                        <div className="p-4 space-y-3">
+                                                            {/* Input (if any) */}
+                                                            {result.input && (
+                                                                <div>
+                                                                    <div className="text-xs font-semibold text-gray-500 mb-1">INPUT PROVIDED:</div>
+                                                                    <div className="bg-gray-100 p-2 rounded text-sm font-mono border">
+                                                                        {result.input}
                                                                     </div>
                                                                 </div>
-                                                                <div className={`mt-2 text-xs font-medium ${result.testPassed ? 'text-green-600' : 'text-orange-600'}`}>
-                                                                    {result.testPassed ? '✅ Matches expected output' : '❌ Output mismatch'}
+                                                            )}
+
+                                                            {/* Main Output - Most Important */}
+                                                            <div>
+                                                                <div className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                                                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">OUTPUT</span>
+                                                                    What your code printed:
+                                                                </div>
+                                                                <div className={`p-3 rounded border-2 text-sm font-mono ${result.error ? 'bg-red-50 border-red-300 text-red-800' :
+                                                                    result.testPassed ? 'bg-green-50 border-green-300 text-green-800' :
+                                                                        'bg-orange-50 border-orange-300 text-orange-900'
+                                                                    }`}>
+                                                                    {result.error ? (
+                                                                        <div>
+                                                                            <div className="font-bold text-red-600 mb-1">❌ Error:</div>
+                                                                            <div className="whitespace-pre-wrap">{result.error}</div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="whitespace-pre-wrap">
+                                                                            {result.output || <span className="text-gray-500 italic">(no output)</span>}
+                                                                        </div>
+                                                                    )}
                                                                 </div>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
 
-                                    {/* Debug info (remove this later) */}
-                                    <details className="text-xs text-gray-500">
-                                        <summary className="cursor-pointer hover:text-gray-700">Debug Info (click to expand)</summary>
-                                        <pre className="mt-2 p-2 bg-gray-100 rounded overflow-auto text-xs">
-                                            {JSON.stringify(output, null, 2)}
-                                        </pre>
-                                    </details>
-                                </div>
-                            )}
+                                                            {/* Test Comparison (Secondary) */}
+                                                            {result.expected && (
+                                                                <div className="border-t border-gray-200 pt-3 mt-3">
+                                                                    <div className="text-xs font-semibold text-gray-500 mb-2">📋 Test Comparison:</div>
+                                                                    <div className="grid grid-cols-2 gap-3 text-xs">
+                                                                        <div>
+                                                                            <div className="font-semibold text-gray-600 mb-1">Expected:</div>
+                                                                            <div className="bg-blue-100 p-2 rounded font-mono text-blue-800 whitespace-pre-wrap">
+                                                                                {result.expected}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <div className="font-semibold text-gray-600 mb-1">Your Output:</div>
+                                                                            <div className={`p-2 rounded font-mono whitespace-pre-wrap ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
+                                                                                }`}>
+                                                                                {result.output || '(no output)'}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className={`mt-2 text-xs font-medium ${result.testPassed ? 'text-green-600' : 'text-orange-600'}`}>
+                                                                        {result.testPassed ? '✅ Matches expected output' : '❌ Output mismatch'}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {/* Debug info (remove this later) */}
+                                        <details className="text-xs text-gray-500">
+                                            <summary className="cursor-pointer hover:text-gray-700">Debug Info (click to expand)</summary>
+                                            <pre className="mt-2 p-2 bg-gray-100 rounded overflow-auto text-xs">
+                                                {JSON.stringify(output, null, 2)}
+                                            </pre>
+                                        </details>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 

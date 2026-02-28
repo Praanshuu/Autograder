@@ -28,6 +28,7 @@ import MonacoEditor from '@monaco-editor/react';
 
 // Services
 import { practiceService } from "../../../services/practiceService";
+import McqWorkspaceRenderer from "../../workspace/McqWorkspaceRenderer";
 
 const DIFFICULTY_COLORS = {
     easy: "bg-green-100 text-green-700 border-green-200",
@@ -53,6 +54,7 @@ const PracticeWorkspace = () => {
 
     const [code, setCode] = useState("");
     const [selectedLanguage, setSelectedLanguage] = useState("python");
+    const [selectedMcqOption, setSelectedMcqOption] = useState(null); // for MCQ questions
     const [output, setOutput] = useState(null);
     const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -267,17 +269,61 @@ const PracticeWorkspace = () => {
     const handleSubmit = async () => {
         if (!question) return;
 
+        const isMcq = question.question_type === 'mcq';
+
+        // For MCQ, require an option to be selected
+        if (isMcq && selectedMcqOption === null) {
+            setOutput({
+                status: 'error',
+                message: 'Please select an answer before submitting.',
+                results: []
+            });
+            return;
+        }
+
         setIsSubmitting(true);
 
         try {
-            const response = await practiceService.submitPracticeCode(questionId, {
-                code: code,
-                language: selectedLanguage
-            });
+            const payload = isMcq
+                ? { selected_option: selectedMcqOption }
+                : { source_code: code, language: selectedLanguage };
 
-            const submissionData = response.data;
+            const response = await practiceService.submitPracticeCode(questionId, payload);
 
-            // Process submission result — API may return test_results or results
+            // apiClient returns { success, data, status } — check for API-level errors first
+            if (!response.success) {
+                const errMsg = response.data?.message || response.message || 'Submission failed';
+                setOutput({ status: 'error', message: errMsg, results: [] });
+                return;
+            }
+
+            // response.data is what the backend returns as the top-level JSON
+            // Our backend wraps results in { success, data: { ... } }
+            const submissionData = response.data?.data || response.data;
+
+            if (isMcq) {
+                const allPassed = submissionData.all_passed;
+                setOutput({
+                    status: allPassed ? 'success' : 'error',
+                    message: allPassed
+                        ? `🎉 Correct! You earned ${submissionData.points_awarded || 0} points!`
+                        : '❌ Incorrect answer. Try again!',
+                    results: [],
+                    isSubmission: true,
+                    isMcq: true,
+                    pointsEarned: submissionData.points_awarded || 0
+                });
+                if (allPassed) {
+                    setPointsEarned(submissionData.points_awarded || 0);
+                    setShowSuccess(true);
+                    setProgress(prev => ({ ...prev, is_completed: true, attempts_count: (prev?.attempts_count || 0) + 1, best_score: 100 }));
+                } else {
+                    setProgress(prev => ({ ...prev, attempts_count: (prev?.attempts_count || 0) + 1 }));
+                }
+                return;
+            }
+
+            // ── Coding question result processing ────────────────────────
             const rawResults = submissionData.test_results || submissionData.results || [];
             const formattedResults = rawResults.map((r, idx) => ({
                 id: idx,
@@ -293,44 +339,34 @@ const PracticeWorkspace = () => {
 
             setOutput({
                 status: allPassed ? 'success' : 'error',
-                message: allPassed ?
-                    `🎉 Congratulations! All test cases passed! You earned ${submissionData.points_earned} points!` :
-                    'Some test cases failed. Keep trying - you can submit unlimited times!',
+                message: allPassed
+                    ? `🎉 Congratulations! All test cases passed! You earned ${submissionData.points_earned || submissionData.points_awarded || 0} points!`
+                    : 'Some test cases failed. Keep trying - you can submit unlimited times!',
                 results: formattedResults,
                 isSubmission: true,
-                pointsEarned: submissionData.points_earned || 0
+                pointsEarned: submissionData.points_earned || submissionData.points_awarded || 0
             });
 
             if (allPassed) {
-                setPointsEarned(submissionData.points_earned || 0);
+                setPointsEarned(submissionData.points_earned || submissionData.points_awarded || 0);
                 setShowSuccess(true);
-
-                // Update progress
-                setProgress(prev => ({
-                    ...prev,
-                    is_completed: true,
-                    attempts_count: (prev?.attempts_count || 0) + 1,
-                    best_score: 100
-                }));
+                setProgress(prev => ({ ...prev, is_completed: true, attempts_count: (prev?.attempts_count || 0) + 1, best_score: 100 }));
             } else {
-                // Update attempt count
-                setProgress(prev => ({
-                    ...prev,
-                    attempts_count: (prev?.attempts_count || 0) + 1
-                }));
+                setProgress(prev => ({ ...prev, attempts_count: (prev?.attempts_count || 0) + 1 }));
             }
 
         } catch (err) {
             console.error("Submission failed:", err);
             setOutput({
                 status: 'error',
-                message: 'Submission failed: ' + (err.response?.data?.message || err.message),
+                message: 'Submission failed: ' + (err.response?.data?.message || err.message || 'Unknown error'),
                 results: []
             });
         } finally {
             setIsSubmitting(false);
         }
     };
+
 
     const handleBackClick = () => {
         navigate('/student/practice');
@@ -469,16 +505,18 @@ const PracticeWorkspace = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
-                    <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={handleRunCode}
-                        disabled={isRunning || isSubmitting}
-                        className="bg-gray-100 hover:bg-gray-200 text-gray-700 h-9"
-                    >
-                        {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
-                        Run
-                    </Button>
+                    {question?.question_type !== 'mcq' && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleRunCode}
+                            disabled={isRunning || isSubmitting}
+                            className="bg-gray-100 hover:bg-gray-200 text-gray-700 h-9"
+                        >
+                            {isRunning ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Play className="w-4 h-4 mr-2" />}
+                            Run
+                        </Button>
+                    )}
 
                     <Button
                         size="sm"
@@ -583,201 +621,214 @@ const PracticeWorkspace = () => {
                 {/* Right Panel: Editor & Output */}
                 <div className="flex-1 bg-white flex flex-col h-full">
                     {/* Editor */}
-                    <div className="flex-[60] min-h-0 flex flex-col bg-[#2d2d2d]">
-                        <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                                <select
-                                    value={selectedLanguage}
-                                    onChange={(e) => handleLanguageChange(e.target.value)}
-                                    className="bg-[#3d3d3d] text-blue-400 font-medium border border-[#555] rounded px-2 py-1 text-xs cursor-pointer hover:bg-[#4d4d4d] focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                >
-                                    {Object.entries(languageConfig).map(([key, lang]) => (
-                                        <option key={key} value={key} className="bg-[#3d3d3d] text-white">
-                                            {lang.icon} {lang.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <span
-                                className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                onClick={() => setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode)}
-                            >
-                                <RotateCcw className="w-3 h-3" /> Reset
-                            </span>
-                        </div>
-
-                        <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
-                            <MonacoEditor
-                                height="100%"
-                                language={languageConfig[selectedLanguage].monacoLang}
-                                value={code}
-                                theme="vs-dark"
-                                onChange={(value) => setCode(value || '')}
-                                onMount={(editor, monaco) => {
-                                    if (!isCompleted) {
-                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
-                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
-                                        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
-                                    }
-                                }}
-                                options={{
-                                    fontSize: 14,
-                                    fontFamily: '"Fira Code", "Fira Mono", monospace',
-                                    fontLigatures: true,
-                                    minimap: { enabled: false },
-                                    scrollBeyondLastLine: false,
-                                    wordWrap: 'on',
-                                    readOnly: isCompleted,
-                                    automaticLayout: true,
-                                    tabSize: 4,
-                                    insertSpaces: true,
-                                    autoIndent: 'full',
-                                    formatOnType: true,
-                                    bracketPairColorization: { enabled: true },
-                                    autoClosingBrackets: 'always',
-                                    autoClosingQuotes: 'always',
-                                    lineNumbers: 'on',
-                                    renderLineHighlight: 'all',
-                                    scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
-                                    padding: { top: 12, bottom: 12 },
-                                    contextmenu: false,
-                                }}
+                    {question?.question_type === 'mcq' ? (
+                        <div className="flex-[60] min-h-0 flex flex-col bg-white overflow-hidden border-b border-gray-200">
+                            <McqWorkspaceRenderer
+                                question={question}
+                                selectedOption={selectedMcqOption}
+                                onChange={setSelectedMcqOption}
+                                disabled={isCompleted || isSubmitting}
                             />
                         </div>
-                    </div>
-
-                    {/* Divider */}
-                    <div className="h-1 bg-gray-800 flex-shrink-0" />
-
-                    {/* Output Console */}
-                    <div className="flex-[40] min-h-0 bg-white flex flex-col">
-                        <div className="h-9 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
-                                    <Terminal className="w-3.5 h-3.5" />
-                                    Output
+                    ) : (
+                        <div className="flex-[60] min-h-0 flex flex-col bg-[#2d2d2d]">
+                            <div className="bg-[#2d2d2d] border-b border-[#111] px-4 h-9 flex justify-between items-center text-xs text-gray-400 select-none flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={selectedLanguage}
+                                        onChange={(e) => handleLanguageChange(e.target.value)}
+                                        className="bg-[#3d3d3d] text-blue-400 font-medium border border-[#555] rounded px-2 py-1 text-xs cursor-pointer hover:bg-[#4d4d4d] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    >
+                                        {Object.entries(languageConfig).map(([key, lang]) => (
+                                            <option key={key} value={key} className="bg-[#3d3d3d] text-white">
+                                                {lang.icon} {lang.name}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </div>
-                                {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
-                                {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
-                                {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                                <span
+                                    className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
+                                    onClick={() => setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode)}
+                                >
+                                    <RotateCcw className="w-3 h-3" /> Reset
+                                </span>
+                            </div>
+
+                            <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+                                <MonacoEditor
+                                    height="100%"
+                                    language={languageConfig[selectedLanguage].monacoLang}
+                                    value={code}
+                                    theme="vs-dark"
+                                    onChange={(value) => setCode(value || '')}
+                                    onMount={(editor, monaco) => {
+                                        if (!isCompleted) {
+                                            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
+                                            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
+                                            editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
+                                        }
+                                    }}
+                                    options={{
+                                        fontSize: 14,
+                                        fontFamily: '"Fira Code", "Fira Mono", monospace',
+                                        fontLigatures: true,
+                                        minimap: { enabled: false },
+                                        scrollBeyondLastLine: false,
+                                        wordWrap: 'on',
+                                        readOnly: isCompleted || isSubmitting,
+                                        automaticLayout: true,
+                                        tabSize: 4,
+                                        insertSpaces: true,
+                                        autoIndent: 'full',
+                                        formatOnType: true,
+                                        bracketPairColorization: { enabled: true },
+                                        autoClosingBrackets: 'always',
+                                        autoClosingQuotes: 'always',
+                                        lineNumbers: 'on',
+                                        renderLineHighlight: 'all',
+                                        scrollbar: { verticalScrollbarSize: 8, horizontalScrollbarSize: 8 },
+                                        padding: { top: 12, bottom: 12 },
+                                        contextmenu: false,
+                                    }}
+                                />
                             </div>
                         </div>
+                    )}
 
-                        <div className="flex-1 overflow-auto p-4">
-                            {!output && !isRunning && (
-                                <div className="flex flex-col items-center justify-center text-gray-400 h-full">
-                                    <Terminal className="w-12 h-12 mb-2 opacity-50" />
-                                    <span className="text-sm">Click "Run Code" to test your solution</span>
-                                    <span className="text-xs mt-1">Or click "Submit" to check all test cases</span>
+                    {/* Divider */}
+                    {question?.question_type !== 'mcq' && <div className="h-1 bg-gray-800 flex-shrink-0" />}
+
+                    {/* Output Console */}
+                    {question?.question_type !== 'mcq' && (
+                        <div className="flex-[40] min-h-0 bg-white flex flex-col">
+                            <div className="h-9 bg-gray-50 border-b border-gray-200 flex items-center justify-between px-4 select-none flex-shrink-0">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 text-gray-500 font-medium text-xs">
+                                        <Terminal className="w-3.5 h-3.5" />
+                                        Output
+                                    </div>
+                                    {isRunning && <span className="text-xs text-indigo-600 animate-pulse">Running Code...</span>}
+                                    {output?.status === 'error' && <span className="w-1.5 h-1.5 rounded-full bg-red-500" />}
+                                    {output?.status === 'success' && <span className="w-1.5 h-1.5 rounded-full bg-green-500" />}
                                 </div>
-                            )}
+                            </div>
 
-                            {isRunning && (
-                                <div className="flex flex-col items-center justify-center text-blue-600 h-full">
-                                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
-                                    <span className="text-sm">Running your code...</span>
-                                </div>
-                            )}
+                            <div className="flex-1 overflow-auto p-4">
+                                {!output && !isRunning && (
+                                    <div className="flex flex-col items-center justify-center text-gray-400 h-full">
+                                        <Terminal className="w-12 h-12 mb-2 opacity-50" />
+                                        <span className="text-sm">Click "Run Code" to test your solution</span>
+                                        <span className="text-xs mt-1">Or click "Submit" to check all test cases</span>
+                                    </div>
+                                )}
 
-                            {output && (
-                                <div className="space-y-4">
-                                    {/* Status Message */}
-                                    <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                                        }`}>
-                                        <div className="flex items-center gap-2">
-                                            {output.status === 'success' ? (
-                                                <CheckCircle2 className="w-4 h-4 text-green-600" />
-                                            ) : (
-                                                <XCircle className="w-4 h-4 text-red-600" />
+                                {isRunning && (
+                                    <div className="flex flex-col items-center justify-center text-blue-600 h-full">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mb-2"></div>
+                                        <span className="text-sm">Running your code...</span>
+                                    </div>
+                                )}
+
+                                {output && (
+                                    <div className="space-y-4">
+                                        {/* Status Message */}
+                                        <div className={`p-3 rounded-lg border ${output.status === 'success' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+                                            }`}>
+                                            <div className="flex items-center gap-2">
+                                                {output.status === 'success' ? (
+                                                    <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                                ) : (
+                                                    <XCircle className="w-4 h-4 text-red-600" />
+                                                )}
+                                                <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'
+                                                    }`}>
+                                                    {output.message}
+                                                </span>
+                                            </div>
+
+                                            {output.isSubmission && output.pointsEarned > 0 && (
+                                                <div className="mt-2 flex items-center gap-2 text-green-700">
+                                                    <Star className="w-4 h-4 text-yellow-500" />
+                                                    <span className="font-semibold">+{output.pointsEarned} points earned!</span>
+                                                </div>
                                             )}
-                                            <span className={`font-medium text-sm ${output.status === 'success' ? 'text-green-800' : 'text-red-800'
-                                                }`}>
-                                                {output.message}
-                                            </span>
                                         </div>
 
-                                        {output.isSubmission && output.pointsEarned > 0 && (
-                                            <div className="mt-2 flex items-center gap-2 text-green-700">
-                                                <Star className="w-4 h-4 text-yellow-500" />
-                                                <span className="font-semibold">+{output.pointsEarned} points earned!</span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Test Results */}
-                                    {output.results && output.results.length > 0 && (
-                                        <div className="space-y-3">
-                                            {output.results.map((result, idx) => (
-                                                <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
-                                                    <div className={`px-4 py-2 border-b ${result.testPassed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
-                                                        }`}>
-                                                        <h3 className={`font-semibold text-sm flex items-center gap-2 ${result.testPassed ? 'text-green-800' : 'text-red-800'
+                                        {/* Test Results */}
+                                        {output.results && output.results.length > 0 && (
+                                            <div className="space-y-3">
+                                                {output.results.map((result, idx) => (
+                                                    <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
+                                                        <div className={`px-4 py-2 border-b ${result.testPassed ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
                                                             }`}>
-                                                            {result.testPassed ? (
-                                                                <CheckCircle2 className="w-4 h-4" />
-                                                            ) : (
-                                                                <XCircle className="w-4 h-4" />
+                                                            <h3 className={`font-semibold text-sm flex items-center gap-2 ${result.testPassed ? 'text-green-800' : 'text-red-800'
+                                                                }`}>
+                                                                {result.testPassed ? (
+                                                                    <CheckCircle2 className="w-4 h-4" />
+                                                                ) : (
+                                                                    <XCircle className="w-4 h-4" />
+                                                                )}
+                                                                Test Case {idx + 1}
+                                                                {result.testPassed ? ' - Passed ✓' : ' - Failed ✗'}
+                                                            </h3>
+                                                        </div>
+
+                                                        <div className="p-4 space-y-3">
+                                                            {result.input && (
+                                                                <div>
+                                                                    <div className="text-xs font-semibold text-gray-500 mb-1">INPUT:</div>
+                                                                    <div className="bg-gray-100 p-2 rounded text-sm font-mono border">
+                                                                        {result.input}
+                                                                    </div>
+                                                                </div>
                                                             )}
-                                                            Test Case {idx + 1}
-                                                            {result.testPassed ? ' - Passed ✓' : ' - Failed ✗'}
-                                                        </h3>
-                                                    </div>
 
-                                                    <div className="p-4 space-y-3">
-                                                        {result.input && (
-                                                            <div>
-                                                                <div className="text-xs font-semibold text-gray-500 mb-1">INPUT:</div>
-                                                                <div className="bg-gray-100 p-2 rounded text-sm font-mono border">
-                                                                    {result.input}
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div>
+                                                                    <div className="text-xs font-semibold text-gray-500 mb-1">EXPECTED:</div>
+                                                                    <div className="bg-blue-100 p-2 rounded text-sm font-mono border text-blue-800">
+                                                                        {result.expected || '(no output expected)'}
+                                                                    </div>
                                                                 </div>
-                                                            </div>
-                                                        )}
-
-                                                        <div className="grid grid-cols-2 gap-3">
-                                                            <div>
-                                                                <div className="text-xs font-semibold text-gray-500 mb-1">EXPECTED:</div>
-                                                                <div className="bg-blue-100 p-2 rounded text-sm font-mono border text-blue-800">
-                                                                    {result.expected || '(no output expected)'}
-                                                                </div>
-                                                            </div>
-                                                            <div>
-                                                                <div className="text-xs font-semibold text-gray-500 mb-1">YOUR OUTPUT:</div>
-                                                                <div className={`p-2 rounded text-sm font-mono border ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                                                                    }`}>
-                                                                    {result.error ? (
-                                                                        <div className="text-red-600">
-                                                                            <div className="font-bold">Error:</div>
-                                                                            <div>{result.error}</div>
-                                                                        </div>
-                                                                    ) : (
-                                                                        result.output || '(no output)'
-                                                                    )}
+                                                                <div>
+                                                                    <div className="text-xs font-semibold text-gray-500 mb-1">YOUR OUTPUT:</div>
+                                                                    <div className={`p-2 rounded text-sm font-mono border ${result.testPassed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                                                        }`}>
+                                                                        {result.error ? (
+                                                                            <div className="text-red-600">
+                                                                                <div className="font-bold">Error:</div>
+                                                                                <div>{result.error}</div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            result.output || '(no output)'
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {/* Encouragement for failed submissions */}
-                                    {output.isSubmission && output.status === 'error' && (
-                                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                                            <div className="flex items-center gap-2 text-blue-800 mb-2">
-                                                <Target className="w-4 h-4" />
-                                                <span className="font-semibold">Keep Going!</span>
+                                                ))}
                                             </div>
-                                            <p className="text-sm text-blue-700">
-                                                Don't worry - practice makes perfect! Review the failed test cases above,
-                                                adjust your code, and try again. You have unlimited attempts.
-                                            </p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                        )}
+
+                                        {/* Encouragement for failed submissions */}
+                                        {output.isSubmission && output.status === 'error' && (
+                                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                                                <div className="flex items-center gap-2 text-blue-800 mb-2">
+                                                    <Target className="w-4 h-4" />
+                                                    <span className="font-semibold">Keep Going!</span>
+                                                </div>
+                                                <p className="text-sm text-blue-700">
+                                                    Don't worry - practice makes perfect! Review the failed test cases above,
+                                                    adjust your code, and try again. You have unlimited attempts.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
 

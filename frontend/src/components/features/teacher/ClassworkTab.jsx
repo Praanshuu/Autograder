@@ -3,6 +3,12 @@ import { Plus, StickyNote, FileText, Calendar, Loader2 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { Button } from "../../ui/button";
 import { Card } from "../../ui/card";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "../../ui/dropdown-menu";
 import { assignmentService } from "../../../services/assignmentService";
 
 export default function ClassworkTab() {
@@ -41,12 +47,31 @@ export default function ClassworkTab() {
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <Button className="gap-2 shadow-sm" asChild>
-                    <Link to={`/teacher/assignment/create?class_id=${classId}`}>
-                        <Plus className="w-5 h-5" />
-                        Create
-                    </Link>
-                </Button>
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button className="gap-2 shadow-sm">
+                            <Plus className="w-5 h-5" />
+                            Create
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem asChild>
+                            <Link to={`/teacher/assignment/create?class_id=${classId}&type=assignment&mode=practice`} className="cursor-pointer w-full text-sm font-medium">
+                                Assignment
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <Link to={`/teacher/assignment/create?class_id=${classId}&type=assignment&mode=exam`} className="cursor-pointer w-full text-sm font-medium">
+                                Exam
+                            </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem asChild>
+                            <Link to={`/teacher/assignment/create?class_id=${classId}&type=quiz&mode=practice`} className="cursor-pointer w-full text-sm font-medium">
+                                Quiz
+                            </Link>
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
                 <div className="text-sm text-gray-500 font-medium">
                     View your work
                 </div>
@@ -74,6 +99,12 @@ export default function ClassworkTab() {
                                                 Due {new Date(assignment.due_date).toLocaleDateString()}
                                             </div>
                                         )}
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${assignment.type === 'quiz' ? "bg-purple-50 text-purple-700 border-purple-200" :
+                                                assignment.mode === 'exam' ? "bg-red-50 text-red-700 border-red-200" :
+                                                    "bg-blue-50 text-blue-700 border-blue-200"
+                                            } capitalize`}>
+                                            {assignment.type === 'quiz' ? 'Quiz' : assignment.mode === 'exam' ? 'Exam' : 'Assignment'}
+                                        </span>
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${assignment.status === "published" ? "bg-green-50 text-green-700 border-green-200" :
                                             "bg-gray-100 text-gray-700 border-gray-200"
                                             }`}>
@@ -92,8 +123,8 @@ export default function ClassworkTab() {
                 {assignments.length === 0 && (
                     <div className="p-12 text-center border-2 border-dashed border-gray-200 rounded-xl">
                         <StickyNote className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900">Assignments will appear here</h3>
-                        <p className="text-gray-500 mt-1">Create assignments to get started.</p>
+                        <h3 className="text-lg font-medium text-gray-900">Classwork will appear here</h3>
+                        <p className="text-gray-500 mt-1">Create assignments, exams, or quizzes to get started.</p>
                     </div>
                 )}
             </div>

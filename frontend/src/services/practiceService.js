@@ -32,6 +32,10 @@ export const practiceService = {
     return await api.get(url);
   },
 
+  deletePracticeLibraryEntry: async (entryId) => {
+    return await api.delete(`${API_CONFIG.ENDPOINTS.GAMIFICATION.PRACTICE_LIBRARY}${entryId}/`);
+  },
+
   // Practice Submissions (for teachers to view)
   getPracticeSubmissions: async (params = {}) => {
     const queryParams = new URLSearchParams(params).toString();
@@ -69,10 +73,9 @@ export const practiceService = {
   },
 
   // Practice Code Submission
-  submitPracticeCode: async (questionId, codeData) => {
-    return await api.post(`${API_CONFIG.ENDPOINTS.GAMIFICATION.PRACTICE_QUESTIONS}${questionId}/submit/`, {
-      source_code: codeData.code,
-      language: codeData.language
-    });
+  submitPracticeCode: async (questionId, payload) => {
+    // Pass payload as-is: supports both coding { source_code, language }
+    // and MCQ { selected_option } submission formats.
+    return await api.post(`${API_CONFIG.ENDPOINTS.GAMIFICATION.PRACTICE_QUESTIONS}${questionId}/submit/`, payload);
   },
 };

@@ -48,6 +48,7 @@ class SubmissionAttempt(models.Model):
     detected_keywords = models.JSONField(default=list, blank=True)
     source_code = models.TextField(blank=True) # Snapshot of code at submission time
     ai_analysis_data = models.JSONField(null=True, blank=True)  # New field for AI analysis results
+    response_data = models.JSONField(null=True, blank=True) # Stores MCQ selected option or other non-code responses
     
     class Meta:
         db_table = 'submission_attempts'

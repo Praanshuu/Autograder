@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
-import { Search, BookOpen, Plus, Loader2, AlertCircle, Filter } from "lucide-react";
+import { Search, BookOpen, Plus, Loader2, AlertCircle, Filter, Trash2 } from "lucide-react";
 
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "../../ui/dialog";
 import { Button } from "../../ui/button";
 import { Input } from "../../ui/input";
@@ -28,7 +29,7 @@ const getDifficultyColor = (difficulty) => {
   }
 };
 
-const LibraryQuestionCard = ({ libraryEntry, onAdd, isAdding }) => {
+const LibraryQuestionCard = ({ libraryEntry, onAdd, isAdding, onDelete, isDeleting }) => {
   const question = libraryEntry.question;
 
   return (
@@ -36,7 +37,7 @@ const LibraryQuestionCard = ({ libraryEntry, onAdd, isAdding }) => {
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-base font-semibold text-gray-900 truncate">
+            <CardTitle className="text-base font-semibold text-gray-900 truncate pr-8">
               {question.title}
             </CardTitle>
             <div className="flex items-center gap-2 mt-2">
@@ -48,13 +49,25 @@ const LibraryQuestionCard = ({ libraryEntry, onAdd, isAdding }) => {
               </Badge>
             </div>
           </div>
+          {onDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 flex-shrink-0"
+              onClick={() => onDelete(libraryEntry)}
+              disabled={isDeleting || isAdding}
+              title="Remove from Library"
+            >
+              {isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent className="pt-0">
         <p className="text-sm text-gray-600 mb-4 line-clamp-3">
           {question.description}
         </p>
-        
+
         <div className="flex items-center justify-between text-sm text-gray-500 mb-4">
           <span>{question.point_value} points</span>
           <span>{question.test_cases?.length || 0} test cases</span>
@@ -99,7 +112,7 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
   // Data State
   const [libraryQuestions, setLibraryQuestions] = useState([]);
   const [filteredQuestions, setFilteredQuestions] = useState([]);
-  
+
   // UI State
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -107,6 +120,7 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
   const [difficultyFilter, setDifficultyFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [addingQuestions, setAddingQuestions] = useState(new Set());
+  const [deletingQuestions, setDeletingQuestions] = useState(new Set());
 
   // Derived data
   const categories = [...new Set(libraryQuestions.map(lq => lq.question.category).filter(Boolean))];
@@ -182,7 +196,7 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
 
       const response = await practiceService.createPracticeQuestion(questionData);
       onQuestionAdded({ ...libraryEntry, question: response.data });
-      
+
       // Show success feedback (you could add a toast notification here)
       console.log('Question added successfully');
     } catch (err) {
@@ -192,6 +206,29 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
       setAddingQuestions(prev => {
         const newSet = new Set(prev);
         newSet.delete(questionId);
+        return newSet;
+      });
+    }
+  };
+
+  const handleDeleteLibraryEntry = async (libraryEntry) => {
+    if (!confirm(`Are you sure you want to remove "${libraryEntry.question.title}" from the Global Library? This won't delete past assignments.`)) {
+      return;
+    }
+
+    const entryId = libraryEntry.id;
+    setDeletingQuestions(prev => new Set([...prev, entryId]));
+
+    try {
+      await practiceService.deletePracticeLibraryEntry(entryId);
+      setLibraryQuestions(prev => prev.filter(q => q.id !== entryId));
+    } catch (err) {
+      console.error('Failed to remove question from library:', err);
+      alert('Failed to remove question. Please try again.');
+    } finally {
+      setDeletingQuestions(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(entryId);
         return newSet;
       });
     }
@@ -211,6 +248,9 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
             <BookOpen className="w-5 h-5" />
             Practice Question Library
           </DialogTitle>
+          <DialogDescription>
+            Browse and add public questions from the global repository to your assignments.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
@@ -320,6 +360,8 @@ export default function PracticeLibraryDialog({ open, onOpenChange, onQuestionAd
                     libraryEntry={libraryEntry}
                     onAdd={handleAddQuestion}
                     isAdding={addingQuestions.has(libraryEntry.question.id)}
+                    onDelete={handleDeleteLibraryEntry}
+                    isDeleting={deletingQuestions.has(libraryEntry.id)}
                   />
                 ))}
               </div>

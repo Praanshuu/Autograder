@@ -97,9 +97,22 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Ensure 'type' is set to 'assignment'
-        if 'type' not in request.data:
-            request.data['type'] = 'assignment'
+        # Handle type and mode
+        req_type = request.data.get('type', 'assignment')
+        req_mode = request.data.get('mode', 'practice')
+        
+        # Validate type
+        valid_types = [t[0] for t in Assignment.TYPE_CHOICES]
+        if req_type not in valid_types:
+            req_type = 'assignment'
+            
+        # Validate mode
+        valid_modes = [m[0] for m in Assignment.MODE_CHOICES]
+        if req_mode not in valid_modes:
+            req_mode = 'practice'
+            
+        request.data['type'] = req_type
+        request.data['mode'] = req_mode
 
         return super().create(request, *args, **kwargs)
 
@@ -121,9 +134,18 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Ensure 'type' is set
-        if 'type' not in request.data:
-            request.data['type'] = 'assignment'
+        # Handle type and mode
+        if 'type' in request.data:
+            req_type = request.data.get('type')
+            valid_types = [t[0] for t in Assignment.TYPE_CHOICES]
+            if req_type not in valid_types:
+                request.data['type'] = 'assignment'
+                
+        if 'mode' in request.data:
+            req_mode = request.data.get('mode')
+            valid_modes = [m[0] for m in Assignment.MODE_CHOICES]
+            if req_mode not in valid_modes:
+                request.data['mode'] = 'practice'
 
         return super().update(request, *args, **kwargs)
 
@@ -144,6 +166,16 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     )
                 except Question.DoesNotExist:
                     pass # Ignore invalid question IDs
+
+        # Ensure exam questions are NOT in the Practice Library
+        if assignment.mode == 'exam':
+            try:
+                from gamification.models import PracticeQuestionLibrary
+                from .models import AssignmentQuestion
+                q_ids = AssignmentQuestion.objects.filter(assignment=assignment).values_list('question_id', flat=True)
+                PracticeQuestionLibrary.objects.filter(question_id__in=q_ids).delete()
+            except Exception as e:
+                logger.warning(f"Could not remove exam questions from Practice Library: {e}")
 
     def perform_update(self, serializer):
         user = self.request.user
@@ -192,6 +224,16 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                     )
                 except Question.DoesNotExist:
                     pass
+                    
+        # Ensure exam questions are NOT in the Practice Library
+        if assignment.mode == 'exam':
+            try:
+                from gamification.models import PracticeQuestionLibrary
+                from .models import AssignmentQuestion
+                q_ids = AssignmentQuestion.objects.filter(assignment=assignment).values_list('question_id', flat=True)
+                PracticeQuestionLibrary.objects.filter(question_id__in=q_ids).delete()
+            except Exception as e:
+                logger.warning(f"Could not remove exam questions from Practice Library: {e}")
     
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):
@@ -663,6 +705,19 @@ class QuestionViewSet(viewsets.ModelViewSet):
             ConfigGenerator.generate_question_config(question)
         except Exception as e:
             print(f"Warning: Failed to generate config for question {question.id}: {e}")
+            
+        # Automatically add the new question to the Practice Question Library
+        try:
+            from gamification.models import PracticeQuestionLibrary
+            PracticeQuestionLibrary.objects.get_or_create(
+                question=question,
+                defaults={
+                    'is_public': True,
+                    'tags': question.tags
+                }
+            )
+        except Exception as e:
+            print(f"Warning: Failed to add question {question.id} to Practice Library: {e}")
 
     def perform_update(self, serializer):
         question = serializer.save()
