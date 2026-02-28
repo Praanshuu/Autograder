@@ -8,13 +8,13 @@ import { gamificationService } from '../../../services/gamificationService';
 import { useLeaderboardWebSocket, useAuthenticatedWebSocket } from '../../../hooks/useWebSocket';
 import './MobileResponsive.css';
 
-const LeaderboardWidget = ({ 
-  type = 'global', 
-  classId = null, 
-  limit = 10, 
+const LeaderboardWidget = ({
+  type = 'global',
+  classId = null,
+  limit = 10,
   showUserRank = true,
   compact = false,
-  className = '' 
+  className = ''
 }) => {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [userRank, setUserRank] = useState(null);
@@ -88,7 +88,8 @@ const LeaderboardWidget = ({
 
       if (leaderboardResponse.success) {
         setPreviousData(leaderboardData);
-        const leaderboardResult = leaderboardResponse.data.results || leaderboardResponse.data;
+        // The gamification endpoint returns { leaderboard: [...], total_users: ... }
+        const leaderboardResult = leaderboardResponse.data.leaderboard || leaderboardResponse.data.results || leaderboardResponse.data;
         setLeaderboardData(Array.isArray(leaderboardResult) ? leaderboardResult : []);
       }
 
@@ -109,7 +110,7 @@ const LeaderboardWidget = ({
   useEffect(() => {
     if (!isConnected && isAuthenticated) {
       fetchLeaderboardData();
-      
+
       // Set up polling as fallback
       const interval = setInterval(fetchLeaderboardData, 30000);
       return () => clearInterval(interval);
@@ -120,7 +121,7 @@ const LeaderboardWidget = ({
   const getRankChange = (currentRank, userId) => {
     const previousEntry = previousData.find(entry => entry.user.id === userId);
     if (!previousEntry) return null;
-    
+
     const rankDiff = previousEntry.rank - currentRank;
     if (rankDiff > 0) return { direction: 'up', change: rankDiff };
     if (rankDiff < 0) return { direction: 'down', change: Math.abs(rankDiff) };
@@ -230,7 +231,7 @@ const LeaderboardWidget = ({
           </Badge>
         </CardTitle>
       </CardHeader>
-      
+
       <CardContent className="pt-0">
         {/* User's Current Rank (if not in top list) */}
         {userRank && userRank.user_rank > limit && (
@@ -262,7 +263,7 @@ const LeaderboardWidget = ({
             {leaderboardData.map((entry, index) => {
               const rankChange = getRankChange(entry.rank, entry.user.id);
               const isCurrentUser = userRank && entry.user.id === userRank.user_data?.user?.id;
-              
+
               return (
                 <motion.div
                   key={entry.user.id}
@@ -287,7 +288,7 @@ const LeaderboardWidget = ({
                         <span className="text-sm font-bold text-gray-600">#{entry.rank}</span>
                       )}
                     </div>
-                    
+
                     {/* Rank Change Indicator */}
                     {rankChange && (
                       <motion.div
@@ -295,8 +296,8 @@ const LeaderboardWidget = ({
                         animate={{ scale: 1 }}
                         className={`
                           flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-semibold
-                          ${rankChange.direction === 'up' 
-                            ? 'bg-green-100 text-green-700' 
+                          ${rankChange.direction === 'up'
+                            ? 'bg-green-100 text-green-700'
                             : 'bg-red-100 text-red-700'
                           }
                         `}
@@ -315,10 +316,9 @@ const LeaderboardWidget = ({
                   <div className="flex-1 min-w-0">
                     <div className="leaderboard-entry-header sm:block">
                       <div className="flex items-center gap-2">
-                        <p className={`font-semibold truncate ${
-                          isCurrentUser ? 'text-indigo-900' : 'text-gray-900'
-                        }`}>
-                          {entry.user.first_name && entry.user.last_name 
+                        <p className={`font-semibold truncate ${isCurrentUser ? 'text-indigo-900' : 'text-gray-900'
+                          }`}>
+                          {entry.user.first_name && entry.user.last_name
                             ? `${entry.user.first_name} ${entry.user.last_name}`
                             : entry.user.username
                           }

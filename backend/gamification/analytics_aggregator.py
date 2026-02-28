@@ -348,40 +348,65 @@ class AnalyticsAggregator:
     
     def _calculate_concept_mastery(self, student) -> Dict[str, float]:
         """
-        Calculate mastery percentage by concept/category.
-        
+        Calculate mastery percentage by topic/tag.
+
+        Priority order:
+        1. Tags from PracticeQuestionLibrary (e.g. 'arrays', 'sorting')
+        2. question.difficulty as a broad bucket ('easy', 'medium', 'hard')
+
         Returns:
-            Dict[str, float]: Category -> mastery percentage
+            Dict[str, float]: topic -> mastery percentage (0-100)
         """
-        concept_mastery = {}
-        
-        # Get all categories from practice questions the student has attempted
-        attempted_categories = PracticeProgress.objects.filter(
-            student=student
-        ).values_list('question__category', flat=True).distinct()
-        
-        for category in attempted_categories:
-            # Count total questions in this category that the student has attempted
-            total_attempted = PracticeProgress.objects.filter(
-                student=student,
-                question__category=category
-            ).count()
-            
-            # Count completed questions in this category
-            completed = PracticeProgress.objects.filter(
-                student=student,
-                question__category=category,
-                is_completed=True
-            ).count()
-            
-            # Calculate mastery percentage
-            if total_attempted > 0:
-                mastery_percentage = (completed / total_attempted) * 100
-                concept_mastery[category] = round(mastery_percentage, 2)
-        
-        # TODO: Add assignment-based concept mastery when assignment categories are available
-        
+        from .models import PracticeQuestionLibrary
+
+        # Fetch all practice progress for this student
+        progress_qs = PracticeProgress.objects.filter(student=student).select_related('question')
+        if not progress_qs.exists():
+            return {}
+
+        # Build a map: question_id -> is_completed
+        completion_map = {p.question_id: p.is_completed for p in progress_qs}
+        question_ids = list(completion_map.keys())
+
+        # Try to get tags for each question from the library
+        library_qs = PracticeQuestionLibrary.objects.filter(
+            question_id__in=question_ids
+        ).values('question_id', 'tags')
+
+        # question_id -> list of tags
+        tag_map = {}
+        for lib in library_qs:
+            tags = lib.get('tags') or []
+            if isinstance(tags, list) and tags:
+                tag_map[lib['question_id']] = [t.strip().lower() for t in tags if t.strip()]
+
+        # Accumulate per-tag: { tag: [total_count, completed_count] }
+        tag_stats: Dict[str, list] = {}
+
+        for qid, is_completed in completion_map.items():
+            tags = tag_map.get(qid)
+            if not tags:
+                # Fallback: bucket by difficulty
+                question = progress_qs.get(question_id=qid).question
+                difficulty = getattr(question, 'difficulty', None)
+                tags = [f"{difficulty.lower()} difficulty"] if difficulty else ['general']
+
+            for tag in tags:
+                if tag not in tag_stats:
+                    tag_stats[tag] = [0, 0]
+                tag_stats[tag][0] += 1  # total
+                if is_completed:
+                    tag_stats[tag][1] += 1  # completed
+
+        # Convert to mastery percentages; only include tags with ≥1 attempt
+        concept_mastery = {
+            tag: round((completed / total) * 100, 2)
+            for tag, (total, completed) in tag_stats.items()
+            if total > 0
+        }
+
         return concept_mastery
+
     
     def get_student_performance_summary(self, student) -> Dict[str, Any]:
         """
@@ -449,7 +474,7 @@ class AnalyticsAggregator:
                 'longest_streak': analytics.longest_streak,
                 'total_time_spent': analytics.total_time_spent,
                 'last_activity': analytics.last_activity,
-                'concept_mastery': analytics.concept_mastery
+                'concept_mastery': self._calculate_concept_mastery(student)
             },
             'points': points_data,
             'rank': rank_data,

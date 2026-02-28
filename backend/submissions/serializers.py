@@ -244,7 +244,7 @@ class GradebookEntrySerializer(serializers.ModelSerializer):
     """Serializer for gradebook entries including points information"""
     student = UserSerializer(read_only=True)
     content_item_title = serializers.CharField(source='content_item.title', read_only=True)
-    content_item_type = serializers.CharField(source='content_item.content_type', read_only=True)
+    content_item_type = serializers.CharField(source='content_item.actual_type', read_only=True)
     
     class Meta:
         model = GradebookEntry

@@ -7,11 +7,8 @@ import {
     Target,
     Flame,
     FileCode,
-    ArrowUpRight,
-    TrendingDown,
     Loader2,
     Plus,
-    AlertTriangle,
     Timer
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -20,6 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import StudentLayout from '../../components/layout/StudentLayout';
 import { assignmentService } from '../../services/assignmentService';
 import { submissionService } from '../../services/submissionService';
+import { gamificationService } from '../../services/gamificationService';
 import { Button } from '../../components/ui/button';
 import JoinClassDialog from '../../components/features/student/JoinClassDialog';
 import RiveDashboardCharacter from '../../components/features/student/RiveDashboardCharacter';
@@ -46,6 +44,8 @@ const StudentDashboard = () => {
     const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
     const [showStartConfirmation, setShowStartConfirmation] = useState(false);
     const [selectedAssignment, setSelectedAssignment] = useState(null);
+    // Real analytics state
+    const [analyticsData, setAnalyticsData] = useState(null);
 
     const fetchAssignments = async () => {
         try {
@@ -84,7 +84,27 @@ const StudentDashboard = () => {
     useEffect(() => {
         const init = async () => {
             setLoading(true);
-            await Promise.all([fetchAssignments(), fetchRecentActivity()]);
+            await Promise.all([
+                fetchAssignments(),
+                fetchRecentActivity(),
+                gamificationService.getStudentAnalytics()
+                    .then(res => {
+                        if (res.success) {
+                            const data = res.data;
+                            const core = data?.data?.analytics || data?.analytics || {};
+                            const trend = data?.data?.performance_trend || data?.performance_trend || [];
+                            // this week's activity
+                            const thisWeek = trend.slice(-7).reduce((s, d) => s + (d.total_activities || 0), 0);
+                            setAnalyticsData({
+                                currentStreak: core.current_streak || 0,
+                                totalPracticeCompleted: core.total_practice_completed || 0,
+                                totalAssignmentsCompleted: core.total_assignments_completed || 0,
+                                thisWeekActivity: thisWeek,
+                            });
+                        }
+                    })
+                    .catch(() => { })
+            ]);
             setLoading(false);
         };
         init();
@@ -122,12 +142,35 @@ const StudentDashboard = () => {
     const activeAssignment = sortedAssignments[0];
     const upNext = sortedAssignments.slice(1, 4);
 
-    // Placeholder stats until we have a real submission history API
-    const MOMENTUM_STATS = [
-        { label: "Active Days", value: "1", icon: Flame, color: "text-orange-500", bg: "bg-orange-50" },
-        { label: "Problems Solved", value: "0", icon: CheckCircle2, color: "text-green-500", bg: "bg-green-50" },
-        { label: "Tests Passed", value: "0", icon: FileCode, color: "text-blue-500", bg: "bg-blue-50" },
-    ];
+    const MOMENTUM_STATS = analyticsData
+        ? [
+            {
+                label: "Day Streak",
+                value: String(analyticsData.currentStreak),
+                icon: Flame,
+                color: "text-orange-500",
+                bg: "bg-orange-50",
+            },
+            {
+                label: "Practice Solved",
+                value: String(analyticsData.totalPracticeCompleted),
+                icon: CheckCircle2,
+                color: "text-green-500",
+                bg: "bg-green-50",
+            },
+            {
+                label: "Assignments Done",
+                value: String(analyticsData.totalAssignmentsCompleted),
+                icon: FileCode,
+                color: "text-blue-500",
+                bg: "bg-blue-50",
+            },
+        ]
+        : [
+            { label: "Day Streak", value: "—", icon: Flame, color: "text-orange-500", bg: "bg-orange-50" },
+            { label: "Practice Solved", value: "—", icon: CheckCircle2, color: "text-green-500", bg: "bg-green-50" },
+            { label: "Assignments Done", value: "—", icon: FileCode, color: "text-blue-500", bg: "bg-blue-50" },
+        ];
 
     if (loading) {
         return (
@@ -351,16 +394,22 @@ const StudentDashboard = () => {
 
                                 <h3 className="text-lg font-bold text-gray-900 mb-2">Weekly Goal</h3>
                                 <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-                                    Solve 3 medium difficulty problems to maintain your streak.
+                                    Complete 5 activities this week to maintain your momentum.
                                 </p>
-
-                                <div className="space-y-2 mb-2">
-                                    <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                        <span>Progress</span>
-                                        <span>1/3</span>
-                                    </div>
-                                    <ProgressBar progress={33} className="bg-gray-100" />
-                                </div>
+                                {(() => {
+                                    const done = Math.min(analyticsData?.thisWeekActivity ?? 0, 5);
+                                    const goal = 5;
+                                    const pct = Math.round((done / goal) * 100);
+                                    return (
+                                        <div className="space-y-2 mb-2">
+                                            <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                                <span>Progress</span>
+                                                <span>{done}/{goal}</span>
+                                            </div>
+                                            <ProgressBar progress={pct} className="bg-gray-100" />
+                                        </div>
+                                    );
+                                })()}
                             </div>
                         </motion.div>
 

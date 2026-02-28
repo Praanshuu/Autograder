@@ -2,29 +2,26 @@ import { useState, useEffect } from "react";
 import StudentLayout from "../../components/layout/StudentLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-import { 
-    TrendingUp, 
-    Clock, 
-    Target, 
-    Award, 
-    BarChart3, 
-    Calendar,
-    Code2,
-    Trophy,
-    Zap,
+import {
+    TrendingUp,
+    Clock,
+    Target,
+    Flame,
     Brain,
+    Code2,
+    Calendar,
+    Loader2,
     Star,
-    ChevronRight,
-    Filter,
-    Loader2
+    Users,
+    BookOpen,
 } from "lucide-react";
-import { 
-    LineChart, 
-    Line, 
-    XAxis, 
-    YAxis, 
-    CartesianGrid, 
-    Tooltip, 
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
     ResponsiveContainer,
     BarChart,
     Bar,
@@ -35,39 +32,52 @@ import {
     PolarGrid,
     PolarAngleAxis,
     PolarRadiusAxis,
-    Radar
+    Radar,
+    Brush,
+    Legend,
 } from "recharts";
 import { LeaderboardWidget, PointsDisplay, AchievementBadges, ErrorBoundary } from "../../components/features/gamification";
 import { submissionService } from "../../services/submissionService";
 import { gamificationService } from "../../services/gamificationService";
+import { practiceService } from "../../services/practiceService";
 
-const StatCard = ({ title, value, subtitle, icon: Icon, trend, color = "blue" }) => {
-    const colorClasses = {
-        blue: "bg-blue-50 text-blue-600 border-blue-100",
-        green: "bg-green-50 text-green-600 border-green-100",
-        purple: "bg-purple-50 text-purple-600 border-purple-100",
-        orange: "bg-orange-50 text-orange-600 border-orange-100"
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+const COLORS = ["#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#EC4899"];
+
+const TYPE_COLORS = {
+    assignment: "#3B82F6",
+    quiz: "#8B5CF6",
+    exam: "#EF4444",
+};
+
+const TYPE_LABELS = {
+    assignment: "Assignment",
+    quiz: "Quiz",
+    exam: "Exam",
+};
+
+// ─── Sub-components ─────────────────────────────────────────────────────────────
+
+const StatCard = ({ title, value, subtitle, icon: Icon, color = "blue" }) => {
+    const colorMap = {
+        blue: "bg-blue-50 text-blue-600",
+        green: "bg-green-50 text-green-600",
+        purple: "bg-purple-50 text-purple-600",
+        orange: "bg-orange-50 text-orange-600",
+        rose: "bg-rose-50 text-rose-600",
     };
-
     return (
-        <Card>
-            <CardContent className="p-6">
+        <Card className="hover:shadow-md transition-shadow">
+            <CardContent className="p-5">
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-sm font-medium text-gray-600">{title}</p>
-                        <p className="text-2xl font-bold text-gray-900">{value}</p>
-                        {subtitle && (
-                            <p className="text-sm text-gray-500 mt-1">{subtitle}</p>
-                        )}
-                        {trend && (
-                            <div className="flex items-center mt-2 text-sm">
-                                <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
-                                <span className="text-green-600">{trend}</span>
-                            </div>
-                        )}
+                        <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{title}</p>
+                        <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+                        {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
                     </div>
-                    <div className={`p-3 rounded-lg ${colorClasses[color]}`}>
-                        <Icon className="w-6 h-6" />
+                    <div className={`p-3 rounded-xl ${colorMap[color]}`}>
+                        <Icon className="w-5 h-5" />
                     </div>
                 </div>
             </CardContent>
@@ -75,143 +85,118 @@ const StatCard = ({ title, value, subtitle, icon: Icon, trend, color = "blue" })
     );
 };
 
-const AchievementBadge = ({ achievement }) => {
-    const rarityColors = {
-        common: "bg-gray-100 text-gray-700 border-gray-200",
-        uncommon: "bg-green-100 text-green-700 border-green-200",
-        rare: "bg-purple-100 text-purple-700 border-purple-200",
-        legendary: "bg-yellow-100 text-yellow-700 border-yellow-200"
-    };
-
+// Custom tooltip for grade progression
+const GradeTooltip = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0].payload;
     return (
-        <div className={`p-4 rounded-lg border ${rarityColors[achievement.rarity]} hover:shadow-md transition-shadow`}>
-            <div className="flex items-start gap-3">
-                <span className="text-2xl">{achievement.icon}</span>
-                <div className="flex-1">
-                    <h4 className="font-semibold text-sm">{achievement.title}</h4>
-                    <p className="text-xs opacity-80 mt-1">{achievement.description}</p>
-                    <p className="text-xs opacity-60 mt-2">{new Date(achievement.date).toLocaleDateString()}</p>
-                </div>
-            </div>
+        <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-3 text-sm">
+            <p className="font-semibold text-gray-900">{d.label}</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+                <span className="inline-block px-1.5 py-0.5 rounded text-white text-xs font-medium mr-1"
+                    style={{ background: TYPE_COLORS[d.type] || "#3B82F6" }}>
+                    {TYPE_LABELS[d.type] || "Assignment"}
+                </span>
+            </p>
+            <p className="text-indigo-600 font-bold mt-1">{d.score}%</p>
         </div>
     );
 };
 
+// ─── Main component ─────────────────────────────────────────────────────────────
+
 export default function StudentPerformance() {
-    const [selectedTimeframe, setSelectedTimeframe] = useState("all");
     const [performanceData, setPerformanceData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [timeframe, setTimeframe] = useState("30d");
 
-    // Load performance data from API
-    useEffect(() => {
-        const loadPerformanceData = async () => {
-            try {
-                setLoading(true);
-                setError(null);
-                
-                // Fetch data from multiple endpoints
-                const [pointsSummary, userAchievements, gradebookSummary, userRank, userPoints] = await Promise.all([
-                    submissionService.getPointsSummary().catch(err => {
-                        console.warn('Points summary failed:', err);
-                        return { success: false, data: null };
-                    }),
-                    gamificationService.getUserAchievements().catch(err => {
-                        console.warn('Achievements failed:', err);
-                        return { success: false, data: [] };
-                    }),
-                    submissionService.getGradebookSummary().catch(err => {
-                        console.warn('Gradebook summary failed:', err);
-                        return { success: false, data: null };
-                    }),
-                    gamificationService.getUserRank('global').catch(err => {
-                        console.warn('User rank failed:', err);
-                        return { success: false, data: null };
-                    }),
-                    gamificationService.getUserPoints().catch(err => {
-                        console.warn('User points failed:', err);
-                        return { success: false, data: null };
-                    })
-                ]);
+    const formatTime = (minutes) => {
+        const hours = Math.floor(minutes / 60);
+        const mins = minutes % 60;
+        return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+    };
 
-                console.log('API Responses:', { pointsSummary, userAchievements, gradebookSummary, userRank, userPoints });
+    const loadData = async (tf = timeframe) => {
+        try {
+            setLoading(true);
+            setError(null);
 
-                // Extract data safely
-                const pointsData = pointsSummary.success ? pointsSummary.data : null;
-                const achievementsData = userAchievements.success ? userAchievements.data?.earned_achievements || [] : [];
-                const gradebookData = gradebookSummary.success ? gradebookSummary.data : null;
-                const rankData = userRank.success ? userRank.data : null;
-                const userPointsData = userPoints.success ? userPoints.data?.results?.[0] : null;
+            const [analyticsRes, performanceRes, gradebookRes, practiceAnalyticsRes] = await Promise.all([
+                gamificationService.getStudentAnalytics().catch(() => ({ success: false })),
+                gamificationService.getStudentPerformance(tf).catch(() => ({ success: false })),
+                submissionService.getGradebookSummary().catch(() => ({ success: false })),
+                practiceService.getPracticeAnalytics('summary').catch(() => ({ success: false })),
+            ]);
 
-                // Calculate time spent from assignment progress (mock for now)
-                const totalTimeSpent = 120; // 2 hours in minutes - from StudentAnalytics
+            // ── Core analytics ──
+            const analytics = analyticsRes.success ? analyticsRes.data : null;
+            const analyticsCore = analytics?.data?.analytics || analytics?.analytics || {};
+            const rankData = analytics?.data?.rank || analytics?.rank || null;
+            const pointsData = analytics?.data?.points || analytics?.points || {};
 
-                // Transform API data to match component expectations
-                const transformedData = {
-                    overview: {
-                        totalAssignments: gradebookData?.summary?.total_assignments || 0,
-                        completedAssignments: gradebookData?.summary?.total_assignments || 0,
-                        averageScore: gradebookData?.summary?.average_score || 0,
-                        currentStreak: 3, // From StudentAnalytics - 3 day streak
-                        totalTimeSpent: totalTimeSpent, // Time in minutes
-                        totalPoints: userPointsData?.total_points || pointsData?.points_summary?.total_points || 0,
-                        rank: rankData?.user_rank || 0,
-                        totalStudents: 13 // From leaderboard count
-                    },
-                    gradeHistory: gradebookData?.recent_entries?.map((entry, index) => ({
-                        assignment: entry.content_item?.title || `Assignment ${index + 1}`,
-                        score: entry.final_score || 0,
-                        date: entry.updated_at
-                    })) || [],
-                    achievements: achievementsData || [],
-                    pointsHistory: pointsData?.recent_assignment_points?.map(point => ({
-                        date: point.submitted_at,
-                        points: point.points_earned,
-                        assignment: point.assignment_question
-                    })) || [],
-                    // Mock data for charts until we implement full analytics
-                    difficultyStats: [
-                        { difficulty: "Easy", completed: 0, total: 1, avgScore: 0, avgTime: 0 },
-                        { difficulty: "Medium", completed: 0, total: 1, avgScore: 0, avgTime: 0 },
-                        { difficulty: "Hard", completed: 0, total: 1, avgScore: 0, avgTime: 0 }
-                    ],
-                    weeklyActivity: [
-                        { week: 'Week 1', assignments: 0 },
-                        { week: 'Week 2', assignments: 0 },
-                        { week: 'Week 3', assignments: 0 },
-                        { week: 'Week 4', assignments: 0 }
-                    ],
-                    languageStats: [
-                        { language: "Python", assignments: 0, avgScore: 0, timeSpent: 0 },
-                        { language: "Java", assignments: 0, avgScore: 0, timeSpent: 0 },
-                        { language: "C", assignments: 0, avgScore: 0, timeSpent: 0 }
-                    ],
-                    conceptMastery: [
-                        { concept: 'Arrays', mastery: 0 },
-                        { concept: 'Loops', mastery: 0 },
-                        { concept: 'Functions', mastery: 0 },
-                        { concept: 'Recursion', mastery: 0 },
-                        { concept: 'Data Structures', mastery: 0 }
-                    ],
-                    classComparison: [
-                        { metric: 'Average Score', student: gradebookData?.summary?.average_score || 0, classAvg: 75 },
-                        { metric: 'Completion Rate', student: 80, classAvg: 70 },
-                        { metric: 'Time Efficiency', student: 85, classAvg: 75 },
-                        { metric: 'Code Quality', student: 90, classAvg: 80 }
-                    ]
-                };
+            // ── Student-performance endpoint ──
+            const perfData = performanceRes.success ? performanceRes.data?.data : null;
 
-                setPerformanceData(transformedData);
-            } catch (err) {
-                console.error('Failed to load performance data:', err);
-                setError('Failed to load performance data. Please try refreshing the page.');
-            } finally {
-                setLoading(false);
-            }
-        };
+            // ── Gradebook: ALL entries, oldest first (for chart) ──
+            const gradebook = gradebookRes.success ? gradebookRes.data : null;
+            const gradeHistory = (gradebook?.recent_entries || []).map((entry, i) => ({
+                label: entry.content_item_title || `Entry ${i + 1}`,
+                type: (entry.content_item_type || 'assignment').toLowerCase(),
+                score: Math.round(entry.final_score || 0),
+                shortLabel: (entry.content_item_title || `#${i + 1}`).slice(0, 18),
+            }));
 
-        loadPerformanceData();
-    }, []);
+            // ── Practice summary ──
+            const practiceStats = practiceAnalyticsRes.success ? practiceAnalyticsRes.data?.data : null;
+
+            // ── Concept mastery ──
+            const masteryDict = analyticsCore.concept_mastery || {};
+            const conceptMastery = Object.entries(masteryDict).map(([concept, mastery]) => ({
+                concept,
+                mastery: Math.round(mastery),
+            }));
+
+            // ── Weekly activity: strictly from new endpoint, no fallback ──
+            const weeklyActivity = perfData?.weekly_activity || [];
+
+            // ── Language breakdown ──
+            const languageStats = (perfData?.language_breakdown || []).map(l => ({
+                language: (l.language || "python").charAt(0).toUpperCase() + (l.language || "python").slice(1),
+                submissions: l.submissions,
+                avgScore: l.avg_score,
+            }));
+
+            // ── Class comparison ──
+            const classComparison = perfData?.class_comparison || null;
+
+            setPerformanceData({
+                overview: {
+                    averageScore: Math.round(gradebook?.summary?.average_score || analyticsCore.average_score || 0),
+                    completedAssignments: gradebook?.summary?.total_assignments || analyticsCore.total_assignments_completed || 0,
+                    currentStreak: analyticsCore.current_streak || 0,
+                    longestStreak: analyticsCore.longest_streak || 0,
+                    totalTimeSpent: analyticsCore.total_time_spent || 0,
+                    totalPoints: pointsData?.total_points || 0,
+                    rank: rankData?.user_rank || 0,
+                    totalStudents: rankData?.total_users || 0,
+                    practiceCompleted: analyticsCore.total_practice_completed || practiceStats?.total_completed || 0,
+                },
+                gradeHistory,
+                weeklyActivity,
+                languageStats,
+                conceptMastery,
+                classComparison,
+            });
+        } catch (err) {
+            console.error("Failed to load performance data:", err);
+            setError("Failed to load performance data. Please try refreshing.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => { loadData(timeframe); }, [timeframe]);
 
     if (loading) {
         return (
@@ -229,7 +214,7 @@ export default function StudentPerformance() {
             <StudentLayout>
                 <div className="text-center py-8">
                     <p className="text-red-600 mb-4">{error}</p>
-                    <Button onClick={() => window.location.reload()}>Retry</Button>
+                    <Button onClick={() => loadData()}>Retry</Button>
                 </div>
             </StudentLayout>
         );
@@ -239,300 +224,328 @@ export default function StudentPerformance() {
         return (
             <StudentLayout>
                 <div className="text-center py-8">
-                    <p className="text-gray-600">No performance data available</p>
+                    <p className="text-gray-600">No performance data available yet. Start completing assignments or practice questions!</p>
                 </div>
             </StudentLayout>
         );
     }
 
-    const { overview, gradeHistory, difficultyStats, weeklyActivity, languageStats, conceptMastery, achievements, classComparison } = performanceData;
+    const { overview, gradeHistory, weeklyActivity, languageStats, conceptMastery, classComparison } = performanceData;
 
-    // Colors for charts
-    const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
-
-    // Format time in minutes to hours/minutes
-    const formatTime = (minutes) => {
-        const hours = Math.floor(minutes / 60);
-        const mins = minutes % 60;
-        return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    };
+    // For Brush: show last 10 points initially when chart has many entries
+    const brushStart = gradeHistory.length > 10 ? gradeHistory.length - 10 : 0;
 
     return (
         <StudentLayout>
             <div className="max-w-7xl mx-auto space-y-6 pb-10">
-                {/* Header */}
-                <div className="flex items-center justify-between">
+
+                {/* ── Header ── */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight text-gray-900">My Performance</h1>
-                        <p className="text-gray-500">Track your progress and analyze your coding journey.</p>
+                        <p className="text-gray-500 mt-1">Track your progress across assignments, exams, quizzes, and practice.</p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" size="sm">
-                            <Filter className="w-4 h-4 mr-2" />
-                            Filter
-                        </Button>
-                        <Button variant="outline" size="sm">
-                            Export Report
-                        </Button>
+                        {["7d", "30d", "all"].map((tf) => (
+                            <Button
+                                key={tf}
+                                variant={timeframe === tf ? "default" : "outline"}
+                                size="sm"
+                                onClick={() => setTimeframe(tf)}
+                                className={timeframe === tf ? "bg-indigo-600 text-white" : ""}
+                            >
+                                {tf === "7d" ? "7 Days" : tf === "30d" ? "30 Days" : "All Time"}
+                            </Button>
+                        ))}
                     </div>
                 </div>
 
-                {/* Overview Stats */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <StatCard
-                        title="Average Score"
-                        value={`${overview.averageScore}%`}
-                        subtitle={`${overview.completedAssignments}/${overview.totalAssignments} completed`}
-                        icon={Target}
-                        trend="+5.2% from last month"
-                        color="blue"
-                    />
-                    <StatCard
-                        title="Class Rank"
-                        value={`#${overview.rank}`}
-                        subtitle={`out of ${overview.totalStudents} students`}
-                        icon={Trophy}
-                        color="green"
-                    />
-                    <StatCard
-                        title="Time Spent"
-                        value={formatTime(overview.totalTimeSpent)}
-                        subtitle="Total coding time"
-                        icon={Clock}
-                        color="purple"
-                    />
-                    <StatCard
-                        title="Current Streak"
-                        value={`${overview.currentStreak} days`}
-                        subtitle="Daily coding streak"
-                        icon={Zap}
-                        trend="Personal best!"
-                        color="orange"
-                    />
+                {/* ── Overview Stats Row ── */}
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    <StatCard title="Avg Grade Score" value={`${overview.averageScore}%`} subtitle={`${overview.completedAssignments} graded`} icon={Target} color="blue" />
+                    <StatCard title="Current Streak" value={`${overview.currentStreak}d`} subtitle={`Best: ${overview.longestStreak}d`} icon={Flame} color="orange" />
+                    <StatCard title="Practice Solved" value={overview.practiceCompleted} subtitle="Questions" icon={Brain} color="purple" />
+                    <StatCard title="Time Invested" value={formatTime(overview.totalTimeSpent)} subtitle="Coding time" icon={Clock} color="green" />
+                    <StatCard title="Global Rank" value={overview.rank > 0 ? `#${overview.rank}` : "—"} subtitle={`of ${overview.totalStudents} students`} icon={Star} color="rose" />
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Grade Trend Chart */}
-                    <Card className="lg:col-span-2">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <TrendingUp className="w-5 h-5" />
-                                Grade Progression
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <LineChart data={gradeHistory.slice(-10)}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis 
-                                        dataKey="assignment" 
-                                        tick={{ fontSize: 12 }}
-                                        angle={-45}
-                                        textAnchor="end"
-                                        height={80}
-                                    />
-                                    <YAxis domain={[0, 100]} />
-                                    <Tooltip 
-                                        formatter={(value) => [`${value}%`, 'Score']}
-                                        labelFormatter={(label) => `Assignment: ${label}`}
-                                    />
-                                    <Line 
-                                        type="monotone" 
-                                        dataKey="score" 
-                                        stroke="#3B82F6" 
-                                        strokeWidth={3}
-                                        dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
-                                    />
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </CardContent>
-                    </Card>
-
-                    {/* Difficulty Breakdown */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <BarChart3 className="w-5 h-5" />
-                                By Difficulty
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
-                                {difficultyStats.map((stat, index) => (
-                                    <div key={stat.difficulty} className="space-y-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-sm font-medium">{stat.difficulty}</span>
-                                            <span className="text-sm text-gray-500">{stat.avgScore.toFixed(1)}%</span>
-                                        </div>
-                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                            <div 
-                                                className={`h-2 rounded-full ${
-                                                    stat.difficulty === 'Easy' ? 'bg-green-500' :
-                                                    stat.difficulty === 'Medium' ? 'bg-yellow-500' : 'bg-red-500'
-                                                }`}
-                                                style={{ width: `${(stat.completed / stat.total) * 100}%` }}
-                                            />
-                                        </div>
-                                        <div className="flex justify-between text-xs text-gray-500">
-                                            <span>{stat.completed}/{stat.total} completed</span>
-                                            <span>Avg: {formatTime(stat.avgTime)}</span>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Weekly Activity */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Calendar className="w-5 h-5" />
-                                Weekly Activity
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <ResponsiveContainer width="100%" height={250}>
-                                <BarChart data={weeklyActivity}>
-                                    <CartesianGrid strokeDasharray="3 3" />
-                                    <XAxis dataKey="week" />
-                                    <YAxis />
-                                    <Tooltip />
-                                    <Bar dataKey="assignments" fill="#3B82F6" name="Assignments" />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </CardContent>
-                    </Card>
-
-                    {/* Language Proficiency */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Code2 className="w-5 h-5" />
-                                Language Proficiency
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <ResponsiveContainer width="100%" height={250}>
-                                <PieChart>
-                                    <Pie
-                                        data={languageStats}
-                                        cx="50%"
-                                        cy="50%"
-                                        labelLine={false}
-                                        label={({ language, assignments }) => `${language} (${assignments})`}
-                                        outerRadius={80}
-                                        fill="#8884d8"
-                                        dataKey="assignments"
-                                    >
-                                        {languageStats.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                        ))}
-                                    </Pie>
-                                    <Tooltip />
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </CardContent>
-                    </Card>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    {/* Concept Mastery Radar */}
-                    <Card className="lg:col-span-2">
-                        <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <Brain className="w-5 h-5" />
-                                Concept Mastery
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <ResponsiveContainer width="100%" height={300}>
-                                <RadarChart data={conceptMastery}>
-                                    <PolarGrid />
-                                    <PolarAngleAxis dataKey="concept" tick={{ fontSize: 12 }} />
-                                    <PolarRadiusAxis domain={[0, 100]} />
-                                    <Radar
-                                        name="Mastery"
-                                        dataKey="mastery"
-                                        stroke="#3B82F6"
-                                        fill="#3B82F6"
-                                        fillOpacity={0.3}
-                                    />
-                                    <Tooltip />
-                                </RadarChart>
-                            </ResponsiveContainer>
-                        </CardContent>
-                    </Card>
-
-                    {/* Real Achievements Component */}
-                    <ErrorBoundary title="Achievement Error" message="Unable to load achievements">
-                      <AchievementBadges 
-                        showProgress={true}
-                        showNotifications={false}
-                        limit={8}
-                        className="lg:col-span-1"
-                      />
-                    </ErrorBoundary>
-                </div>
-
-                {/* Gamification Dashboard Row */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Points Display */}
-                    <ErrorBoundary title="Points Error" message="Unable to load points data">
-                      <PointsDisplay 
-                        showHistory={true}
-                        showBreakdown={true}
-                        className="lg:col-span-1"
-                      />
-                    </ErrorBoundary>
-
-                    {/* Leaderboard */}
-                    <ErrorBoundary title="Leaderboard Error" message="Unable to load leaderboard">
-                      <LeaderboardWidget 
-                        type="global"
-                        limit={10}
-                        showUserRank={true}
-                        className="lg:col-span-1"
-                      />
-                    </ErrorBoundary>
-                </div>
-
-                {/* Class Comparison */}
+                {/* ── Grade Progression (full-width) ── */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <Star className="w-5 h-5" />
-                            Class Comparison
+                            <TrendingUp className="w-5 h-5 text-indigo-500" />
+                            Grade Progression
+                            <span className="ml-auto text-xs font-normal text-gray-400 flex items-center gap-2">
+                                {Object.entries(TYPE_COLORS).map(([type, color]) => (
+                                    <span key={type} className="flex items-center gap-1">
+                                        <span className="inline-block w-2 h-2 rounded-full" style={{ background: color }} />
+                                        {TYPE_LABELS[type]}
+                                    </span>
+                                ))}
+                            </span>
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                            {classComparison.map((comparison, index) => (
-                                <div key={index} className="text-center">
-                                    <h4 className="text-sm font-medium text-gray-600 mb-2">{comparison.metric}</h4>
-                                    <div className="space-y-2">
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs text-gray-500">You</span>
-                                            <span className="text-lg font-bold text-blue-600">{comparison.student}%</span>
-                                        </div>
-                                        <div className="flex justify-between items-center">
-                                            <span className="text-xs text-gray-500">Class Avg</span>
-                                            <span className="text-lg font-bold text-gray-400">{comparison.classAvg}%</span>
-                                        </div>
-                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                            <div 
-                                                className="h-2 bg-blue-500 rounded-full"
-                                                style={{ width: `${(comparison.student / 100) * 100}%` }}
-                                            />
-                                        </div>
-                                    </div>
+                        {gradeHistory.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={320}>
+                                <LineChart data={gradeHistory}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                    <XAxis dataKey="shortLabel" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" height={60} />
+                                    <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} />
+                                    <Tooltip content={<GradeTooltip />} />
+                                    {gradeHistory.length > 8 && (
+                                        <Brush
+                                            dataKey="shortLabel"
+                                            height={20}
+                                            stroke="#e0e7ff"
+                                            startIndex={brushStart}
+                                        />
+                                    )}
+                                    <Line
+                                        type="monotone"
+                                        dataKey="score"
+                                        stroke="#3B82F6"
+                                        strokeWidth={2.5}
+                                        dot={(props) => {
+                                            const { cx, cy, payload } = props;
+                                            return (
+                                                <circle
+                                                    key={`dot-${cx}-${cy}`}
+                                                    cx={cx} cy={cy} r={5}
+                                                    fill={TYPE_COLORS[payload.type] || "#3B82F6"}
+                                                    stroke="white" strokeWidth={2}
+                                                />
+                                            );
+                                        }}
+                                        activeDot={{ r: 7 }}
+                                    />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <div className="h-60 flex items-center justify-center text-gray-400">
+                                <div className="text-center">
+                                    <TrendingUp className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                                    <p className="font-medium">No grades yet</p>
+                                    <p className="text-sm mt-1">Complete assignments, quizzes, or exams to see your grade trend.</p>
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
+
+                {/* ── Weekly Activity + Language Usage ── */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Calendar className="w-5 h-5 text-emerald-500" /> Weekly Activity
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {weeklyActivity.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={250}>
+                                    <BarChart data={weeklyActivity} barGap={4}>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                                        <XAxis dataKey="week" tick={{ fontSize: 12 }} />
+                                        <YAxis allowDecimals={false} />
+                                        <Tooltip />
+                                        <Legend />
+                                        <Bar dataKey="practice" name="Practice Questions" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                                        <Bar dataKey="assignments" name="Assignments / Tests" fill="#10B981" radius={[4, 4, 0, 0]} />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
+                                    <div className="text-center">
+                                        <Calendar className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                                        <p>No activity data yet</p>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Language Usage */}
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Code2 className="w-5 h-5 text-purple-500" /> Language Usage
+                                <span className="text-xs font-normal text-gray-400 ml-1">(practice + assignments)</span>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {languageStats.length > 0 ? (
+                                <div className="flex items-center gap-6">
+                                    <ResponsiveContainer width="55%" height={220}>
+                                        <PieChart>
+                                            <Pie
+                                                data={languageStats}
+                                                cx="50%" cy="50%"
+                                                innerRadius={55}
+                                                outerRadius={90}
+                                                dataKey="submissions"
+                                                paddingAngle={3}
+                                            >
+                                                {languageStats.map((_, i) => (
+                                                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                                                ))}
+                                            </Pie>
+                                            <Tooltip formatter={(v, name, props) => [`${v} submissions`, props.payload.language]} />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                    <div className="flex-1 space-y-2">
+                                        {languageStats.map((l, i) => {
+                                            const total = languageStats.reduce((s, x) => s + x.submissions, 0);
+                                            const pct = total > 0 ? Math.round((l.submissions / total) * 100) : 0;
+                                            return (
+                                                <div key={l.language} className="flex items-center gap-2">
+                                                    <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: COLORS[i % COLORS.length] }} />
+                                                    <span className="text-sm text-gray-700 flex-1">{l.language}</span>
+                                                    <span className="text-sm font-semibold text-gray-900">{pct}%</span>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="h-48 flex items-center justify-center text-gray-400 text-sm">
+                                    <div className="text-center">
+                                        <Code2 className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                                        <p>Submit code to see language breakdown</p>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* ── Concept Mastery + Achievements ── */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <Card className="lg:col-span-2">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Brain className="w-5 h-5 text-blue-500" /> Concept Mastery
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            {conceptMastery.length > 0 ? (
+                                <ResponsiveContainer width="100%" height={300}>
+                                    <RadarChart data={conceptMastery}>
+                                        <PolarGrid />
+                                        <PolarAngleAxis dataKey="concept" tick={{ fontSize: 12 }} />
+                                        <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
+                                        <Radar
+                                            name="Mastery %"
+                                            dataKey="mastery"
+                                            stroke="#3B82F6"
+                                            fill="#3B82F6"
+                                            fillOpacity={0.25}
+                                        />
+                                        <Tooltip formatter={(v) => [`${v}%`, "Mastery"]} />
+                                    </RadarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="h-64 flex items-center justify-center text-gray-400">
+                                    <div className="text-center">
+                                        <Brain className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                                        <p className="font-medium">Concept mastery will appear here</p>
+                                        <p className="text-sm mt-1">Complete practice questions across different categories</p>
+                                    </div>
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    <ErrorBoundary title="Achievement Error" message="Unable to load achievements">
+                        <AchievementBadges showProgress={true} showNotifications={false} limit={8} />
+                    </ErrorBoundary>
+                </div>
+
+                {/* ── Points + Global Leaderboard ── */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <ErrorBoundary title="Points Error" message="Unable to load points data">
+                        <PointsDisplay showHistory={true} showBreakdown={true} />
+                    </ErrorBoundary>
+                    <ErrorBoundary title="Leaderboard Error" message="Unable to load leaderboard">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <Users className="w-5 h-5 text-amber-500" />
+                                    Global Points Leaderboard
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="p-0">
+                                <LeaderboardWidget type="global" limit={10} showUserRank={true} />
+                            </CardContent>
+                        </Card>
+                    </ErrorBoundary>
+                </div>
+
+                {/* ── Class Comparison ── */}
+                {classComparison && (
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <BookOpen className="w-5 h-5 text-teal-500" /> Class Comparison
+                                <span className="text-xs font-normal text-gray-400 ml-1">Your scores vs class average</span>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                                <div className="space-y-4">
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="font-medium text-indigo-600">Your Points</span>
+                                            <span className="font-bold">{Math.round(classComparison.student_avg)}</span>
+                                        </div>
+                                        {(() => {
+                                            const maxScore = Math.max(classComparison.student_avg, classComparison.class_avg, 1);
+                                            return (
+                                                <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-indigo-500 rounded-full transition-all duration-700"
+                                                        style={{ width: `${(classComparison.student_avg / maxScore) * 100}%` }} />
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between text-sm mb-1">
+                                            <span className="font-medium text-gray-500">Class Average</span>
+                                            <span className="font-bold">{Math.round(classComparison.class_avg)}</span>
+                                        </div>
+                                        {(() => {
+                                            const maxScore = Math.max(classComparison.student_avg, classComparison.class_avg, 1);
+                                            return (
+                                                <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-gray-400 rounded-full transition-all duration-700"
+                                                        style={{ width: `${(classComparison.class_avg / maxScore) * 100}%` }} />
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Delta badge */}
+                                <div className="text-center">
+                                    {(() => {
+                                        const diff = Math.round(classComparison.student_avg - classComparison.class_avg);
+                                        const isAhead = diff >= 0;
+                                        return (
+                                            <div className={`inline-flex flex-col items-center justify-center w-32 h-32 rounded-full border-4 ${isAhead ? "border-emerald-400 bg-emerald-50" : "border-orange-300 bg-orange-50"}`}>
+                                                <span className={`text-2xl font-black ${isAhead ? "text-emerald-600" : "text-orange-500"}`}>
+                                                    {isAhead ? "+" : ""}{diff}
+                                                </span>
+                                                <span className="text-xs font-medium text-gray-500 mt-1">
+                                                    {isAhead ? "Above avg" : "Below avg"}
+                                                </span>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
             </div>
         </StudentLayout>
     );

@@ -15,13 +15,15 @@ import {
     Target,
     Zap,
     BookOpen,
-    ArrowRight
+    ArrowRight,
+    Timer,
+    Clock
 } from "lucide-react";
 import { Button } from "../../ui/button";
 import { Badge } from "../../ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../../ui/card";
 import { Separator } from "../../ui/separator";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion"; // eslint-disable-line no-unused-vars
 
 // Monaco Editor
 import MonacoEditor from '@monaco-editor/react';
@@ -35,6 +37,15 @@ const DIFFICULTY_COLORS = {
     medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
     hard: "bg-red-100 text-red-700 border-red-200"
 };
+
+// Per-difficulty time limits in seconds
+const DIFFICULTY_TIME_LIMITS = {
+    easy: 15 * 60,   // 15 minutes
+    medium: 30 * 60, // 30 minutes
+    hard: 60 * 60,   // 60 minutes
+};
+
+const DEFAULT_TIME_LIMIT = 20 * 60; // 20 min fallback
 
 const DIFFICULTY_ICONS = {
     easy: <Target className="w-3 h-3" />,
@@ -54,7 +65,7 @@ const PracticeWorkspace = () => {
 
     const [code, setCode] = useState("");
     const [selectedLanguage, setSelectedLanguage] = useState("python");
-    const [selectedMcqOption, setSelectedMcqOption] = useState(null); // for MCQ questions
+    const [selectedMcqOption, setSelectedMcqOption] = useState(null);
     const [output, setOutput] = useState(null);
     const [isRunning, setIsRunning] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -62,8 +73,16 @@ const PracticeWorkspace = () => {
     const [showSuccess, setShowSuccess] = useState(false);
     const [pointsEarned, setPointsEarned] = useState(0);
 
+    // ── Timer State ──
+    const [timeLeft, setTimeLeft] = useState(null);     // seconds remaining
+    const [elapsed, setElapsed] = useState(0);          // seconds elapsed (to send to backend)
+    const timerRef = useRef(null);
+    const elapsedRef = useRef(0);                       // stable ref for callbacks
+    const lastSyncRef = useRef(0);                      // last elapsed value synced to backend
+    const handleSubmitRef = useRef(null);               // avoid stale closure in timer auto-submit
+
     // --- Anti-Cheat State ---
-    const [warnings, setWarnings] = useState(0);
+    const [warnings, setWarnings] = useState(0); // eslint-disable-line no-unused-vars
     const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
     const [warningModal, setWarningModal] = useState(null);
     const MAX_WARNINGS = 3;
@@ -144,6 +163,83 @@ const PracticeWorkspace = () => {
             practiceService.startPracticeSession(questionId).catch(console.error);
         }
     }, [question, progress, questionId]);
+
+    // ── Timer logic ──
+    useEffect(() => {
+        if (!question || loading) return;
+        if (progress?.is_completed) return; // no timer if already done
+
+        const diff = (question.difficulty || 'medium').toLowerCase();
+        const limit = DIFFICULTY_TIME_LIMITS[diff] || DEFAULT_TIME_LIMIT;
+        const alreadySpent = progress?.time_spent || 0; // seconds already spent (from backend)
+        const remaining = Math.max(0, limit - alreadySpent);
+
+        setTimeLeft(remaining);
+        setElapsed(alreadySpent);
+        elapsedRef.current = alreadySpent;
+        lastSyncRef.current = alreadySpent;
+
+        // Clear any existing interval
+        if (timerRef.current) clearInterval(timerRef.current);
+
+        timerRef.current = setInterval(() => {
+            setTimeLeft(prev => {
+                if (prev === null) return null;
+                const next = prev - 1;
+                elapsedRef.current += 1;
+                setElapsed(elapsedRef.current);
+
+                // Sync to backend every 30 seconds
+                if (elapsedRef.current - lastSyncRef.current >= 30) {
+                    lastSyncRef.current = elapsedRef.current;
+                    practiceService.updateTimeSpent(questionId, elapsedRef.current).catch(() => { });
+                }
+
+                if (next <= 0) {
+                    clearInterval(timerRef.current);
+                    // Time's up — auto-submit using ref to avoid stale closure
+                    if (handleSubmitRef.current) handleSubmitRef.current();
+                    return 0;
+                }
+                return next;
+            });
+        }, 1000);
+
+        return () => {
+            if (timerRef.current) clearInterval(timerRef.current);
+            // Final sync on unmount
+            practiceService.updateTimeSpent(questionId, elapsedRef.current).catch(() => { });
+        };
+    }, [question, progress?.is_completed, loading]);
+
+    // Helper: format seconds as MM:SS
+    const formatTime = (secs) => {
+        if (secs === null) return '--:--';
+        const m = Math.floor(secs / 60).toString().padStart(2, '0');
+        const s = (secs % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    };
+
+    // Timer color: green when > 50%, yellow when 25-50%, red when < 25%
+    const getTimerColor = () => {
+        if (timeLeft === null || !question) return '';
+        const diff = (question.difficulty || 'medium').toLowerCase();
+        const limit = DIFFICULTY_TIME_LIMITS[diff] || DEFAULT_TIME_LIMIT;
+        const pct = timeLeft / limit;
+        if (pct > 0.5) return 'text-green-600';
+        if (pct > 0.25) return 'text-yellow-600';
+        return 'text-red-600 animate-pulse';
+    };
+
+    const getTimerBg = () => {
+        if (timeLeft === null || !question) return 'bg-gray-100';
+        const diff = (question.difficulty || 'medium').toLowerCase();
+        const limit = DIFFICULTY_TIME_LIMITS[diff] || DEFAULT_TIME_LIMIT;
+        const pct = timeLeft / limit;
+        if (pct > 0.5) return 'bg-green-50 border-green-200';
+        if (pct > 0.25) return 'bg-yellow-50 border-yellow-200';
+        return 'bg-red-50 border-red-200';
+    };
 
     // --- Anti-Cheat Tracking ---
     useEffect(() => {
@@ -266,8 +362,13 @@ const PracticeWorkspace = () => {
         }
     };
 
+    // Keep ref always pointing to latest handleSubmit (avoids stale closure in timer)
     const handleSubmit = async () => {
         if (!question) return;
+
+        // Stop and sync timer before submitting
+        if (timerRef.current) clearInterval(timerRef.current);
+        practiceService.updateTimeSpent(questionId, elapsedRef.current).catch(() => { });
 
         const isMcq = question.question_type === 'mcq';
 
@@ -284,8 +385,14 @@ const PracticeWorkspace = () => {
         setIsSubmitting(true);
 
         try {
+            let optionIndex = selectedMcqOption;
+            if (isMcq && question.config?.options) {
+                const idx = question.config.options.indexOf(selectedMcqOption);
+                if (idx !== -1) optionIndex = idx;
+            }
+
             const payload = isMcq
-                ? { selected_option: selectedMcqOption }
+                ? { selected_option: optionIndex }
                 : { source_code: code, language: selectedLanguage };
 
             const response = await practiceService.submitPracticeCode(questionId, payload);
@@ -366,6 +473,8 @@ const PracticeWorkspace = () => {
             setIsSubmitting(false);
         }
     };
+    // Update ref on every render so timer always has the latest handleSubmit
+    handleSubmitRef.current = handleSubmit;
 
 
     const handleBackClick = () => {
@@ -467,7 +576,7 @@ const PracticeWorkspace = () => {
             {isCompleted && (
                 <div className="bg-green-100 border-b border-green-200 px-4 py-2 text-green-800 text-sm font-medium flex items-center justify-center gap-2">
                     <CheckCircle2 className="w-4 h-4" />
-                    🎉 Completed! You earned {pointsEarned} points. Feel free to continue practicing or try another question.
+                    🎉 Completed! {pointsEarned > 0 && `You earned ${pointsEarned} points. `}Feel free to continue practicing or try another question.
                 </div>
             )}
 
@@ -505,6 +614,19 @@ const PracticeWorkspace = () => {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Timer Display */}
+                    {!isCompleted && timeLeft !== null && (
+                        <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border text-sm font-mono font-bold ${getTimerBg()} ${getTimerColor()}`}>
+                            <Clock className={`w-3.5 h-3.5 ${getTimerColor()}`} />
+                            <span>{formatTime(timeLeft)}</span>
+                        </div>
+                    )}
+                    {isCompleted && (
+                        <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg border bg-gray-50 text-xs text-gray-500">
+                            <Timer className="w-3.5 h-3.5" />
+                            <span>Spent: {formatTime(elapsed)}</span>
+                        </div>
+                    )}
                     {question?.question_type !== 'mcq' && (
                         <Button
                             variant="secondary"
@@ -590,7 +712,7 @@ const PracticeWorkspace = () => {
                                 <li>• Unlimited submissions until you get it right</li>
                                 <li>• Immediate feedback on each attempt</li>
                                 <li>• Earn full points when all test cases pass</li>
-                                <li>• No time pressure - take your time to learn</li>
+                                <li>• Time limit: Easy 15 min · Medium 30 min · Hard 60 min</li>
                             </ul>
                         </div>
 

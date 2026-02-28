@@ -143,7 +143,39 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            all_passed = int(selected_option) == int(correct_option)
+            # Normalize selected_option: could arrive as int, str int ("2"), or bool/string-bool ("True")
+            try:
+                if isinstance(selected_option, bool):
+                    selected_option_int = 1 if selected_option else 0
+                elif str(selected_option).strip().lower() == 'true':
+                    selected_option_int = 1
+                elif str(selected_option).strip().lower() == 'false':
+                    selected_option_int = 0
+                else:
+                    selected_option_int = int(selected_option)
+            except (ValueError, TypeError):
+                return Response(
+                    {'success': False, 'message': 'selected_option must be a valid option index (integer)'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Normalize correct_option: historically some questions might have "True" instead of index 1
+            try:
+                if isinstance(correct_option, bool):
+                    correct_option_int = 1 if correct_option else 0
+                elif str(correct_option).strip().lower() == 'true':
+                    correct_option_int = 1
+                elif str(correct_option).strip().lower() == 'false':
+                    correct_option_int = 0
+                else:
+                    correct_option_int = int(correct_option)
+            except (ValueError, TypeError):
+                return Response(
+                    {'success': False, 'message': 'correct_option in config must be a valid option index'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            all_passed = selected_option_int == correct_option_int
 
             current_attempts = PracticeSubmission.objects.filter(
                 student=request.user, question=practice_question
@@ -152,7 +184,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
 
             formatted_results = [{
                 'test_case_id': 0,
-                'selected_option': selected_option,
+                'selected_option': selected_option_int,
                 'correct_option': correct_option,
                 'status': 'pass' if all_passed else 'fail',
                 'passed': all_passed
@@ -161,7 +193,7 @@ class PracticeQuestionViewSet(viewsets.ModelViewSet):
             submission = PracticeSubmission.objects.create(
                 student=request.user,
                 question=practice_question,
-                source_code=f"selected_option:{selected_option}",
+                source_code=f"selected_option:{selected_option_int}",
                 language='mcq',
                 status='success' if all_passed else 'fail',
                 test_results=formatted_results,
@@ -624,16 +656,27 @@ class PracticeProgressViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Get or create progress record - timer might sync before first submission
         try:
-            progress = PracticeProgress.objects.get(
-                student=request.user,
-                question_id=practice_question_id
+            practice_question = Question.objects.get(
+                id=practice_question_id,
+                is_active=True
             )
-        except PracticeProgress.DoesNotExist:
+        except Question.DoesNotExist:
             return Response(
-                {'success': False, 'message': 'Practice progress not found. Start a session first.'},
+                {'success': False, 'message': 'Practice question not found'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        progress, created = PracticeProgress.objects.get_or_create(
+            student=request.user,
+            question=practice_question,
+            defaults={
+                'attempts_count': 0,
+                'best_score': 0.0,
+                'time_spent': 0
+            }
+        )
         
         # Update time spent (cumulative)
         progress.time_spent = time_spent
@@ -1818,6 +1861,171 @@ class AnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
     
+    @action(detail=False, methods=['get'])
+    def student_performance(self, request):
+        """
+        Comprehensive student performance endpoint.
+        Returns: weekly_activity, difficulty_breakdown, language_breakdown,
+                 class_comparison for the authenticated student.
+        Accepts ?timeframe=7d|30d|all  (default: 30d)
+        """
+        from django.db.models import Count, Avg, Q
+        from datetime import timedelta
+
+        timeframe = request.query_params.get('timeframe', '30d')
+        if timeframe == '7d':
+            days = 7
+        elif timeframe == 'all':
+            days = 365
+        else:
+            days = 30
+
+        student = request.user
+        start_date = timezone.now() - timedelta(days=days)
+
+        try:
+            # ── 1. Weekly Activity (last 4 weeks from practice + assignment) ──
+            weekly_activity = []
+            for week_offset in range(3, -1, -1):
+                week_start = timezone.now().date() - timedelta(days=(week_offset + 1) * 7 - 1)
+                week_end   = timezone.now().date() - timedelta(days=week_offset * 7)
+                practice_count = PracticeSubmission.objects.filter(
+                    student=student,
+                    submitted_at__date__gte=week_start,
+                    submitted_at__date__lte=week_end,
+                    status='success'
+                ).count()
+                assignment_count = 0
+                try:
+                    from submissions.models import SubmissionAttempt
+                    assignment_count = SubmissionAttempt.objects.filter(
+                        student=student,
+                        created_at__date__gte=week_start,
+                        created_at__date__lte=week_end,
+                        status='success'
+                    ).count()
+                except ImportError:
+                    pass
+                week_num = 4 - week_offset
+                weekly_activity.append({
+                    'week': f'Week {week_num}',
+                    'week_start': week_start.isoformat(),
+                    'practice': practice_count,
+                    'assignments': assignment_count,
+                    'total': practice_count + assignment_count,
+                })
+
+            # ── 2. Difficulty Breakdown ──
+            difficulty_breakdown = []
+            for diff in ['Easy', 'Medium', 'Hard']:
+                qs = PracticeProgress.objects.filter(
+                    student=student,
+                    question__difficulty=diff
+                )
+                total = qs.count()
+                completed = qs.filter(is_completed=True).count()
+                avg_score = qs.aggregate(avg=Avg('best_score'))['avg'] or 0.0
+                avg_time_sec = qs.aggregate(avg_time=Avg('time_spent'))['avg_time'] or 0
+                difficulty_breakdown.append({
+                    'difficulty': diff,
+                    'total': total,
+                    'completed': completed,
+                    'avg_score': round(avg_score, 2),
+                    'avg_time': int(avg_time_sec // 60),  # minutes
+                })
+
+            # ── 3. Language Breakdown ──
+            lang_qs = PracticeSubmission.objects.filter(
+                student=student,
+                submitted_at__gte=start_date
+            ).values('language').annotate(
+                count=Count('id')
+            ).order_by('-count')
+            
+            lang_map = {}
+            for row in lang_qs:
+                lang_name = row['language'] or 'python'
+                if lang_name not in lang_map:
+                    lang_map[lang_name] = {'submissions': 0, 'avg_score': 0}
+                lang_map[lang_name]['submissions'] += row['count']
+                
+            try:
+                from submissions.models import SubmissionAttempt
+                assign_count = SubmissionAttempt.objects.filter(
+                    student=student, created_at__gte=start_date
+                ).count()
+                if assign_count > 0:
+                    if 'python' not in lang_map:
+                        lang_map['python'] = {'submissions': 0, 'avg_score': 0}
+                    lang_map['python']['submissions'] += assign_count
+            except ImportError:
+                pass
+                
+            language_breakdown = [
+                {
+                    'language': k,
+                    'submissions': v['submissions'],
+                    'avg_score': v['avg_score'],
+                }
+                for k, v in lang_map.items()
+            ]
+            language_breakdown.sort(key=lambda x: x['submissions'], reverse=True)
+
+            # ── 4. Class Comparison (Total Points) ──
+            class_avg_score = None
+            try:
+                from gamification.models import StudentAnalytics
+                from classes.models import Class
+
+                # Get classes the student is enrolled in
+                enrolled_class_ids = Class.objects.filter(
+                    enrollments__user=student,
+                    enrollments__role='student'
+                ).values_list('id', flat=True)
+
+                if enrolled_class_ids.exists():
+                    # student's own total points
+                    student_pts = getattr(student, 'points', None)
+                    student_avg = student_pts.total_points if student_pts else 0
+
+                    # class avg points for all students in those classes
+                    from django.contrib.auth import get_user_model
+                    User = get_user_model()
+                    classmates = User.objects.filter(
+                        enrollments__class_obj_id__in=enrolled_class_ids,
+                        enrollments__role='student'
+                    ).distinct()
+
+                    class_avg = UserPoints.objects.filter(
+                        user__in=classmates
+                    ).aggregate(avg=Avg('total_points')).get('avg') or 0
+
+                    class_avg_score = {
+                        'student_avg': int(student_avg),
+                        'class_avg': int(class_avg),
+                    }
+            except Exception as e:
+                logger.warning(f"Class comparison calculation failed: {e}")
+                class_avg_score = None
+
+            return Response({
+                'success': True,
+                'data': {
+                    'weekly_activity': weekly_activity,
+                    'difficulty_breakdown': difficulty_breakdown,
+                    'language_breakdown': language_breakdown,
+                    'class_comparison': class_avg_score,
+                    'timeframe': timeframe,
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Error getting student performance data: {e}", exc_info=True)
+            return Response(
+                {'success': False, 'message': 'Failed to load performance data'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'])
     def streak_analysis(self, request):
         """Get detailed streak analysis and activity patterns"""

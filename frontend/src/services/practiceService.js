@@ -58,9 +58,8 @@ export const practiceService = {
   },
 
   // Practice Session Management
-  startPracticeSession: async (questionId) => {
-    // This is a placeholder - in practice mode, sessions are tracked automatically
-    // when students first access a question. No explicit API call needed.
+  startPracticeSession: async () => {
+    // Sessions are tracked automatically when students first access a question
     return Promise.resolve({ success: true });
   },
 
@@ -77,5 +76,13 @@ export const practiceService = {
     // Pass payload as-is: supports both coding { source_code, language }
     // and MCQ { selected_option } submission formats.
     return await api.post(`${API_CONFIG.ENDPOINTS.GAMIFICATION.PRACTICE_QUESTIONS}${questionId}/submit/`, payload);
+  },
+
+  // Time tracking: records cumulative seconds spent on a practice question
+  updateTimeSpent: async (questionId, timeSpentSeconds) => {
+    return await api.post(`${API_CONFIG.ENDPOINTS.GAMIFICATION.PRACTICE_PROGRESS}update_time/`, {
+      practice_question_id: questionId,
+      time_spent: timeSpentSeconds,
+    });
   },
 };

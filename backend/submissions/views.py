@@ -180,15 +180,47 @@ class SubmissionAttemptViewSet(viewsets.ModelViewSet):
 
         if is_mcq:
             # Synchronous Grading for MCQ
-            # Expected answer stored in test_cases[0]['expected_output'] usually
             test_cases = aq.question.test_cases or []
-            expected = ""
-            if test_cases and len(test_cases) > 0:
-                expected = str(test_cases[0].get('expected_output', '')).strip()
-                
-            actual_answer = str(response_data.get('answer', '')).strip() if isinstance(response_data, dict) else str(response_data).strip()
+            # In assignments, the correct index is typically stored in the question config or the first test case
+            config = aq.question.config or {}
             
-            passed = (actual_answer == expected)
+            # Determine correct option
+            correct_option_index = None
+            if 'correct_option' in config:
+                correct_option_index = config['correct_option']
+            elif test_cases and len(test_cases) > 0 and 'correct_option' in test_cases[0]:
+                correct_option_index = test_cases[0]['correct_option']
+            
+            # Normalize submitted answer to int index explicitly
+            actual_answer = response_data.get('answer') if isinstance(response_data, dict) else response_data
+            
+            try:
+                # If boolean (e.g., frontend sent true/false instead of index for a true/false MCQ)
+                if isinstance(actual_answer, bool):
+                    actual_answer_int = 1 if actual_answer else 0
+                elif str(actual_answer).strip().lower() == 'true':
+                    actual_answer_int = 1
+                elif str(actual_answer).strip().lower() == 'false':
+                    actual_answer_int = 0
+                else:
+                    actual_answer_int = int(actual_answer)
+            except (ValueError, TypeError):
+                actual_answer_int = -1 # Invalid submission
+
+            try:
+                # Same normalization for correct_option_index
+                if isinstance(correct_option_index, bool):
+                    correct_option_int = 1 if correct_option_index else 0
+                elif str(correct_option_index).strip().lower() == 'true':
+                    correct_option_int = 1
+                elif str(correct_option_index).strip().lower() == 'false':
+                    correct_option_int = 0
+                else:
+                    correct_option_int = int(correct_option_index)
+            except (ValueError, TypeError):
+                correct_option_int = -2 # Data integrity issue, force fail
+
+            passed = (actual_answer_int == correct_option_int)
             
             TestResult.objects.create(
                 attempt=attempt,
@@ -848,8 +880,8 @@ class GradebookViewSet(viewsets.ReadOnlyModelViewSet):
             # Get overall points summary
             points_summary = calculator.get_user_points_summary(request.user)
             
-            # Get recent entries
-            recent_entries = entries.order_by('-updated_at')[:5]
+            # Return all entries for grade history (oldest first for chronological chart)
+            all_entries = entries.order_by('updated_at')
             
             return Response({
                 'summary': {
@@ -858,7 +890,7 @@ class GradebookViewSet(viewsets.ReadOnlyModelViewSet):
                     'total_assignment_points': total_assignment_points,
                     'overall_points': points_summary
                 },
-                'recent_entries': GradebookEntrySerializer(recent_entries, many=True).data
+                'recent_entries': GradebookEntrySerializer(all_entries, many=True).data
             })
             
         except Exception as e:

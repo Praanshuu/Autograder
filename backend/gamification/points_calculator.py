@@ -436,13 +436,16 @@ def get_top_users_by_points(limit: int = 10, point_type: str = 'total') -> List[
     
     return [
         {
-            'user_id': up.user.id,
-            'username': up.user.username,
-            'first_name': up.user.first_name,
-            'last_name': up.user.last_name,
+            'user': {
+                'id': up.user.id,
+                'username': up.user.username,
+                'first_name': up.user.first_name,
+                'last_name': up.user.last_name,
+            },
             'total_points': up.total_points,
             'practice_points': up.practice_points,
             'assignment_points': up.assignment_points,
+            'completed_problems': getattr(up, 'completed_problems', 0),
             'rank': idx + 1
         }
         for idx, up in enumerate(top_users)

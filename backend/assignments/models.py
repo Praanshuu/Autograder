@@ -28,6 +28,13 @@ class ContentItem(models.Model):
         db_table = 'content_items'
         ordering = ['due_date']
         
+    @property
+    def actual_type(self):
+        if self.type == 'assignment' and hasattr(self, 'assignment'):
+            if getattr(self.assignment, 'mode', '') == 'exam':
+                return 'exam'
+        return self.type
+
     def __str__(self):
         return self.title
 

@@ -672,9 +672,9 @@ def update_gradebook(student, assignment):
     
     if has_manual:
         entry.status = 'graded'
-    elif has_any_submission:
-        # Auto-graded: mark as submitted so the dashboard shows the score
-        entry.status = 'submitted'
+    # Removed the has_any_submission -> 'submitted' transition here
+    # Assignments should only be marked 'submitted' explicitly by the student (Finish Assignment)
+    # or by a deadline/timer cron job.
         
     entry.save()
     logger.info(f"Gradebook updated for {student.username} on {assignment.title}: score={final_assignment_score:.1f}%, status={entry.status}")

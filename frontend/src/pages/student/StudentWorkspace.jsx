@@ -672,7 +672,6 @@ const StudentWorkspace = () => {
 
                     if (attempt.status === 'success') {
                         setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-                        setShowConfetti(true); // 
                     }
                     // fail/error details are already shown in the output panel
                 }
@@ -720,7 +719,12 @@ const StudentWorkspace = () => {
                 time_spent: timeSpent
             };
             if (isMcq) {
-                payload.response_data = { answer: code };
+                let optionIndex = code;
+                if (currentQuestion.config?.options) {
+                    const idx = currentQuestion.config.options.indexOf(code);
+                    if (idx !== -1) optionIndex = idx;
+                }
+                payload.response_data = { answer: optionIndex };
             } else {
                 payload.code_content = code;
             }
@@ -741,7 +745,6 @@ const StudentWorkspace = () => {
 
                 if (attempt.status === 'success') {
                     setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-                    setShowConfetti(true); // Optional: show confetti for immediate success too
                 } else if (attempt.status === 'fail') {
                     // Fail details are already in the output panel
                 }
@@ -986,6 +989,7 @@ const StudentWorkspace = () => {
                                 <Button
                                     size="sm"
                                     variant="outline"
+                                    
                                     onClick={handleSubmit}
                                     disabled={isRunning || isSubmitting}
                                     className="h-9 shadow-sm gap-2"

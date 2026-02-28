@@ -25,7 +25,7 @@ export const useGamification = () => {
 export const GamificationProvider = ({ children }) => {
   // Authentication state
   const { isAuthenticated, setAuthToken, clearAuth, autoConnect } = useAuthenticatedWebSocket();
-  
+
   // Game WebSocket for achievements, points, etc.
   const {
     connectionStatus: gameConnectionStatus,
@@ -55,7 +55,7 @@ export const GamificationProvider = ({ children }) => {
   // Auto-connect when authenticated
   useEffect(() => {
     if (isAuthenticated && isInitialized) {
-      autoConnect(['game']).then(connections => {
+      autoConnect(['game', 'leaderboard']).then(connections => {
         if (connections.length === 0) {
           setConnectionError('Failed to establish real-time connections');
         } else {
@@ -98,7 +98,7 @@ export const GamificationProvider = ({ children }) => {
   // Retry connections
   const retryConnections = useCallback(async () => {
     if (!isAuthenticated) return false;
-    
+
     try {
       setConnectionError(null);
       const connections = await autoConnect(['game']);
@@ -114,21 +114,21 @@ export const GamificationProvider = ({ children }) => {
     isAuthenticated,
     handleLogin,
     handleLogout,
-    
+
     // Connection status
     connectionStatus: getConnectionStatus(),
     retryConnections,
-    
+
     // Real-time data
     achievements,
     points,
     notifications,
-    
+
     // Notification management
     clearNotification,
     clearAllNotifications,
     showNotification,
-    
+
     // Connection management
     isGameConnected,
     connectGame,
@@ -138,7 +138,7 @@ export const GamificationProvider = ({ children }) => {
   return (
     <GamificationContext.Provider value={contextValue}>
       {children}
-      
+
       {/* Global notification container */}
       <NotificationContainer
         notifications={notifications}
