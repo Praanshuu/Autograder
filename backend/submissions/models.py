@@ -131,6 +131,8 @@ class AIAnalysisTask(models.Model):
     analyzed          = models.IntegerField(default=0)
 
     error_message = models.TextField(blank=True, default='')
+    # Stores per-question pipeline logs — list of strings, appended as each question completes
+    log_output    = models.JSONField(default=list, blank=True)
     created_at    = models.DateTimeField(auto_now_add=True)
     updated_at    = models.DateTimeField(auto_now=True)
 

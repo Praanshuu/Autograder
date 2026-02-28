@@ -156,22 +156,45 @@ if ! kill -0 $DAPHNE_PID 2>/dev/null; then
 fi
 ok "Daphne watchdog running (PID $DAPHNE_PID) — auto-restarts on crash"
 
-# ─── 8. Start Celery Worker ───────────────────────────────────────────────────
-log "Starting Celery worker (concurrency=4, max-memory=350MB)..."
+# ─── 8a. General Celery Worker (code execution, gradebook, etc.) ────────────
+log "Starting general Celery worker (concurrency=4)..."
 (cd backend && celery -A autograder worker \
     --loglevel=info \
     --concurrency=4 \
     --max-memory-per-child=350000 \
+    --queues=celery \
+    --hostname=general@%h \
     --logfile=/tmp/celery.log 2>&1) &
 CELERY_PID=$!
 PIDS+=($CELERY_PID)
 
 sleep 2
 if ! kill -0 $CELERY_PID 2>/dev/null; then
-    err "Celery worker failed to start! Check /tmp/celery.log for details."
+    err "General Celery worker failed to start! Check /tmp/celery.log."
     exit 1
 fi
-ok "Celery worker running (PID $CELERY_PID) → logs: /tmp/celery.log"
+ok "General Celery worker running (PID $CELERY_PID)"
+
+# ─── 8b. AI Analysis Worker (sequential GPU pipeline, concurrency=1) ─────────
+# concurrency=1 ensures only ONE question pipeline runs at a time → no GPU OOM.
+# PYTORCH_CUDA_ALLOC_CONF lets PyTorch reuse fragmented GPU memory.
+log "Starting AI analysis Celery worker (concurrency=1, sequential GPU)..."
+(cd backend && PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True celery -A autograder worker \
+    --loglevel=info \
+    --concurrency=1 \
+    --max-memory-per-child=2000000 \
+    --queues=ai_analysis \
+    --hostname=ai@%h \
+    --logfile=/tmp/celery_ai.log 2>&1) &
+CELERY_AI_PID=$!
+PIDS+=($CELERY_AI_PID)
+
+sleep 2
+if ! kill -0 $CELERY_AI_PID 2>/dev/null; then
+    err "AI Celery worker failed to start! Check /tmp/celery_ai.log."
+    exit 1
+fi
+ok "AI Celery worker running (PID $CELERY_AI_PID) → logs: /tmp/celery_ai.log"
 
 # ─── 9. Frontend ─────────────────────────────────────────────────────────────
 log "Setting up frontend..."

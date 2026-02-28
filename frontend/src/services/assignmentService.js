@@ -62,9 +62,11 @@ export const assignmentService = {
     return await api.post(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}analyze-ai/`, { force });
   },
 
-  // Get Word Cloud Image
-  getWordCloud: async (assignmentId) => {
-    return await api.get(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}word-cloud/`);
+  // Get per-question Word Clouds (full + partial tiers) as base64 images
+  getWordCloud: async (assignmentId, questionId) => {
+    return await api.get(`${API_CONFIG.ENDPOINTS.ASSIGNMENTS.DETAIL(assignmentId)}word-cloud/`, {
+      params: { question_id: questionId },
+    });
   },
 
   // Get AI Analysis Progress

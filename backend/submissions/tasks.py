@@ -1,24 +1,63 @@
 import logging
+import os
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
 from celery import shared_task
+from django.db.models import F
 from django.utils import timezone
+
 from .models import SubmissionAttempt, TestResult
 from .services import (
     execute_code,
     update_gradebook,
     award_assignment_points,
-    SubmissionConfigGenerator
+    SubmissionConfigGenerator,
 )
-
-import os
 
 logger = logging.getLogger(__name__)
 
-# Configurable block size (submissions per task) — defaults to 50
-BATCH_SIZE = int(os.environ.get('AI_BATCH_SIZE', '50'))
 
+# ---------------------------------------------------------------------------
+# Helper: resolve the Autograder_plus python binary (prefers venv)
+# ---------------------------------------------------------------------------
+
+def _resolve_python_bin(autograder_plus_root: Path) -> str:
+    """
+    Return the python executable to use for Autograder_plus.
+    Priority:
+      1. venv at <root>/newgrade/bin/python
+      2. system python3
+    A quick --version probe ensures the interpreter actually works.
+    """
+    venv_python = autograder_plus_root / "newgrade" / "bin" / "python"
+    candidate = str(venv_python) if venv_python.exists() else "python3"
+
+    try:
+        subprocess.run(
+            [candidate, "--version"],
+            capture_output=True,
+            timeout=5,
+            check=True,
+        )
+        return candidate
+    except (OSError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        logger.warning(
+            f"Autograder_plus venv python failed ({exc}), falling back to python3. "
+            "Recreate the venv: cd Autograder_plus && python3 -m venv newgrade && "
+            "newgrade/bin/pip install -r requirements.txt"
+        )
+        return "python3"
+
+
+# ---------------------------------------------------------------------------
+# Regular code-execution task (unchanged logic, kept here for completeness)
+# ---------------------------------------------------------------------------
 
 @shared_task
-def execute_submission_task(attempt_id, language='python'):
+def execute_submission_task(attempt_id, language="python"):
     """
     Background task to execute student code.
     Ensures terminal status updates via robust try/except/finally block.
@@ -26,8 +65,8 @@ def execute_submission_task(attempt_id, language='python'):
     attempt = None
     try:
         attempt = SubmissionAttempt.objects.get(id=attempt_id)
-        attempt.status = 'processing'
-        attempt.save(update_fields=['status'])
+        attempt.status = "processing"
+        attempt.save(update_fields=["status"])
 
         logger.info(f"--- [TASK START] Submission {attempt_id} for {attempt.student.username} ---")
 
@@ -37,7 +76,6 @@ def execute_submission_task(attempt_id, language='python'):
         test_cases = question.test_cases or []
         code = attempt.source_code
 
-        # Log sub-process start
         logger.info(f"[{attempt_id}] Executing {language} code in sandbox...")
         results = execute_code(code, language, test_cases, config=config)
         logger.info(f"[{attempt_id}] Sandbox execution finished.")
@@ -47,71 +85,67 @@ def execute_submission_task(attempt_id, language='python'):
         attempt.test_results.all().delete()
 
         for idx, res in enumerate(results):
-            status_res = res.get('status', 'fail')
-            if status_res == 'pass':
+            status_res = res.get("status", "fail")
+            if status_res == "pass":
                 passed_count += 1
 
             test_result = TestResult.objects.create(
                 attempt=attempt,
                 test_case_id=str(idx),
                 status=status_res,
-                score=1 if status_res == 'pass' else 0,
-                actual_output=res.get('console_output', ''),
-                error_message=res.get('error_message', ''),
-                execution_time_ms=res.get('execution_time', 0)
+                score=1 if status_res == "pass" else 0,
+                actual_output=res.get("console_output", ""),
+                error_message=res.get("error_message", ""),
+                execution_time_ms=res.get("execution_time", 0),
             )
-            test_results_data.append({'status': status_res, 'score': test_result.score})
+            test_results_data.append({"status": status_res, "score": test_result.score})
 
-        # Calculate final status
-        if results and passed_count == len(results):
-            attempt.status = 'success'
-        else:
-            attempt.status = 'fail'
+        attempt.status = "success" if results and passed_count == len(results) else "fail"
 
-        # Optional: AI/Gamification/Artifacts (non-critical, fail gracefully)
         try:
             award_assignment_points(attempt, test_results_data)
-        except Exception as e:
-            logger.error(f"[{attempt_id}] Points failed: {e}")
+        except Exception as exc:
+            logger.error(f"[{attempt_id}] Points failed: {exc}")
 
         try:
             artifact_path = SubmissionConfigGenerator.save_artifacts(attempt, language)
             attempt.code_blob_ref = artifact_path
-        except Exception as e:
-            logger.error(f"[{attempt_id}] Artifacts failed: {e}")
+        except Exception as exc:
+            logger.error(f"[{attempt_id}] Artifacts failed: {exc}")
 
         try:
             update_gradebook(attempt.student, aq.assignment)
-        except Exception as e:
-            logger.error(f"[{attempt_id}] Gradebook failed: {e}")
+        except Exception as exc:
+            logger.error(f"[{attempt_id}] Gradebook failed: {exc}")
 
         return attempt.status
 
     except SubmissionAttempt.DoesNotExist:
         logger.error(f"SubmissionAttempt {attempt_id} not found in DB")
         return "not_found"
-    except Exception as e:
-        logger.error(f"--- [TASK CRASHED] {attempt_id}: {e} ---", exc_info=True)
+    except Exception as exc:
+        logger.error(f"--- [TASK CRASHED] {attempt_id}: {exc} ---", exc_info=True)
         if attempt:
-            attempt.status = 'error'
+            attempt.status = "error"
         return "error"
     finally:
         if attempt:
-            # The critical save. Status is now guaranteed to be 'success', 'fail', or 'error'.
             attempt.save()
             logger.info(f"--- [TASK END] {attempt_id}: status={attempt.status} ---")
 
 
+# ---------------------------------------------------------------------------
+# MASTER TASK — splits work per-question and spawns one worker per question
+# ---------------------------------------------------------------------------
+
 @shared_task(bind=True)
 def analyze_assignment_ai_task(self, assignment_id, ai_task_id):
     """
-    MASTER TASK: Splits submissions into batches and dispatches analyze_batch_task
-    for each one in parallel. Updates AIAnalysisTask progress record.
+    MASTER TASK: For each question in the assignment, collects the latest
+    submission from every student and dispatches a single `analyze_question_ai_task`
+    worker.  One worker = one question = one pipeline run (the heavy model is
+    loaded only once per question batch).
     """
-    import json
-    import os
-    import shutil
-    from pathlib import Path
     from django.conf import settings
     from assignments.models import Assignment
     from .models import AIAnalysisTask
@@ -119,145 +153,154 @@ def analyze_assignment_ai_task(self, assignment_id, ai_task_id):
     try:
         assignment = Assignment.objects.get(id=assignment_id)
         ai_task = AIAnalysisTask.objects.get(id=ai_task_id)
-        ai_task.status = 'running'
-        ai_task.save(update_fields=['status'])
+        ai_task.status = "running"
+        ai_task.save(update_fields=["status"])
 
-        logger.info(f"Master task starting for Assignment: {assignment.title} ({assignment_id})")
+        logger.info(f"[MASTER] Starting for assignment: {assignment.title} ({assignment_id})")
 
         autograder_plus_root = Path(settings.BASE_DIR).parent.parent / "Autograder_plus"
         main_script = str(autograder_plus_root / "main.py")
-        venv_python = autograder_plus_root / "newgrade" / "bin" / "python"
-        python_bin = str(venv_python) if venv_python.exists() else "python3"
-        # If venv was created on another machine (bad interpreter), fall back to system python
-        import subprocess as _sp
-        try:
-            _sp.run([python_bin, "--version"], capture_output=True, timeout=5, check=True)
-        except (OSError, _sp.TimeoutExpired, _sp.CalledProcessError) as _e:
-            logger.warning(
-                f"Autograder_plus venv python failed ({_e}), using python3. "
-                "Recreate the venv in Autograder_plus with: python3 -m venv newgrade"
-            )
-            python_bin = "python3"
+        python_bin = _resolve_python_bin(autograder_plus_root)
 
-        batch_task_ids = []
-        total_batches = 0
+        question_task_ids = []
+        total_questions = 0
 
-        for aq in assignment.assignmentquestion_set.all():
+        for aq in assignment.assignmentquestion_set.select_related("question"):
             question = aq.question
-            q_slug = question.slug
 
-            # Get latest attempt per student for this question
+            # Latest attempt per student for this question
             attempt_ids = list(
                 SubmissionAttempt.objects
                 .filter(assignment_question=aq)
-                .order_by('student_id', '-created_at')
-                .distinct('student_id')
-                .values_list('id', flat=True)
+                .order_by("student_id", "-created_at")
+                .distinct("student_id")
+                .values_list("id", flat=True)
             )
 
             if not attempt_ids:
-                logger.info(f"No submissions for question {q_slug}, skipping.")
+                logger.info(f"[MASTER] No submissions for question '{question.slug}', skipping.")
                 continue
 
-            # Split into batches
-            batches = [attempt_ids[i:i + BATCH_SIZE] for i in range(0, len(attempt_ids), BATCH_SIZE)]
-
-            # Prepare config for this question (shared across all its batches)
+            # Build the config that Autograder_plus expects — use question.config directly.
+            # We only add the extra fields that the pipeline *actually* reads.
             q_config = question.config or {}
-            language = q_config.get('language', 'python').lower()
-            config_data = {
-                "assignment_name": f"{assignment.title} - {question.title}",
-                "language": language,
-                "execution_mode": q_config.get('execution_mode', {'type': 'program'}),
+            pipeline_config = {
+                # Fields the Ingestor / pipeline uses:
+                "assignment_id": f"{assignment_id}_{question.slug}",
+                "language": q_config.get("language", "python").lower(),
+                "question": question.description,
                 "test_cases": question.test_cases or [],
-                "entry_point": q_config.get('entry_point'),
-                "input_types": q_config.get('input_types'),
-                "points": aq.custom_points if aq.custom_points is not None else question.point_value,
-                "description": question.description,
+                # Keep every field from question.config as-is (entry_point, execution_mode, etc.)
+                **q_config,
             }
 
-            staging_base = Path(settings.MEDIA_ROOT) / "ai_staging" / str(assignment_id) / q_slug
+            staging_dir = str(
+                Path(settings.MEDIA_ROOT) / "ai_staging" / str(assignment_id) / question.slug
+            )
 
-            for batch_num, batch_ids in enumerate(batches):
-                batch_staging = str(staging_base / f"batch_{batch_num}")
-
-                task = analyze_batch_task.delay(
+            task = analyze_question_ai_task.apply_async(
+                kwargs=dict(
                     assignment_id=str(assignment_id),
                     ai_task_id=str(ai_task_id),
-                    attempt_ids=[str(x) for x in batch_ids],
-                    config_data=config_data,
-                    staging_dir=batch_staging,
+                    attempt_ids=[str(x) for x in attempt_ids],
+                    pipeline_config=pipeline_config,
+                    staging_dir=staging_dir,
                     python_bin=python_bin,
                     main_script=main_script,
-                )
-                batch_task_ids.append(task.id)
-                total_batches += 1
+                    question_slug=question.slug,
+                ),
+                queue="ai_analysis",  # dedicated queue — ignored by old zombie workers
+            )
+            question_task_ids.append(task.id)
+            total_questions += 1
 
-        # Update record with all spawned task IDs and total batch count
-        ai_task.task_ids = batch_task_ids
-        ai_task.total_batches = total_batches
+        # Update task record with totals
+        ai_task.task_ids = question_task_ids
+        ai_task.total_batches = total_questions          # 1 batch = 1 question
         ai_task.total_submissions = SubmissionAttempt.objects.filter(
             assignment_question__assignment_id=assignment_id
         ).count()
-        ai_task.save(update_fields=['task_ids', 'total_batches', 'total_submissions'])
+        ai_task.save(update_fields=["task_ids", "total_batches", "total_submissions"])
 
-        # If no batches (no submissions), mark completed immediately
-        if total_batches == 0:
-            ai_task.status = 'completed'
-            ai_task.save(update_fields=['status'])
-            logger.info(f"Master task done: no submissions for {assignment_id}, marked completed.")
+        if total_questions == 0:
+            ai_task.status = "completed"
+            ai_task.save(update_fields=["status"])
+            logger.info(f"[MASTER] No questions with submissions — marked completed immediately.")
         else:
-            logger.info(f"Master task done: spawned {total_batches} batch tasks for {assignment_id}")
-        return f"Spawned {total_batches} batches"
+            logger.info(f"[MASTER] Spawned {total_questions} question workers for {assignment_id}.")
 
-    except Exception as e:
-        logger.error(f"Master task failed for {assignment_id}: {e}", exc_info=True)
+        return f"Spawned {total_questions} question workers"
+
+    except Exception as exc:
+        logger.error(f"[MASTER] Failed for {assignment_id}: {exc}", exc_info=True)
         try:
             ai_task = AIAnalysisTask.objects.get(id=ai_task_id)
-            ai_task.status = 'failed'
-            ai_task.error_message = str(e)
-            ai_task.save(update_fields=['status', 'error_message'])
+            ai_task.status = "failed"
+            ai_task.error_message = str(exc)
+            ai_task.save(update_fields=["status", "error_message"])
         except Exception:
             pass
         return "failed"
 
 
+# ---------------------------------------------------------------------------
+# QUESTION WORKER — stages files, runs pipeline once, persists results
+# ---------------------------------------------------------------------------
+
 @shared_task
-def analyze_batch_task(assignment_id, ai_task_id, attempt_ids, config_data,
-                       staging_dir, python_bin, main_script):
+def analyze_question_ai_task(
+    assignment_id,
+    ai_task_id,
+    attempt_ids,
+    pipeline_config,
+    staging_dir,
+    python_bin,
+    main_script,
+    question_slug,
+):
     """
-    WORKER TASK: Processes one batch of submissions.
-    Stages files, runs Autograder+ pipeline, parses results, updates DB.
+    WORKER TASK: Runs the Autograder+ pipeline for all submissions of ONE question.
+    - Stages student files under <staging_dir>/submissions/<username>/
+    - Writes a single config.json (built directly from the DB question config)
+    - Invokes Autograder+ once (with the newgrade venv python)
+    - Reads results.json and bulk-updates SubmissionAttempt.ai_analysis_data
     """
-    import subprocess
-    import json
-    import shutil
-    from pathlib import Path
     from .models import AIAnalysisTask
 
     staging_path = Path(staging_dir)
+    log_lines = []  # collected for the admin UI
+
+    def _log(msg: str):
+        """Log to Django logger AND accumulate for DB."""
+        logger.info(msg)
+        log_lines.append(msg)
 
     try:
-        # Check if cancelled before starting
+        # ── Cancellation guard ─────────────────────────────────────────────
         ai_task = AIAnalysisTask.objects.get(id=ai_task_id)
-        if ai_task.status == 'cancelled':
-            logger.info(f"Batch skipped — task {ai_task_id} was cancelled")
+        if ai_task.status == "cancelled":
+            _log(f"[{question_slug}] Skipped — task was cancelled.")
             return "cancelled"
 
-        language = config_data.get('language', 'python')
-        ext_map = {'python': '.py', 'c': '.c', 'java': '.java'}
-        target_ext = ext_map.get(language, '.py')
-        target_filename = "Main.java" if language == 'java' else f"main{target_ext}"
+        # ── Language / file naming ─────────────────────────────────────────
+        language = pipeline_config.get("language", "python").lower()
+        ext_map = {"python": ".py", "c": ".c", "java": ".java"}
+        target_ext = ext_map.get(language, ".py")
+        target_filename = "Main.java" if language == "java" else f"main{target_ext}"
 
-        # Set up staging directory (ignore permission errors on leftover dirs from other runs)
+        # ── Set up clean staging directory ─────────────────────────────────
         if staging_path.exists():
             shutil.rmtree(staging_path, ignore_errors=True)
         staging_path.mkdir(parents=True, exist_ok=True)
         submissions_dir = staging_path / "submissions"
         submissions_dir.mkdir()
 
-        # Write submission files
-        attempts = SubmissionAttempt.objects.filter(id__in=attempt_ids).select_related('student')
+        # ── Write student submission files ─────────────────────────────────
+        attempts = (
+            SubmissionAttempt.objects
+            .filter(id__in=attempt_ids)
+            .select_related("student")
+        )
         id_to_attempt = {str(a.id): a for a in attempts}
 
         for attempt_id in attempt_ids:
@@ -266,15 +309,30 @@ def analyze_batch_task(assignment_id, ai_task_id, attempt_ids, config_data,
                 continue
             student_dir = submissions_dir / attempt.student.username
             student_dir.mkdir(exist_ok=True)
-            with open(student_dir / target_filename, 'w') as f:
-                f.write(attempt.source_code or '')
+            (student_dir / target_filename).write_text(attempt.source_code or "")
 
-        # Write config
+        staged_count = len([a for a in id_to_attempt.values()])
+        _log(f"[{question_slug}] Staged {staged_count} submissions.")
+
+        # ── Write config.json (from DB — no manual re-mapping) ────────────
         config_path = staging_path / "config.json"
-        with open(config_path, 'w') as f:
-            json.dump(config_data, f, indent=2)
+        config_path.write_text(json.dumps(pipeline_config, indent=2))
 
+        # ── Build and run the pipeline subprocess ─────────────────────────
         output_dir = staging_path / "reports"
+        output_dir.mkdir(exist_ok=True)
+
+        ai_timeout = int(os.environ.get("AI_TIMEOUT_SECONDS", "900"))
+
+        # Memory limit (optional, default off)
+        mem_limit_mb = int(os.environ.get("AI_MEMORY_LIMIT_MB", "0"))
+
+        def _limit_memory():
+            if mem_limit_mb > 0:
+                import resource
+                limit = mem_limit_mb * 1024 * 1024
+                resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
         cmd = [
             python_bin, main_script, "grade",
             "--assignment-config", str(config_path),
@@ -283,131 +341,150 @@ def analyze_batch_task(assignment_id, ai_task_id, attempt_ids, config_data,
             "--level", "full",
         ]
 
-        logger.info(f"Running pipeline for batch {staging_path.name}")
+        _log(f"[{question_slug}] Running: {' '.join(cmd)}")
 
-        # Limit the subprocess virtual address space.
-        # Configurable via AI_MEMORY_LIMIT_MB env var (default: 0 = No Limit).
-        # If main.py exceeds this limit it receives SIGKILL — only the subprocess
-        # dies; Daphne and Celery workers are completely unaffected.
-        _mem_limit_mb = int(os.environ.get('AI_MEMORY_LIMIT_MB', '0'))
-        
-        if _mem_limit_mb > 0:
-            logger.info(f"[{staging_path.name}] Memory limit: {_mem_limit_mb} MB (set AI_MEMORY_LIMIT_MB to 0 to disable)")
-        else:
-            logger.info(f"[{staging_path.name}] Memory limit: DISABLED (Using full system RAM. Set AI_MEMORY_LIMIT_MB to enable)")
+        # Build a clean env for the subprocess:
+        # - PYTORCH_CUDA_ALLOC_CONF: prevents OOM by enabling PyTorch's expandable
+        #   segment allocator — instead of crashing, it reuses fragmented GPU memory.
+        subprocess_env = os.environ.copy()
+        subprocess_env["PYTORCH_CUDA_ALLOC_CONF"] = os.environ.get(
+            "PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True"
+        )
 
-        def _limit_memory():
-            if _mem_limit_mb > 0:
-                import resource
-                _mem_limit_bytes = _mem_limit_mb * 1024 * 1024
-                resource.setrlimit(resource.RLIMIT_AS, (_mem_limit_bytes, _mem_limit_bytes))
-
-        # Configurable timeout
-        ai_timeout = int(os.environ.get('AI_TIMEOUT_SECONDS', '900'))  # Default 15 minutes per batch
-
-        sub_result = None
         try:
-            sub_result = subprocess.run(
+            result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=ai_timeout,
-                preexec_fn=_limit_memory if _mem_limit_mb > 0 else None,
+                preexec_fn=_limit_memory if mem_limit_mb > 0 else None,
+                cwd=str(Path(main_script).parent),  # run from Autograder_plus root
+                env=subprocess_env,
             )
         except subprocess.TimeoutExpired:
-            logger.error(
-                f"[{staging_path.name}] TIMEOUT — batch exceeded {ai_timeout}s hard limit. "
-                f"Increase AI_TIMEOUT_SECONDS or reduce AI_BATCH_SIZE."
+            _log(
+                f"[{question_slug}] TIMEOUT — exceeded {ai_timeout}s. "
+                "Increase AI_TIMEOUT_SECONDS or reduce question batch size."
             )
-        except OSError as os_err:
-            logger.error(
-                f"[{staging_path.name}] Subprocess failed to run. "
-                f"Error: {os_err}. "
-                f"If you see 'bad interpreter', recreate Autograder_plus venv: cd Autograder_plus && python3 -m venv newgrade && newgrade/bin/pip install -r requirements.txt"
+            result = None
+        except OSError as oserr:
+            _log(
+                f"[{question_slug}] OSError launching subprocess: {oserr}. "
+                "If 'bad interpreter' — recreate venv: cd Autograder_plus && "
+                "python3 -m venv newgrade && newgrade/bin/pip install -r requirements.txt"
             )
+            result = None
 
+        # ── Parse and persist results ──────────────────────────────────────
         saved_count = 0
-        if sub_result is not None:
-            if sub_result.returncode != 0:
-                logger.error(
-                    f"[{staging_path.name}] PIPELINE FAILED — exit code {sub_result.returncode}. "
-                    f"stderr: {sub_result.stderr[:800]}"
+        if result is not None:
+            if result.returncode != 0:
+                _log(
+                    f"[{question_slug}] Pipeline exited with code {result.returncode}. "
+                    f"stderr: {result.stderr[:800]}"
                 )
             else:
-                # Parse results and save to DB
+                # Capture pipeline stdout for admin viewer
+                if result.stdout:
+                    for line in result.stdout.splitlines():
+                        _log(f"  {line}")
+
                 results_file = output_dir / "results.json"
                 if results_file.exists():
-                    with open(results_file, 'r') as f:
-                        results_data = json.load(f)
+                    results_data = json.loads(results_file.read_text())
 
-                    for item in results_data:
-                        student_username = item.get("student_id")
-                        if not student_username:
-                            continue
-                        try:
-                            attempt = next(
-                                a for a in attempts if a.student.username == student_username
-                            )
-                            analysis_data = item.get("analysis", {})
-                            if item.get("error_processing"):
-                                analysis_data["error"] = item["error_processing"]
-                            attempt.ai_analysis_data = analysis_data
-                            attempt.save(update_fields=['ai_analysis_data'])
+                    # Bulk update using a mapping for efficiency
+                    update_map = {
+                        item["student_id"]: item.get("analysis", {})
+                        for item in results_data
+                        if item.get("student_id")
+                    }
+                    if item_error := {
+                        item["student_id"]: item["error_processing"]
+                        for item in results_data
+                        if item.get("error_processing") and item.get("student_id")
+                    }:
+                        for sid, err in item_error.items():
+                            if sid in update_map:
+                                update_map[sid]["error"] = err
+
+                    for attempt in attempts:
+                        uname = attempt.student.username
+                        if uname in update_map:
+                            attempt.ai_analysis_data = update_map[uname]
+                            attempt.save(update_fields=["ai_analysis_data"])
                             saved_count += 1
-                        except StopIteration:
-                            logger.warning(
-                                f"[{staging_path.name}] No attempt found for student '{student_username}' — skipping."
-                            )
+
+                    _log(f"[{question_slug}] Saved {saved_count}/{len(attempt_ids)} results to DB.")
                 else:
-                    logger.error(
-                        f"[{staging_path.name}] MISSING results.json — pipeline ran but produced no output. "
-                        f"Check {output_dir} for partial files."
+                    _log(
+                        f"[{question_slug}] results.json not found in {output_dir}. "
+                        "Pipeline ran but produced no output — check Autograder_plus logs."
                     )
 
-        if saved_count == 0:
-            logger.warning(
-                f"[{staging_path.name}] saved_count=0 — no submissions were written to DB for this batch. "
-                f"Possible causes: subprocess OOM/timeout, empty results.json, or all student IDs unmatched."
-            )
-        else:
-            logger.info(f"[{staging_path.name}] Saved {saved_count}/{len(attempt_ids)} submissions to DB.")
+        if saved_count == 0 and result is not None and result.returncode == 0:
+            _log(f"[{question_slug}] WARNING: saved_count=0 despite successful run.")
 
-        # Atomically increment completed_batches.
-        # Use saved_count (actual DB saves) so the analyzed counter stays accurate.
-        from django.db.models import F
-        AIAnalysisTask.objects.filter(id=ai_task_id).update(
-            completed_batches=F('completed_batches') + 1,
-            analyzed=F('analyzed') + saved_count,
-        )
-
-        # Check if all batches done → mark completed
-        ai_task.refresh_from_db()
-        if ai_task.completed_batches >= ai_task.total_batches and ai_task.status == 'running':
-            ai_task.status = 'completed'
-            ai_task.save(update_fields=['status'])
-            logger.info(f"All batches done for ai_task {ai_task_id}")
-
-        # Clean up staging
-        shutil.rmtree(staging_path, ignore_errors=True)
-        return "success"
-
-    except Exception as e:
-        logger.error(f"Batch task failed ({staging_dir}): {e}", exc_info=True)
-        from django.db.models import F
-        AIAnalysisTask.objects.filter(id=ai_task_id).update(
-            completed_batches=F('completed_batches') + 1,
-        )
-        
-        # Ensure task completion check runs even if this batch errored out!
-        # Otherwise, if the last batch throws, the task stays 'running' forever.
+    except Exception as exc:
+        logger.error(f"[{question_slug}] Worker crashed: {exc}", exc_info=True)
+        _log(f"[{question_slug}] CRASH: {exc}")
+    finally:
+        # ── Always update progress + append logs ──────────────────────────
         try:
-            ai_task.refresh_from_db()
-            if ai_task.completed_batches >= ai_task.total_batches and ai_task.status == 'running':
-                ai_task.status = 'completed'
-                ai_task.save(update_fields=['status'])
-                logger.info(f"All batches done (with some errors) for ai_task {ai_task_id}")
-        except Exception as db_err:
-            logger.error(f"Failed to update task status on batch error: {db_err}")
+            AIAnalysisTask.objects.filter(id=ai_task_id).update(
+                completed_batches=F("completed_batches") + 1,
+                analyzed=F("analyzed") + saved_count,
+            )
 
+            # Append logs to the JSONField so admin UI can display them
+            _append_logs_to_task(ai_task_id, log_lines)
+
+            # Check if all question workers have finished
+            ai_task.refresh_from_db()
+            if (
+                ai_task.completed_batches >= ai_task.total_batches
+                and ai_task.status == "running"
+            ):
+                ai_task.status = "completed"
+                ai_task.save(update_fields=["status"])
+                logger.info(f"[{question_slug}] All question workers done — marked completed.")
+
+        except Exception as db_exc:
+            logger.error(f"[{question_slug}] DB update in finally block failed: {db_exc}")
+
+        # ── Clean up staging directory ─────────────────────────────────────
         shutil.rmtree(staging_path, ignore_errors=True)
-        return "error"
+
+
+# ---------------------------------------------------------------------------
+# Helper: append log lines atomically using a PostgreSQL array append
+# ---------------------------------------------------------------------------
+
+def _append_logs_to_task(ai_task_id: str, lines: list[str]):
+    """
+    Appends log_lines to AIAnalysisTask.log_output using a PostgreSQL
+    JSONField array concat so concurrent workers don't overwrite each other.
+    Falls back to a read-modify-write if the DB doesn't support the shorthand.
+    """
+    from .models import AIAnalysisTask
+    from django.db.models.expressions import RawSQL
+
+    if not lines:
+        return
+
+    try:
+        # PostgreSQL-specific: concatenate arrays at DB level
+        AIAnalysisTask.objects.filter(id=ai_task_id).update(
+            log_output=RawSQL(
+                "log_output || %s::jsonb",
+                [json.dumps(lines)],
+            )
+        )
+    except Exception:
+        # Fallback for non-Postgres or any error
+        try:
+            task = AIAnalysisTask.objects.get(id=ai_task_id)
+            task.log_output = (task.log_output or []) + lines
+            task.save(update_fields=["log_output"])
+        except Exception as exc:
+            logger.warning(f"Could not append logs to task {ai_task_id}: {exc}")

@@ -259,100 +259,205 @@ class AssignmentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='word-cloud')
     def generate_word_cloud(self, request, pk=None):
         """
-        Generate and return a base64 word cloud image.
-        Runs entirely in-process — no subprocess, no temp files, no display required.
+        Generate per-question word clouds split by score tier.
+
+        Query params:
+            question_id  (required) – the Question PK to scope to.
+
+        Response:
+            {
+              "full":    { "image_base64": "...", "top_words": [...], "count": N },
+              "partial": { "image_base64": "...", "top_words": [...], "count": N },
+            }
+        Both keys are always present; image_base64 is null when there is no data
+        for that tier.
         """
         import re
         import base64
         from io import BytesIO
         from collections import Counter
 
-        # --- CRITICAL: set non-interactive backend before ANY matplotlib/wordcloud import ---
         import matplotlib
         matplotlib.use('Agg')
         try:
             from wordcloud import WordCloud
         except ImportError:
-            return Response({'message': 'wordcloud library not installed. Run: pip install wordcloud'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        try:
-            from submissions.models import SubmissionAttempt
-            attempts = SubmissionAttempt.objects.filter(
-                assignment_question__assignment_id=pk,
-                ai_analysis_data__isnull=False
+            return Response(
+                {'message': 'wordcloud library not installed. Run: pip install wordcloud'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-            STOPWORDS = {
-                'a','an','the','and','or','but','in','on','at','to','for','of','with',
-                'is','are','was','were','be','been','being','have','has','had','do','does',
-                'did','will','would','shall','should','may','might','must','can','could',
-                'not','no','nor','so','yet','both','either','neither','as','if','then',
-                'than','though','because','while','since','up','out','by','from','this',
-                'that','these','those','it','its','i','you','he','she','we','they','them',
-                'their','what','which','who','how','when','where','why','all','each','any',
-                'more','also','very','just','about','into','through','during','before',
-                'after','above','below','between','use','using','make','makes','made',
-                'function','line','code','python','variable','value','return','print',
-                'string','list','int','type','none','true','false','error','warning',
-                'however','therefore','thus','given','provides','overall','solution',
-                'implement','implementation','approach','provides','demonstrates','given',
-                's','t','re','ve','ll','d','m','one','two','three','four','five',
-            }
+        question_id = request.query_params.get('question_id')
+        if not question_id:
+            return Response({'message': 'question_id query param is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            all_tokens = []
-            for attempt in attempts:
-                ai = attempt.ai_analysis_data
-                if not isinstance(ai, dict):
-                    continue
-                # Old format: tags list
-                for t in ai.get('tags', []):
-                    if t: all_tokens.append(str(t).lower())
-                # New format: ai.feedback.*
-                fb = ai.get('feedback', {})
-                if isinstance(fb, dict):
-                    for field in ('technical_summary', 'error_explanation', 'summarized_construct'):
-                        val = fb.get(field)
-                        if val and isinstance(val, str):
-                            all_tokens.extend(re.findall(r"[a-zA-Z][a-zA-Z0-9']{2,}", val.lower()))
-                    for c in fb.get('identified_concepts', []):
-                        if c: all_tokens.append(str(c).lower())
-                # Static constructs
-                static = ai.get('static', {})
-                if isinstance(static, dict):
-                    for c in static.get('constructs_found', []):
-                        if isinstance(c, str):
-                            all_tokens.extend(re.findall(r"[a-zA-Z][a-zA-Z0-9']{2,}", c.lower()))
-                # Detected keywords fallback
-                kw = getattr(attempt, 'detected_keywords', None)
-                if kw:
-                    items = kw if isinstance(kw, list) else [x.strip() for x in kw.split(',') if x.strip()]
-                    all_tokens.extend([str(k).lower() for k in items])
+        # ------------------------------------------------------------------ #
+        # Extended stop-word list — remove generic / non-insightful tokens    #
+        # ------------------------------------------------------------------ #
+        STOPWORDS = {
+            # Articles / prepositions / conjunctions
+            'a','an','the','and','or','but','in','on','at','to','for','of','with',
+            'is','are','was','were','be','been','being','have','has','had','do','does',
+            'did','will','would','shall','should','may','might','must','can','could',
+            'not','no','nor','so','yet','both','either','neither','as','if','then',
+            'than','though','because','while','since','up','out','by','from','this',
+            'that','these','those','it','its','they','them','their',
+            'what','which','who','how','when','where','why','all','each','any',
+            'more','also','very','just','about','into','through','during','before',
+            'after','above','below','between',
+            # Generic programming / filler verbs
+            'use','used','using','make','makes','made','takes','take','taken',
+            'get','gets','got','set','sets','let','lets','call','calls','called',
+            'check','checks','return','returns','print','prints',
+            'function','line','code','python','variable','value','output','input',
+            'string','list','dict','int','float','bool','type','none','true','false',
+            'error','warning','result','results','based','given','provide','provides',
+            'provided','overall','solution','attempt','attempts','student','students',
+            'implement','implementation','approach','demonstrates','given',
+            'however','therefore','thus','hence','also','additionally','furthermore',
+            'correct','correctly','incorrect','incorrect','wrong','right','well',
+            'good','better','best','issue','issues','problem','problems','note','notes',
+            'show','shows','shown','see','seen','need','needs','needed',
+            'work','works','worked','working','run','runs','running','ran',
+            # Short noise
+            's','t','re','ve','ll','d','m','one','two','three','four','five',
+            'six','seven','eight','nine','ten',
+        }
 
-            filtered = [t for t in all_tokens if t and t not in STOPWORDS and len(t) > 2 and not t.isdigit()]
-            if not filtered:
-                return Response({'message': 'No AI analysis data found. Run Autograder+ first.'}, status=status.HTTP_404_NOT_FOUND)
+        def _extract_tokens(attempt, include_errors=False):
+            """Extract only technical/conceptual tokens from ai_analysis_data."""
+            tokens = []
+            ai = attempt.ai_analysis_data
+            if not isinstance(ai, dict):
+                return tokens
 
-            freq = dict(Counter(filtered).most_common(150))
+            fb = ai.get('feedback', {})
+            if isinstance(fb, dict):
+                # Technical concepts / approach descriptions
+                for field in ('technical_summary', 'summarized_construct'):
+                    val = fb.get(field)
+                    if val and isinstance(val, str):
+                        tokens.extend(re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', val.lower()))
+                # Error explanations — only for partial/incorrect tier
+                if include_errors:
+                    val = fb.get('error_explanation')
+                    if val and isinstance(val, str):
+                        tokens.extend(re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', val.lower()))
+                # Identified concepts are always useful
+                for c in fb.get('identified_concepts', []):
+                    if c and isinstance(c, str):
+                        tokens.extend(re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', str(c).lower()))
 
-            # Generate word cloud entirely in-process — PIL Image, no display needed
+            # Static constructs (always technical)
+            static = ai.get('static', {})
+            if isinstance(static, dict):
+                for c in static.get('constructs_found', []):
+                    if isinstance(c, str):
+                        tokens.extend(re.findall(r'[a-zA-Z][a-zA-Z0-9_]{3,}', c.lower()))
+
+            # Tags (short labels from old format or pipeline)
+            for tag in ai.get('tags', []):
+                if tag and isinstance(tag, str) and len(tag) >= 4:
+                    tokens.append(tag.lower().strip())
+
+            # Filter stop-words, digits, short tokens
+            return [
+                t for t in tokens
+                if t not in STOPWORDS and not t.isdigit() and len(t) >= 4
+            ]
+
+        def _build_cloud(tokens, colormap):
+            """Build a WordCloud PIL image from token list; returns base64 string or None."""
+            if not tokens:
+                return None, []
+            freq = Counter(tokens)
+            top = freq.most_common(120)
+            freq_dict = dict(top)
             wc = WordCloud(
                 width=900,
-                height=450,
+                height=420,
                 background_color='white',
-                colormap='plasma',
-                max_words=120,
-                prefer_horizontal=0.8,
+                colormap=colormap,
+                max_words=100,
+                prefer_horizontal=0.75,
                 min_font_size=10,
+                collocations=False,
             )
-            wc.generate_from_frequencies(freq)
-
+            wc.generate_from_frequencies(freq_dict)
             buf = BytesIO()
             wc.to_image().save(buf, format='PNG')
             img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            return img_b64, [(w, c) for w, c in top[:20]]
+
+        try:
+            from submissions.models import SubmissionAttempt
+            from assignments.models import AssignmentQuestion
+
+            # Resolve the AssignmentQuestion to get max_score
+            try:
+                aq = AssignmentQuestion.objects.select_related('question').get(
+                    assignment_id=pk,
+                    question_id=question_id
+                )
+            except AssignmentQuestion.DoesNotExist:
+                return Response(
+                    {'message': 'Question not found in this assignment.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Max score = number of test cases (each worth 1 point)
+            test_cases = aq.question.test_cases or []
+            max_score = len(test_cases) if isinstance(test_cases, list) else 1
+
+            # Fetch all attempts for this specific question that have AI data
+            attempts = SubmissionAttempt.objects.filter(
+                assignment_question=aq,
+                ai_analysis_data__isnull=False
+            ).only('ai_analysis_data', 'manual_score', 'status')
+
+            if not attempts.exists():
+                return Response(
+                    {'message': 'No AI analysis data found for this question. Run Autograder+ first.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            full_tokens = []
+            partial_tokens = []
+
+            for attempt in attempts:
+                score = attempt.manual_score
+                # Full tier: score equals max (all test cases passed)
+                is_full = (
+                    score is not None
+                    and max_score > 0
+                    and score >= max_score
+                ) or attempt.status == 'success'
+
+                if is_full:
+                    full_tokens.extend(_extract_tokens(attempt, include_errors=False))
+                else:
+                    partial_tokens.extend(_extract_tokens(attempt, include_errors=True))
+
+            full_img, full_top = _build_cloud(full_tokens, colormap='YlGn')
+            partial_img, partial_top = _build_cloud(partial_tokens, colormap='YlOrRd')
+
+            if full_img is None and partial_img is None:
+                return Response(
+                    {'message': 'Not enough meaningful tokens found. Try running more AI analysis first.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
 
             return Response({
-                'image_base64': img_b64,
-                'top_words': list(freq.items())[:20],
+                'full': {
+                    'image_base64': full_img,
+                    'top_words': full_top,
+                    'count': len(full_tokens),
+                },
+                'partial': {
+                    'image_base64': partial_img,
+                    'top_words': partial_top,
+                    'count': len(partial_tokens),
+                },
             })
 
         except Exception as e:
@@ -493,6 +598,9 @@ class AssignmentViewSet(viewsets.ModelViewSet):
             'status': t.status,
             'completed_batches': t.completed_batches,
             'total_batches': t.total_batches,
+            'analyzed': t.analyzed,
+            'total_submissions': t.total_submissions,
+            'log_output': t.log_output or [],
         } for t in tasks]
         return Response(data)
 

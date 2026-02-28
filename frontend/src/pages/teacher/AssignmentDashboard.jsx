@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
     MoveLeft,
@@ -55,7 +55,7 @@ export default function AssignmentDashboard() {
     const [assignment, setAssignment] = useState(null);
     const [studentsSummary, setStudentsSummary] = useState([]); // Aggregated student data
     const [submissions, setSubmissions] = useState([]); // Raw submissions (kept for Analytics)
-    const [wordCloudImage, setWordCloudImage] = useState(null);
+    const [wordClouds, setWordClouds] = useState({ full: null, partial: null });
     const [wordCloudLoading, setWordCloudLoading] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -65,10 +65,18 @@ export default function AssignmentDashboard() {
         analyzed: 0, total: 0, percent: 0,
         completed_batches: 0, total_batches: 0,
     });
+    // Timestamp of the most recent trigger — used to ignore stale 'cancelled' responses
+    // that arrive in the first few poll cycles right after a new task is dispatched.
+    const taskStartTimeRef = useRef(null);
 
     // Analytics Navigation State
     const [selectedQuestion, setSelectedQuestion] = useState(null);
-    const [selectedAnalyticsTag, setSelectedAnalyticsTag] = useState(null);
+    const [selectedAnalyticsTag, setSelectedAnalyticsTag] = useState(null); // kept for potential future tag-filtering use
+    // Reset word cloud when switching questions
+    const handleSelectQuestion = (qId) => {
+        setSelectedQuestion(qId);
+        setWordClouds({ full: null, partial: null });
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -119,14 +127,17 @@ export default function AssignmentDashboard() {
 
     // AI Analysis Handler
     const handleTriggerAI = async (forceParam = false) => {
-        // Ensure force is a boolean (prevents React event objects from being passed via onClick)
+        // Ensure force is a boolean (prevents React event objects being passed via onClick)
         const force = forceParam === true;
         try {
+            // Reset state for a clean start
             setIsAnalyzing(true);
+            setAnalysisStatus({ status: 'pending', analyzed: 0, total: 0, percent: 0, completed_batches: 0, total_batches: 0 });
+            taskStartTimeRef.current = Date.now(); // mark start time for grace period
             toast.loading(force ? "Force Restarting AI Analysis..." : "Queuing AI Analysis...", { id: "ai-progress" });
             const res = await assignmentService.triggerAIAnalysis(id, force);
-            // 200: successfully started
-            if (res.data?.success) return; // polling effect takes over
+            // 200: successfully started — polling effect takes over
+            if (res.data?.success) return;
         } catch (err) {
             // 409 Conflict = a run is already in progress; resume polling it
             if (err.response?.status === 409) {
@@ -141,7 +152,6 @@ export default function AssignmentDashboard() {
                 const batchInfo = (data.total_batches ?? 0) > 0
                     ? ` Batch ${data.completed_batches ?? 0}/${data.total_batches}`
                     : '';
-
                 toast.error(`An AI analysis is already running.${batchInfo}`, {
                     id: 'ai-progress',
                     action: {
@@ -155,6 +165,7 @@ export default function AssignmentDashboard() {
             console.error(err);
             toast.error("Failed to trigger AI Analysis.", { id: 'ai-progress' });
             setIsAnalyzing(false);
+            taskStartTimeRef.current = null;
         }
     };
 
@@ -162,7 +173,10 @@ export default function AssignmentDashboard() {
     const handleCancelAI = async () => {
         try {
             await assignmentService.cancelAIAnalysis(id);
+            // Reset all state cleanly so the button is immediately re-clickable
+            taskStartTimeRef.current = null;
             setIsAnalyzing(false);
+            setAnalysisStatus({ status: 'cancelled', analyzed: 0, total: 0, percent: 0, completed_batches: 0, total_batches: 0 });
             toast.warning("AI Analysis cancelled.", { id: "ai-progress" });
         } catch (err) {
             console.error(err);
@@ -170,21 +184,33 @@ export default function AssignmentDashboard() {
         }
     };
 
-    // On-demand word cloud fetch
-    const handleGenerateWordCloud = async () => {
-        setWordCloudLoading(true);
-        try {
-            const wcRes = await assignmentService.getWordCloud(id);
-            if (wcRes.data?.image_base64) {
-                setWordCloudImage(wcRes.data.image_base64);
-                toast.success("Word cloud generated!");
+    // Auto-fetch word clouds whenever the selected question changes (if AI data exists)
+    useEffect(() => {
+        if (!selectedQuestion || !analysisStatus?.analyzed) return;
+
+        const fetchWordClouds = async () => {
+            setWordCloudLoading(true);
+            setWordClouds({ full: null, partial: null }); // reset while loading
+            try {
+                const wcRes = await assignmentService.getWordCloud(id, selectedQuestion);
+                const { full, partial } = wcRes.data;
+                setWordClouds({
+                    full: full?.image_base64 ?? null,
+                    partial: partial?.image_base64 ?? null,
+                });
+            } catch (e) {
+                // 404 = no AI data yet for this question — silent, component shows empty state
+                if (e.response?.status !== 404) {
+                    toast.error('Word cloud generation failed.');
+                }
+            } finally {
+                setWordCloudLoading(false);
             }
-        } catch (e) {
-            toast.error("Failed to generate word cloud. Run Autograder+ first.");
-        } finally {
-            setWordCloudLoading(false);
-        }
-    };
+        };
+
+        fetchWordClouds();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedQuestion, id]);
 
     // Polling progress while AI analysis is running
     useEffect(() => {
@@ -198,18 +224,26 @@ export default function AssignmentDashboard() {
 
                 const { status, completed_batches, total_batches, analyzed, total, percent } = data;
 
+                // Grace period: ignore terminal/stale statuses for 5s after a fresh trigger
+                // This prevents a newly-triggered task from being killed by a leftover 'cancelled' response.
+                const justStarted = taskStartTimeRef.current && (Date.now() - taskStartTimeRef.current) < 5000;
+
                 if (status === 'cancelled' || status === 'failed') {
+                    if (justStarted) return; // ignore stale — the new task hasn't registered yet
                     setIsAnalyzing(false);
+                    taskStartTimeRef.current = null;
                     toast.warning(
                         status === 'failed' ? 'Analysis failed. Check server logs.' : 'Analysis was cancelled.',
                         { id: 'ai-progress' }
                     );
-                } else if (status === 'none' || status === 'unknown') {
-                    // No task exists — stop polling (backend returns 'unknown' when no AIAnalysisTask)
+                } else if (status === 'unknown') {
+                    if (justStarted) return; // backend hasn't written the new task record yet
                     setIsAnalyzing(false);
+                    taskStartTimeRef.current = null;
                     toast.dismiss('ai-progress');
                 } else if (status === 'completed' || (total_batches > 0 && completed_batches >= total_batches)) {
                     setIsAnalyzing(false);
+                    taskStartTimeRef.current = null;
                     toast.success(
                         `AI Analysis done! ${analyzed} submissions analyzed.`,
                         { id: 'ai-progress' }
@@ -220,13 +254,12 @@ export default function AssignmentDashboard() {
                         ? subResponse.data
                         : (subResponse.data?.results || []);
                     setSubmissions(subData);
-                } else if (status === 'pending' || status === 'queuing') {
-                    // Master task hasn't populated batches yet (backend uses 'pending')
-                    toast.loading('Queuing batches…', { id: 'ai-progress' });
+                } else if (status === 'pending') {
+                    toast.loading('Queuing questions…', { id: 'ai-progress' });
                 } else {
-                    // Running normally (status === 'running')
+                    // Running normally
                     const batchInfo = total_batches > 0
-                        ? ` · Batch ${completed_batches}/${total_batches}`
+                        ? ` · Question ${completed_batches}/${total_batches}`
                         : '';
                     toast.loading(
                         `Analyzing… ${analyzed}/${total} (${percent}%)${batchInfo}`,
@@ -461,7 +494,7 @@ export default function AssignmentDashboard() {
                             {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                             {isAnalyzing
                                 ? (analysisStatus?.total_batches > 0
-                                    ? `Batch ${analysisStatus?.completed_batches}/${analysisStatus?.total_batches}`
+                                    ? `Question ${analysisStatus?.completed_batches}/${analysisStatus?.total_batches}`
                                     : "Queuing...")
                                 : "Autograder+"}
                         </Button>
@@ -652,7 +685,7 @@ export default function AssignmentDashboard() {
                                                 key={q.id}
                                                 variant="outline"
                                                 className="h-auto py-4 px-6 flex flex-col items-start gap-1 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left"
-                                                onClick={() => setSelectedQuestion(q.question.id)}
+                                                onClick={() => handleSelectQuestion(q.question.id)}
                                             >
                                                 <span className="font-bold text-gray-900">Question {idx + 1}</span>
                                                 <span className="text-xs text-gray-500 line-clamp-1">{q.question.title}</span>
@@ -664,7 +697,7 @@ export default function AssignmentDashboard() {
                         ) : (
                             <div className="space-y-6">
                                 <div className="flex items-center gap-4">
-                                    <Button variant="ghost" size="sm" onClick={() => setSelectedQuestion(null)}>
+                                    <Button variant="ghost" size="sm" onClick={() => handleSelectQuestion(null)}>
                                         <MoveLeft className="w-4 h-4 mr-2" />
                                         Back to Questions
                                     </Button>
@@ -720,36 +753,12 @@ export default function AssignmentDashboard() {
                                                 />
                                             </div>
                                             <div className="lg:col-span-1 h-full">
-                                                {wordCloudImage ? (
-                                                    <ErrorWordCloud
-                                                        data={wordCloudData}
-                                                        imageSrc={wordCloudImage}
-                                                        selectedTag={selectedAnalyticsTag}
-                                                        onSelectTag={setSelectedAnalyticsTag}
-                                                    />
-                                                ) : (
-                                                    <Card className="col-span-1 h-full flex flex-col items-center justify-center border-dashed bg-gray-50/50">
-                                                        <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
-                                                            <Sparkles className="w-8 h-8 text-indigo-300" />
-                                                            <p className="text-sm font-medium text-gray-600">Feedback Word Cloud</p>
-                                                            <p className="text-xs text-gray-400">
-                                                                {analysisStatus?.analyzed > 0
-                                                                    ? `${analysisStatus?.analyzed} submissions analyzed`
-                                                                    : 'Run Autograder+ first to generate analysis'}
-                                                            </p>
-                                                            <Button
-                                                                size="sm"
-                                                                variant="outline"
-                                                                className="mt-2 gap-2"
-                                                                disabled={wordCloudLoading || !analysisStatus?.analyzed}
-                                                                onClick={handleGenerateWordCloud}
-                                                            >
-                                                                {wordCloudLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                                                                {wordCloudLoading ? 'Generating...' : 'Generate Word Cloud'}
-                                                            </Button>
-                                                        </CardContent>
-                                                    </Card>
-                                                )}
+                                                <ErrorWordCloud
+                                                    fullImage={wordClouds.full}
+                                                    partialImage={wordClouds.partial}
+                                                    loading={wordCloudLoading}
+                                                    hasAiData={!!analysisStatus?.analyzed}
+                                                />
                                             </div>
                                         </div>
 

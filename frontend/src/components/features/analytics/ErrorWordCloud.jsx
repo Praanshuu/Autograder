@@ -1,99 +1,113 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../ui/card";
-import { AlertCircle, Filter, X, MessageSquareWarning } from "lucide-react";
-import { Button } from "../../ui/button";
+import { CheckCircle2, XCircle, Loader2, Sparkles, MessageSquareWarning } from "lucide-react";
 
-export default function ErrorWordCloud({ data = [], selectedTag, onSelectTag, imageSrc }) {
-    if (!imageSrc && (!data || data.length === 0)) {
+const TABS = [
+    {
+        key: 'full',
+        label: 'Full Score',
+        icon: CheckCircle2,
+        iconColor: 'text-emerald-500',
+        activeRing: 'border-emerald-400 bg-emerald-50/60',
+        inactiveRing: 'border-transparent text-gray-500 hover:text-gray-700',
+        emptyTitle: 'No full-score submissions yet',
+        emptyDesc: 'Word patterns from perfect submissions will appear here once students score full marks.',
+    },
+    {
+        key: 'partial',
+        label: 'Partial / Incorrect',
+        icon: XCircle,
+        iconColor: 'text-rose-500',
+        activeRing: 'border-rose-400 bg-rose-50/60',
+        inactiveRing: 'border-transparent text-gray-500 hover:text-gray-700',
+        emptyTitle: 'No partial/incorrect data',
+        emptyDesc: 'Error patterns and approach terms from incorrect submissions will appear here.',
+    },
+];
+
+function SkeletonCloud() {
+    return (
+        <div className="animate-pulse flex items-center justify-center p-4 h-48 w-full">
+            <div className="space-y-3 w-full">
+                {[80, 55, 65, 45, 70].map((w, i) => (
+                    <div
+                        key={i}
+                        className="h-3 rounded-full bg-gray-200 mx-auto"
+                        style={{ width: `${w}%`, opacity: 1 - i * 0.12 }}
+                    />
+                ))}
+            </div>
+        </div>
+    );
+}
+
+export default function ErrorWordCloud({ fullImage, partialImage, loading, hasAiData }) {
+    const [activeTab, setActiveTab] = useState('full');
+
+    const activeTabData = TABS.find(t => t.key === activeTab);
+    const currentImage = activeTab === 'full' ? fullImage : partialImage;
+
+    // Nothing to show — no AI data at all
+    if (!hasAiData) {
         return (
-            <Card className="col-span-1 border-dashed border-gray-200 bg-gray-50 h-full flex flex-col items-center justify-center p-6 text-center text-gray-500">
+            <Card className="col-span-1 border-dashed border-gray-200 bg-gray-50 h-full flex flex-col items-center justify-center p-6 text-center text-gray-400">
                 <MessageSquareWarning className="w-8 h-8 mb-2 opacity-20" />
-                <p>No feedback tags found for this assignment yet.</p>
+                <p className="text-sm font-medium">No AI analysis yet</p>
+                <p className="text-xs mt-1">Run Autograder+ to generate feedback word clouds.</p>
             </Card>
         );
     }
 
-    // Simple sizing logic based on value range
-    const maxValue = Math.max(...data.map(d => d.value), 1);
-
-    const getFontSize = (value) => {
-        // Map 0-max to 12px-36px
-        const minSize = 12;
-        const maxSize = 32;
-        const scale = (value / maxValue);
-        return minSize + (scale * (maxSize - minSize));
-    };
-
-    const getColor = (item) => {
-        // Basic mapping based on keyword heuristics if type isn't explicit
-        const text = item.text.toLowerCase();
-        if (text.includes('error') || text.includes('failed') || text.includes('exception')) return "#ef4444"; // Red
-        if (text.includes('optimization') || text.includes('clean') || text.includes('perfect')) return "#22c55e"; // Green
-        if (text.includes('warning') || text.includes('redundant')) return "#eab308"; // Yellow
-        return "#f97316"; // Orange default
-    };
-
     return (
-        <Card className="col-span-1 border-orange-100 bg-orange-50/10 h-full">
-            <CardHeader>
-                <CardTitle className="text-lg flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <MessageSquareWarning className="w-5 h-5 text-orange-500" />
-                        <span>Feedback Analysis</span>
-                    </div>
-                    {selectedTag && (
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-6 px-2 text-xs text-orange-600 bg-orange-100 hover:bg-orange-200"
-                            onClick={() => onSelectTag(null)}
-                        >
-                            {selectedTag} <X className="w-3 h-3 ml-1" />
-                        </Button>
-                    )}
+        <Card className="col-span-1 h-full flex flex-col">
+            <CardHeader className="pb-2">
+                <CardTitle className="text-lg flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-indigo-500" />
+                    Feedback Themes
                 </CardTitle>
-                <CardDescription>
-                    Frequency of automated feedback tags.
+                <CardDescription className="text-xs">
+                    Key terms extracted from Autograder+ analysis, segmented by score tier.
                 </CardDescription>
             </CardHeader>
-            <CardContent>
-                {imageSrc ? (
-                    <div className="flex items-center justify-center p-4">
+
+            {/* Tabs */}
+            <div className="flex gap-1 px-5 border-b border-gray-100">
+                {TABS.map(tab => {
+                    const TabIcon = tab.icon;
+                    const isActive = activeTab === tab.key;
+                    return (
+                        <button
+                            key={tab.key}
+                            onClick={() => setActiveTab(tab.key)}
+                            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-md border-b-2 transition-all ${
+                                isActive ? tab.activeRing + ' text-gray-800' : tab.inactiveRing
+                            }`}
+                        >
+                            <TabIcon className={`w-3.5 h-3.5 ${isActive ? tab.iconColor : 'text-gray-400'}`} />
+                            {tab.label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            <CardContent className="flex-1 flex flex-col items-center justify-center p-4">
+                {loading ? (
+                    <SkeletonCloud />
+                ) : currentImage ? (
+                    <div className="w-full flex items-center justify-center">
                         <img
-                            src={`data:image/png;base64,${imageSrc}`}
-                            alt="Word Cloud"
-                            className="max-w-full h-auto rounded-lg shadow-sm"
+                            src={`data:image/png;base64,${currentImage}`}
+                            alt={`${activeTabData.label} word cloud`}
+                            className="max-w-full h-auto rounded-lg shadow-sm border border-gray-100"
                         />
                     </div>
                 ) : (
-                    <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 p-4">
-                        {data.map((item, i) => (
-                            <span
-                                key={i}
-                                onClick={() => onSelectTag(selectedTag === item.text ? null : item.text)}
-                                className={`cursor-pointer transition-all hover:scale-105 hover:underline decoration-2 underline-offset-4 ${selectedTag && selectedTag !== item.text ? "opacity-30 blur-[1px]" : "opacity-100"
-                                    }`}
-                                style={{
-                                    fontSize: `${getFontSize(item.value)}px`,
-                                    color: getColor(item),
-                                    fontWeight: item.value > (maxValue / 2) ? 700 : 500,
-                                }}
-                                title={`${item.value} students`}
-                            >
-                                {item.text}
-                            </span>
-                        ))}
+                    <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-gray-400">
+                        <activeTabData.icon className={`w-9 h-9 ${activeTabData.iconColor} opacity-25`} />
+                        <p className="text-sm font-medium text-gray-500">{activeTabData.emptyTitle}</p>
+                        <p className="text-xs max-w-[220px]">{activeTabData.emptyDesc}</p>
                     </div>
                 )}
-                {selectedTag && !imageSrc && (() => {
-                    const selectedItem = data.find(i => i.text === selectedTag);
-                    return (
-                        <div className="mt-4 p-3 bg-white border rounded-md text-sm text-gray-600 shadow-sm animate-in fade-in slide-in-from-top-2">
-                            <span className="font-semibold text-gray-900">Insight:</span>
-                            {` ${selectedItem ? selectedItem.value : 0} students received the feedback "${selectedTag}".`}
-                        </div>
-                    );
-                })()}
             </CardContent>
         </Card>
     );

@@ -57,7 +57,14 @@ export default function AssignmentDashboard() {
 
     // Analytics Navigation State
     const [selectedQuestion, setSelectedQuestion] = useState(null);
-    const [selectedAnalyticsTag, setSelectedAnalyticsTag] = useState(null);
+    const [wordClouds, setWordClouds] = useState({ full: null, partial: null });
+    const [wordCloudLoading, setWordCloudLoading] = useState(false);
+    const [analysisStatus, setAnalysisStatus] = useState({ analyzed: 0 });
+    // Reset word cloud when switching questions
+    const handleSelectQuestion = (qId) => {
+        setSelectedQuestion(qId);
+        setWordClouds({ full: null, partial: null });
+    };
 
     useEffect(() => {
         const fetchData = async () => {
@@ -87,6 +94,38 @@ export default function AssignmentDashboard() {
 
         if (id) fetchData();
     }, [id]);
+
+    // Fetch analysis progress once so we know if AI data exists
+    useEffect(() => {
+        assignmentService.getAnalysisProgress(id)
+            .then(r => setAnalysisStatus(r.data))
+            .catch(() => { });
+    }, [id]);
+
+    // Auto-fetch word clouds when a question is selected and AI data exists
+    useEffect(() => {
+        if (!selectedQuestion || !analysisStatus?.analyzed) return;
+        const fetchWordClouds = async () => {
+            setWordCloudLoading(true);
+            setWordClouds({ full: null, partial: null });
+            try {
+                const wcRes = await assignmentService.getWordCloud(id, selectedQuestion);
+                const { full, partial } = wcRes.data;
+                setWordClouds({
+                    full: full?.image_base64 ?? null,
+                    partial: partial?.image_base64 ?? null,
+                });
+            } catch (e) {
+                if (e.response?.status !== 404) {
+                    // silent on 404 (no AI data yet for this question)
+                }
+            } finally {
+                setWordCloudLoading(false);
+            }
+        };
+        fetchWordClouds();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedQuestion, id]);
 
     // Derived Stats
     const totalStudents = assignment?.total_students || 0;
@@ -346,7 +385,7 @@ export default function AssignmentDashboard() {
                                                 key={q.id}
                                                 variant="outline"
                                                 className="h-auto py-4 px-6 flex flex-col items-start gap-1 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left"
-                                                onClick={() => setSelectedQuestion(q.question.id)}
+                                                onClick={() => handleSelectQuestion(q.question.id)}
                                             >
                                                 <span className="font-bold text-gray-900">Question {idx + 1}</span>
                                                 <span className="text-xs text-gray-500 line-clamp-1">{q.question.title}</span>
@@ -358,7 +397,7 @@ export default function AssignmentDashboard() {
                         ) : (
                             <div className="space-y-6">
                                 <div className="flex items-center gap-4">
-                                    <Button variant="ghost" size="sm" onClick={() => setSelectedQuestion(null)}>
+                                    <Button variant="ghost" size="sm" onClick={() => handleSelectQuestion(null)}>
                                         <MoveLeft className="w-4 h-4 mr-2" />
                                         Back to Questions
                                     </Button>
@@ -449,7 +488,7 @@ export default function AssignmentDashboard() {
                                                                 if (questionSubs.length === 0) return [];
 
                                                                 const tcStats = {};
-                                                                
+
                                                                 // Helper to get concept from assignment data
                                                                 const getConcept = (idx) => {
                                                                     if (currentQuestion?.testCases && currentQuestion.testCases[idx]) {
@@ -463,9 +502,9 @@ export default function AssignmentDashboard() {
                                                                         sub.test_results.forEach((res, idx) => {
                                                                             const key = idx;
                                                                             if (!tcStats[key]) {
-                                                                                tcStats[key] = { 
-                                                                                    passes: 0, 
-                                                                                    total: 0, 
+                                                                                tcStats[key] = {
+                                                                                    passes: 0,
+                                                                                    total: 0,
                                                                                     name: getConcept(idx),
                                                                                     concept: getConcept(idx) // Pass concept specifically
                                                                                 };
@@ -489,25 +528,10 @@ export default function AssignmentDashboard() {
                                                 </div>
                                                 <div className="lg:col-span-1 h-full">
                                                     <ErrorWordCloud
-                                                        data={(() => {
-                                                            const tagCounts = {};
-                                                            validSubs.forEach(sub => {
-                                                                if (sub.feedback_tags) {
-                                                                    sub.feedback_tags.split(',').forEach(tag => {
-                                                                        const cleanTag = tag.trim();
-                                                                        if (cleanTag) {
-                                                                            tagCounts[cleanTag] = (tagCounts[cleanTag] || 0) + 1;
-                                                                        }
-                                                                    });
-                                                                }
-                                                            });
-                                                            return Object.entries(tagCounts)
-                                                                .map(([text, value]) => ({ text, value }))
-                                                                .sort((a, b) => b.value - a.value)
-                                                                .slice(0, 20);
-                                                        })()}
-                                                        selectedTag={selectedAnalyticsTag}
-                                                        onSelectTag={setSelectedAnalyticsTag}
+                                                        fullImage={wordClouds.full}
+                                                        partialImage={wordClouds.partial}
+                                                        loading={wordCloudLoading}
+                                                        hasAiData={!!analysisStatus?.analyzed}
                                                     />
                                                 </div>
                                             </div>
