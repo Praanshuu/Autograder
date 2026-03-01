@@ -77,7 +77,7 @@ class AssignmentQuestionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = AssignmentQuestion
-        fields = ['id', 'question', 'order', 'custom_points']
+        fields = ['id', 'question', 'order', 'custom_points', 'umap_url']
 
 
 class AssignmentSerializer(serializers.ModelSerializer):

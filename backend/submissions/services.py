@@ -15,23 +15,27 @@ from gamification.points_calculator import PointsCalculator
 class SubmissionConfigGenerator:
     """
     Generates configuration and source files for student submissions.
-    Structure: submissions_data/{student_username}/{assignment_slug}/{question_slug}/{attempt_id}/
+    Structure: media/classes/{class_id}/assignments/{assignment_id}/questions/{question_slug}/submissions/{student_username}/{attempt_id}/
     """
-    BASE_DIR = Path(settings.BASE_DIR) / "submissions_data"
 
     @classmethod
     def get_submission_dir(cls, attempt):
         student_username = attempt.student.username
-        
-        # Use assignment ID for uniqueness if slug unavailable, or slugify title.
         assignment = attempt.assignment_question.assignment
         from django.utils.text import slugify
-        assignment_slug = slugify(assignment.title) or str(assignment.id)
         
+        # Handle cases where assignment might not be linked to a class module yet
+        if assignment.module and assignment.module.class_obj:
+            class_obj = assignment.module.class_obj
+            class_slug = f"{slugify(class_obj.name)}-{str(class_obj.id)[:8]}"
+        else:
+            class_slug = "unassigned"
+            
+        assignment_slug = f"{slugify(assignment.title)}-{str(assignment.id)[:8]}"
         question_slug = attempt.assignment_question.question.slug
         attempt_id = str(attempt.id)
         
-        return cls.BASE_DIR / student_username / assignment_slug / question_slug / attempt_id
+        return Path(settings.MEDIA_ROOT) / "classes" / class_slug / "assignments" / assignment_slug / "questions" / question_slug / "submissions" / student_username / attempt_id
 
     @classmethod
     def save_artifacts(cls, attempt, language='python'):

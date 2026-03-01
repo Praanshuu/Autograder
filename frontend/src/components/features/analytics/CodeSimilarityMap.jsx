@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../ui/card";
+import { Info } from "lucide-react";
 
-export default function CodeSimilarityMap({ submissions }) {
-    // iframe-based view, no data processing needed
-
+export default function CodeSimilarityMap({ submissions, url }) {
+    // Determine the full URL for the media path (url is already an absolute path /media/...)
+    const fullUrl = url || null;
 
     return (
         <Card className="h-full">
@@ -11,11 +12,21 @@ export default function CodeSimilarityMap({ submissions }) {
                 <CardDescription>Grouping students by solution strategy & logic.</CardDescription>
             </CardHeader>
             <CardContent className="h-[500px] p-0 overflow-hidden relative">
-                <iframe
-                    src="/analytics/interactive_embeddings_csl100_q1_umap.html"
-                    className="w-full h-full border-0"
-                    title="Code Similarity UMAP"
-                />
+                {fullUrl ? (
+                    <iframe
+                        src={fullUrl}
+                        className="w-full h-full border-0"
+                        title="Code Similarity UMAP"
+                    />
+                ) : (
+                    <div className="flex flex-col items-center justify-center h-full bg-slate-50 text-slate-500 space-y-3">
+                        <Info className="w-12 h-12 text-slate-400" />
+                        <p className="text-lg font-medium">No Similarity Map Available</p>
+                        <p className="text-sm text-center max-w-sm">
+                            Run the Autograder+ AI pipeline on this question to generate the interactive clusters map.
+                        </p>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );

@@ -123,6 +123,7 @@ class AssignmentQuestion(models.Model):
     question = models.ForeignKey(Question, on_delete=models.CASCADE)
     order = models.IntegerField(default=0)
     custom_points = models.IntegerField(null=True, blank=True)
+    umap_url = models.CharField(max_length=500, blank=True, null=True)
     
     class Meta:
         db_table = 'assignment_questions'

@@ -422,6 +422,34 @@ def analyze_question_ai_task(
                         "Pipeline ran but produced no output — check Autograder_plus logs."
                     )
 
+                # Persist the interactive UMAP HTML plot if generated
+                try:
+                    from django.conf import settings
+                    from django.utils.text import slugify
+                    from assignments.models import AssignmentQuestion, Assignment
+
+                    assignment = Assignment.objects.get(id=assignment_id)
+                    assignment_slug = f"{slugify(assignment.title)}-{str(assignment.id)[:8]}"
+
+                    html_files = list(output_dir.glob("interactive_embeddings_*.html"))
+                    if html_files:
+                        html_src = html_files[0]
+                        # Target location: MEDIA_ROOT/ai_reports/<assignment_slug>/<question_slug>_umap.html
+                        reports_dir = Path(settings.MEDIA_ROOT) / "ai_reports" / assignment_slug
+                        reports_dir.mkdir(parents=True, exist_ok=True)
+                        html_dest = reports_dir / f"{question_slug}_umap.html"
+                        shutil.copy2(html_src, html_dest)
+                        
+                        relative_url = f"/media/ai_reports/{assignment_slug}/{html_dest.name}"
+                        _log(f"[{question_slug}] Saved interactive map to {relative_url}")
+                        
+                        AssignmentQuestion.objects.filter(
+                            assignment_id=assignment_id,
+                            question__slug=question_slug
+                        ).update(umap_url=relative_url)
+                except Exception as eval_exc:
+                    _log(f"[{question_slug}] WARNING: Failed to copy interactive map: {eval_exc}")
+
         if saved_count == 0 and result is not None and result.returncode == 0:
             _log(f"[{question_slug}] WARNING: saved_count=0 despite successful run.")
 

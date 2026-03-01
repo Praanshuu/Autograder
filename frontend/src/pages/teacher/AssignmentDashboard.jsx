@@ -254,6 +254,16 @@ export default function AssignmentDashboard() {
                         ? subResponse.data
                         : (subResponse.data?.results || []);
                     setSubmissions(subData);
+
+                    // Refresh assignment object to load newly generated UMAP URLs
+                    try {
+                        const assignmentRes = await assignmentService.getAssignmentDetails(id);
+                        if (assignmentRes.data) {
+                            setAssignment(assignmentRes.data);
+                        }
+                    } catch (err) {
+                        console.error('Failed to refresh assignment data after AI analysis', err);
+                    }
                 } else if (status === 'pending') {
                     toast.loading('Queuing questions…', { id: 'ai-progress' });
                 } else {
@@ -764,7 +774,10 @@ export default function AssignmentDashboard() {
 
                                         {/* Row 3: Advanced Analysis */}
                                         <div className="h-[600px]">
-                                            <CodeSimilarityMap />
+                                            <CodeSimilarityMap
+                                                submissions={validSubs}
+                                                url={assignment?.questions?.find(q => q.question.id === selectedQuestion)?.umap_url}
+                                            />
                                         </div>
                                     </div>
                                 )}
