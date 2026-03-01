@@ -52,20 +52,23 @@ export const gamificationService = {
   },
 
   // Leaderboard Management
-  // Uses the /points/leaderboard/ endpoint which reads UserPoints directly
-  // (the /leaderboard/ endpoint uses LeaderboardEntry which is a stale cache table)
+  // Uses the /points/leaderboard/ endpoint (UserPoints direct) for global,
+  // and /leaderboard/daily_ranking| weekly_ranking for time-based boards.
   getLeaderboard: async (type = 'global', classId = null, limit = 50) => {
+    // Route daily/weekly to the dedicated endpoints
+    if (type === 'daily') return gamificationService.getDailyLeaderboard(limit);
+    if (type === 'weekly') return gamificationService.getWeeklyLeaderboard(limit);
+
     const params = { limit };
     const queryParams = new URLSearchParams(params).toString();
     const response = await api.get(`${API_CONFIG.ENDPOINTS.GAMIFICATION.POINTS}leaderboard/?${queryParams}`);
 
     if (shouldUseFallbackData(response)) {
       console.warn('Using fallback leaderboard data - gamification API not available');
-      return { success: true, data: { leaderboard: [] } };
+      return { success: true, data: { leaderboard: [], total_users: 0 } };
     }
 
-    // The points/leaderboard/ endpoint returns { leaderboard: [{user, rank, total_points, ...}], ... }
-    // Normalise each entry to have a nested user object (same shape as LeaderboardWidget expects)
+    // Normalise each entry to the shape LeaderboardWidget expects
     const raw = response.data?.leaderboard || [];
     const normalised = raw.map(entry => ({
       rank: entry.rank,
@@ -74,7 +77,47 @@ export const gamificationService = {
       user: entry.user ?? { id: null, username: entry.username, first_name: entry.first_name ?? entry.username, last_name: entry.last_name ?? '' },
     }));
 
-    return { success: true, data: { leaderboard: normalised }, status: response.status };
+    return {
+      success: true,
+      data: { leaderboard: normalised, total_users: response.data?.total_users ?? 0 },
+      status: response.status,
+    };
+  },
+
+  getDailyLeaderboard: async (limit = 20) => {
+    const response = await api.get(
+      `${API_CONFIG.ENDPOINTS.GAMIFICATION.LEADERBOARD}daily_ranking/?page_size=${limit}`
+    );
+    if (shouldUseFallbackData(response)) {
+      return { success: true, data: { leaderboard: [], total_users: 0 } };
+    }
+    // View returns { success, data: { leaderboard: [...], total_users, ... } }
+    const raw = response.data?.data?.leaderboard || [];
+    return {
+      success: true,
+      data: {
+        leaderboard: raw,
+        total_users: response.data?.data?.total_users ?? response.data?.total_users ?? 0,
+      },
+    };
+  },
+
+  getWeeklyLeaderboard: async (limit = 20) => {
+    const response = await api.get(
+      `${API_CONFIG.ENDPOINTS.GAMIFICATION.LEADERBOARD}weekly_ranking/?page_size=${limit}`
+    );
+    if (shouldUseFallbackData(response)) {
+      return { success: true, data: { leaderboard: [], total_users: 0 } };
+    }
+    // View returns { success, data: { leaderboard: [...], total_users, ... } }
+    const raw = response.data?.data?.leaderboard || [];
+    return {
+      success: true,
+      data: {
+        leaderboard: raw,
+        total_users: response.data?.data?.total_users ?? response.data?.total_users ?? 0,
+      },
+    };
   },
 
   getUserRank: async (type = 'global', classId = null) => {
@@ -98,10 +141,15 @@ export const gamificationService = {
 
     if (shouldUseFallbackData(response)) {
       console.warn('Using fallback achievements data - gamification API not available');
-      return { success: true, data: FALLBACK_DATA.achievements };
+      return { success: true, data: [] };
     }
 
-    return response;
+    // Backend returns { success, data: { earned_achievements: [...], total_earned: N } }
+    const earned = response.data?.data?.earned_achievements
+      ?? response.data?.earned_achievements
+      ?? response.data?.results
+      ?? (Array.isArray(response.data) ? response.data : []);
+    return { success: true, data: earned };
   },
 
   getAvailableAchievements: async () => {
@@ -109,21 +157,36 @@ export const gamificationService = {
 
     if (shouldUseFallbackData(response)) {
       console.warn('Using fallback available achievements - gamification API not available');
-      return { success: true, data: FALLBACK_DATA.achievements };
+      return { success: true, data: [] };
     }
 
-    return response;
+    // Backend returns { success, data: { achievements: [...], total_available, total_earned } }
+    // The achievements list includes both earned and not-earned. We only want not-earned for the locked view.
+    const all = response.data?.data?.achievements
+      ?? response.data?.achievements
+      ?? response.data?.results
+      ?? (Array.isArray(response.data) ? response.data : []);
+
+    // Filter to not-earned only (each item has is_earned flag)
+    const notEarned = Array.isArray(all)
+      ? all.filter(item => !item.is_earned).map(item => item.achievement ?? item)
+      : [];
+    return { success: true, data: notEarned };
   },
 
   getAllAchievements: async () => {
-    const response = await api.get(API_CONFIG.ENDPOINTS.GAMIFICATION.ACHIEVEMENTS);
+    const response = await api.get(`${API_CONFIG.ENDPOINTS.GAMIFICATION.ACHIEVEMENTS}available/`);
 
     if (shouldUseFallbackData(response)) {
       console.warn('Using fallback all achievements - gamification API not available');
-      return { success: true, data: FALLBACK_DATA.achievements };
+      return { success: true, data: [] };
     }
 
-    return response;
+    const all = response.data?.data?.achievements
+      ?? response.data?.achievements
+      ?? response.data?.results
+      ?? (Array.isArray(response.data) ? response.data : []);
+    return { success: true, data: Array.isArray(all) ? all : [] };
   },
 
   // Analytics

@@ -14,6 +14,8 @@ import {
     Star,
     Users,
     BookOpen,
+    Award,
+    Trophy,
 } from "lucide-react";
 import {
     LineChart,
@@ -85,7 +87,52 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color = "blue" }) => {
     );
 };
 
-// Custom tooltip for grade progression
+// Tabbed leaderboard card: Daily / Weekly / Global
+const LEADERBOARD_TABS = [
+    { id: 'daily', label: 'Daily', icon: '☀️' },
+    { id: 'weekly', label: 'Weekly', icon: '📅' },
+    { id: 'global', label: 'All Time', icon: '🌍' },
+];
+
+const LeaderboardSection = () => {
+    const [activeTab, setActiveTab] = useState('global');
+    return (
+        <Card>
+            <CardHeader className="pb-0">
+                <CardTitle className="flex items-center gap-2">
+                    <Trophy className="w-5 h-5 text-amber-500" />
+                    Leaderboard
+                </CardTitle>
+                {/* Tabs */}
+                <div className="flex gap-1 mt-3 border-b border-gray-100 pb-0">
+                    {LEADERBOARD_TABS.map((tab) => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-t-lg border-b-2 transition-colors ${activeTab === tab.id
+                                    ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                                }`}
+                        >
+                            <span>{tab.icon}</span>
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+            </CardHeader>
+            <CardContent className="p-0">
+                <LeaderboardWidget
+                    key={activeTab}
+                    type={activeTab}
+                    limit={10}
+                    showUserRank={activeTab === 'global'}
+                />
+            </CardContent>
+        </Card>
+    );
+};
+
+
 const GradeTooltip = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;
@@ -456,28 +503,28 @@ export default function StudentPerformance() {
                         </CardContent>
                     </Card>
 
-                    <ErrorBoundary title="Achievement Error" message="Unable to load achievements">
-                        <AchievementBadges showProgress={true} showNotifications={false} limit={8} />
-                    </ErrorBoundary>
+                    <Card>
+                        <CardHeader className="pb-2">
+                            <CardTitle className="flex items-center gap-2 text-base">
+                                <Award className="w-5 h-5 text-yellow-500" />
+                                Achievements
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-0 overflow-hidden">
+                            <ErrorBoundary title="Achievement Error" message="Unable to load achievements">
+                                <AchievementBadges showProgress={true} showNotifications={false} limit={8} compact={true} />
+                            </ErrorBoundary>
+                        </CardContent>
+                    </Card>
                 </div>
 
-                {/* ── Points + Global Leaderboard ── */}
+                {/* ── Leaderboards (tabbed) + Points ── */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <ErrorBoundary title="Points Error" message="Unable to load points data">
                         <PointsDisplay showHistory={true} showBreakdown={true} />
                     </ErrorBoundary>
                     <ErrorBoundary title="Leaderboard Error" message="Unable to load leaderboard">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle className="flex items-center gap-2">
-                                    <Users className="w-5 h-5 text-amber-500" />
-                                    Global Points Leaderboard
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="p-0">
-                                <LeaderboardWidget type="global" limit={10} showUserRank={true} />
-                            </CardContent>
-                        </Card>
+                        <LeaderboardSection />
                     </ErrorBoundary>
                 </div>
 

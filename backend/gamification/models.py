@@ -297,10 +297,118 @@ class LeaderboardManager:
             })
         
         return rankings
-    
+
+    @staticmethod
+    def calculate_daily_leaderboard() -> List[Dict]:
+        """
+        Calculate daily leaderboard rankings based on points earned today.
+        """
+        from django.db.models import Sum as DSum
+        today = timezone.now().date()
+
+        practice_qs = (
+            PracticeSubmission.objects
+            .filter(status='success', submitted_at__date=today)
+            .values('student')
+            .annotate(pts=DSum('points_earned'))
+        )
+        combined: dict = {}
+        for row in practice_qs:
+            combined[row['student']] = (row['pts'] or 0)
+
+        try:
+            from submissions.models import SubmissionAttempt
+            from django.db.models import Sum as ASum
+            assign_qs = (
+                SubmissionAttempt.objects
+                .filter(created_at__date=today, status='success')
+                .values('student')
+                .annotate(pts=ASum('points_earned'))
+            )
+            for row in assign_qs:
+                combined[row['student']] = combined.get(row['student'], 0) + (row['pts'] or 0)
+        except Exception:
+            pass
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        sorted_users = sorted(combined.items(), key=lambda x: -x[1])
+        rankings = []
+        for idx, (uid, pts) in enumerate(sorted_users):
+            try:
+                user = User.objects.get(id=uid)
+            except User.DoesNotExist:
+                continue
+            completed_problems = PracticeProgress.objects.filter(
+                student=user, is_completed=True
+            ).count()
+            rankings.append({
+                'user': user,
+                'rank': idx + 1,
+                'total_points': pts,
+                'completed_problems': completed_problems,
+            })
+        return rankings
+
+    @staticmethod
+    def calculate_weekly_leaderboard() -> List[Dict]:
+        """
+        Calculate weekly leaderboard rankings (Monday 00:00 to now).
+        """
+        from django.db.models import Sum as WSum
+        now = timezone.now()
+        week_start = (now - timezone.timedelta(days=now.weekday())).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        practice_qs = (
+            PracticeSubmission.objects
+            .filter(status='success', submitted_at__gte=week_start)
+            .values('student')
+            .annotate(pts=WSum('points_earned'))
+        )
+        combined: dict = {}
+        for row in practice_qs:
+            combined[row['student']] = (row['pts'] or 0)
+
+        try:
+            from submissions.models import SubmissionAttempt
+            from django.db.models import Sum as ASum
+            assign_qs = (
+                SubmissionAttempt.objects
+                .filter(created_at__gte=week_start, status='success')
+                .values('student')
+                .annotate(pts=ASum('points_earned'))
+            )
+            for row in assign_qs:
+                combined[row['student']] = combined.get(row['student'], 0) + (row['pts'] or 0)
+        except Exception:
+            pass
+
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        sorted_users = sorted(combined.items(), key=lambda x: -x[1])
+        rankings = []
+        for idx, (uid, pts) in enumerate(sorted_users):
+            try:
+                user = User.objects.get(id=uid)
+            except User.DoesNotExist:
+                continue
+            completed_problems = PracticeProgress.objects.filter(
+                student=user, is_completed=True
+            ).count()
+            rankings.append({
+                'user': user,
+                'rank': idx + 1,
+                'total_points': pts,
+                'completed_problems': completed_problems,
+            })
+        return rankings
+
     @staticmethod
     @transaction.atomic
     def update_global_leaderboard():
+
         """
         Update the cached global leaderboard entries.
         This should be called when user points change.
@@ -520,24 +628,56 @@ class LeaderboardManager:
         }
     
     @staticmethod
+    @transaction.atomic
+    def update_daily_leaderboard() -> int:
+        """Rebuild the daily leaderboard from today's submissions."""
+        LeaderboardEntry.objects.filter(leaderboard_type='daily').delete()
+        rankings = LeaderboardManager.calculate_daily_leaderboard()
+        entries = [
+            LeaderboardEntry(
+                user=r['user'], rank=r['rank'],
+                total_points=r['total_points'],
+                completed_problems=r['completed_problems'],
+                leaderboard_type='daily',
+            )
+            for r in rankings
+        ]
+        LeaderboardEntry.objects.bulk_create(entries)
+        return len(entries)
+
+    @staticmethod
+    @transaction.atomic
+    def update_weekly_leaderboard() -> int:
+        """Rebuild the weekly leaderboard from this week's submissions."""
+        LeaderboardEntry.objects.filter(leaderboard_type='weekly').delete()
+        rankings = LeaderboardManager.calculate_weekly_leaderboard()
+        entries = [
+            LeaderboardEntry(
+                user=r['user'], rank=r['rank'],
+                total_points=r['total_points'],
+                completed_problems=r['completed_problems'],
+                leaderboard_type='weekly',
+            )
+            for r in rankings
+        ]
+        LeaderboardEntry.objects.bulk_create(entries)
+        return len(entries)
+
+    @staticmethod
     def update_leaderboards_for_user(user):
         """
-        Update leaderboards when a user's points change.
-        This is more efficient than recalculating entire leaderboards.
-        
-        Args:
-            user: User whose points changed
+        Update all leaderboards when a user's points change.
         """
-        # Update global leaderboard
         LeaderboardManager.update_global_leaderboard()
-        
+        LeaderboardManager.update_daily_leaderboard()
+        LeaderboardManager.update_weekly_leaderboard()
+
         # Update class leaderboards for classes the user belongs to
         from classes.models import Class, Enrollment
         user_classes = Class.objects.filter(
             enrollments__user=user,
             enrollments__role='student'
         )
-        
         for class_obj in user_classes:
             LeaderboardManager.update_class_leaderboard(str(class_obj.id))
 
@@ -546,7 +686,9 @@ class LeaderboardEntry(models.Model):
     """Cached leaderboard data for performance"""
     LEADERBOARD_TYPE_CHOICES = [
         ('global', 'Global'),
-        ('class', 'Class-specific')
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('class', 'Class-specific'),
     ]
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

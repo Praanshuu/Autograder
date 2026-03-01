@@ -81,14 +81,18 @@ const LeaderboardWidget = ({
   const fetchLeaderboardData = async () => {
     try {
       setLoading(true);
+      // daily/weekly boards don't support per-user rank lookup
+      const supportsUserRank = showUserRank && type === 'global';
+
       const [leaderboardResponse, rankResponse] = await Promise.all([
         gamificationService.getLeaderboard(type, classId, limit),
-        showUserRank ? gamificationService.getUserRank(type, classId) : Promise.resolve({ data: null })
+        supportsUserRank
+          ? gamificationService.getUserRank(type, classId)
+          : Promise.resolve({ data: null }),
       ]);
 
       if (leaderboardResponse.success) {
         setPreviousData(leaderboardData);
-        // The gamification endpoint returns { leaderboard: [...], total_users: ... }
         const leaderboardResult = leaderboardResponse.data.leaderboard || leaderboardResponse.data.results || leaderboardResponse.data;
         setLeaderboardData(Array.isArray(leaderboardResult) ? leaderboardResult : []);
       }
@@ -106,16 +110,19 @@ const LeaderboardWidget = ({
     }
   };
 
-  // Use REST API fallback if WebSocket is not connected
+  // Always load via REST API on mount; WebSocket updates will override if connected
   useEffect(() => {
-    if (!isConnected && isAuthenticated) {
-      fetchLeaderboardData();
+    fetchLeaderboardData();
+  }, [type, classId, limit]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      // Set up polling as fallback
+  // Poll via REST when WebSocket is not connected
+  useEffect(() => {
+    if (!isConnected) {
       const interval = setInterval(fetchLeaderboardData, 30000);
       return () => clearInterval(interval);
     }
-  }, [isConnected, isAuthenticated, type, classId, limit]);
+  }, [isConnected, type, classId, limit]); // eslint-disable-line react-hooks/exhaustive-deps
+
 
   // Get rank change indicator
   const getRankChange = (currentRank, userId) => {
@@ -329,7 +336,7 @@ const LeaderboardWidget = ({
                           </Badge>
                         )}
                       </div>
-                      {!compact && (
+                      {!compact && entry.completed_problems > 0 && (
                         <p className="text-xs text-gray-500 leaderboard-entry-details sm:mt-0 mt-1">
                           {entry.completed_problems} problems solved
                         </p>
@@ -354,13 +361,28 @@ const LeaderboardWidget = ({
         </div>
 
         {/* Empty State */}
-        {leaderboardData.length === 0 && (
+        {leaderboardData.length === 0 && !loading && (
           <div className="text-center py-8">
             <Trophy className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-2">No rankings yet</p>
-            <p className="text-xs text-gray-400">Complete some practice questions to get started!</p>
+            {type === 'daily' ? (
+              <>
+                <p className="text-gray-500 mb-2">No activity yet today</p>
+                <p className="text-xs text-gray-400">Submit a practice question to appear here!</p>
+              </>
+            ) : type === 'weekly' ? (
+              <>
+                <p className="text-gray-500 mb-2">No activity this week</p>
+                <p className="text-xs text-gray-400">Submit a practice question to appear here!</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-500 mb-2">No rankings yet</p>
+                <p className="text-xs text-gray-400">Complete some practice questions to get started!</p>
+              </>
+            )}
           </div>
         )}
+
 
         {/* Footer */}
         {leaderboardData.length > 0 && (

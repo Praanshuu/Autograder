@@ -444,7 +444,7 @@ class AnalyticsAggregator:
         try:
             from .models import LeaderboardManager
             rank_data = LeaderboardManager.get_user_rank(student, 'global')
-            
+
             # Convert User objects to serializable format
             if rank_data and 'nearby_competitors' in rank_data:
                 serializable_competitors = []
@@ -462,9 +462,16 @@ class AnalyticsAggregator:
                         'is_current_user': competitor['is_current_user']
                     })
                 rank_data['nearby_competitors'] = serializable_competitors
-        except:
+        except Exception:
             rank_data = None
-        
+
+        # Always include total_users in rank_data (even if user is unranked)
+        total_users = UserPoints.objects.count()
+        if rank_data is None:
+            rank_data = {'user_rank': 0, 'user_points': 0, 'total_users': total_users, 'nearby_competitors': []}
+        else:
+            rank_data['total_users'] = total_users
+
         return {
             'analytics': {
                 'total_practice_completed': analytics.total_practice_completed,

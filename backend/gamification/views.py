@@ -1233,9 +1233,107 @@ class LeaderboardViewSet(viewsets.ReadOnlyModelViewSet):
                 'class_id': class_id
             }
         })
-    
+
+    @action(detail=False, methods=['get'])
+    def daily_ranking(self, request):
+        """Get daily leaderboard — points earned since midnight today."""
+        from .models import LeaderboardManager
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+
+        # Rebuild daily leaderboard from live submissions
+        LeaderboardManager.update_daily_leaderboard()
+
+        offset = (page - 1) * page_size
+        entries = LeaderboardEntry.objects.filter(
+            leaderboard_type='daily'
+        ).select_related('user').order_by('rank')[offset:offset + page_size]
+
+        total_entries = LeaderboardEntry.objects.filter(leaderboard_type='daily').count()
+
+        leaderboard = [
+            {
+                'rank': e.rank,
+                'user': {
+                    'id': e.user.id,
+                    'username': e.user.username,
+                    'first_name': e.user.first_name,
+                    'last_name': e.user.last_name,
+                },
+                'total_points': e.total_points,
+                'completed_problems': e.completed_problems,
+            }
+            for e in entries
+        ]
+
+        return Response({
+            'success': True,
+            'data': {
+                'leaderboard': leaderboard,
+                'leaderboard_type': 'daily',
+                'total_users': UserPoints.objects.count(),
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total_entries': total_entries,
+                    'total_pages': max(1, (total_entries + page_size - 1) // page_size),
+                    'has_next': offset + page_size < total_entries,
+                    'has_previous': page > 1,
+                }
+            }
+        })
+
+    @action(detail=False, methods=['get'])
+    def weekly_ranking(self, request):
+        """Get weekly leaderboard — points earned since Monday 00:00."""
+        from .models import LeaderboardManager
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 20))
+
+        LeaderboardManager.update_weekly_leaderboard()
+
+        offset = (page - 1) * page_size
+        entries = LeaderboardEntry.objects.filter(
+            leaderboard_type='weekly'
+        ).select_related('user').order_by('rank')[offset:offset + page_size]
+
+        total_entries = LeaderboardEntry.objects.filter(leaderboard_type='weekly').count()
+
+        leaderboard = [
+            {
+                'rank': e.rank,
+                'user': {
+                    'id': e.user.id,
+                    'username': e.user.username,
+                    'first_name': e.user.first_name,
+                    'last_name': e.user.last_name,
+                },
+                'total_points': e.total_points,
+                'completed_problems': e.completed_problems,
+            }
+            for e in entries
+        ]
+
+        return Response({
+            'success': True,
+            'data': {
+                'leaderboard': leaderboard,
+                'leaderboard_type': 'weekly',
+                'total_users': UserPoints.objects.count(),
+                'pagination': {
+                    'page': page,
+                    'page_size': page_size,
+                    'total_entries': total_entries,
+                    'total_pages': max(1, (total_entries + page_size - 1) // page_size),
+                    'has_next': offset + page_size < total_entries,
+                    'has_previous': page > 1,
+                }
+            }
+        })
+
     @action(detail=False, methods=['get'])
     def my_rank(self, request):
+
         """Get current user's rank and nearby competitors with caching"""
         from .cached_leaderboard_manager import cached_leaderboard_manager
         
