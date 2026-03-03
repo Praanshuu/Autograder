@@ -17,10 +17,17 @@ class PracticeQuestionLibrary(models.Model):
     tags = models.JSONField(default=list)  # For filtering and search
     created_at = models.DateTimeField(auto_now_add=True)
     
+    # Track if this question is from an exam and should be hidden
+    source_assignment = models.ForeignKey('assignments.Assignment', on_delete=models.SET_NULL, null=True, blank=True, related_name='library_questions')
+    is_hidden = models.BooleanField(default=False)  # Hide test/exam questions until test ends
+    hide_until = models.DateTimeField(null=True, blank=True)  # When to unhide (assignment due_date)
+    
     class Meta:
         db_table = 'practice_question_library'
         indexes = [
             models.Index(fields=['is_public']),
+            models.Index(fields=['is_hidden']),
+            models.Index(fields=['hide_until']),
         ]
 
 

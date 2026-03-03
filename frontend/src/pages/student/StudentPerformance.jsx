@@ -189,7 +189,7 @@ export default function StudentPerformance() {
             const gradebook = gradebookRes.success ? gradebookRes.data : null;
             const gradeHistory = (gradebook?.recent_entries || []).map((entry, i) => ({
                 label: entry.content_item_title || `Entry ${i + 1}`,
-                type: (entry.content_item_type || 'assignment').toLowerCase(),
+                type: entry.content_item_type === 'quiz' ? 'quiz' : (entry.content_item_mode === 'exam' ? 'exam' : 'assignment'),
                 score: Math.round(entry.final_score || 0),
                 shortLabel: (entry.content_item_title || `#${i + 1}`).slice(0, 18),
             }));

@@ -11,6 +11,10 @@ export default defineConfig({
     hmr: {
       clientPort: 5173,
     },
+    headers: {
+      // Allow iframe embedding
+      'X-Frame-Options': 'SAMEORIGIN',
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

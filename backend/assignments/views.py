@@ -167,15 +167,30 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                 except Question.DoesNotExist:
                     pass # Ignore invalid question IDs
 
-        # Ensure exam questions are NOT in the Practice Library
+        # Hide exam questions in the Practice Library until the test ends
         if assignment.mode == 'exam':
             try:
                 from gamification.models import PracticeQuestionLibrary
                 from .models import AssignmentQuestion
+                from django.utils import timezone
+                
                 q_ids = AssignmentQuestion.objects.filter(assignment=assignment).values_list('question_id', flat=True)
-                PracticeQuestionLibrary.objects.filter(question_id__in=q_ids).delete()
+                
+                # Get or create library entries and mark them as hidden
+                for q_id in q_ids:
+                    pql, _ = PracticeQuestionLibrary.objects.get_or_create(
+                        question_id=q_id,
+                        defaults={
+                            'is_public': True,
+                        }
+                    )
+                    # Mark as hidden and set unhide date to assignment due date (or far future if no due date)
+                    pql.is_hidden = True
+                    pql.source_assignment = assignment
+                    pql.hide_until = assignment.due_date if assignment.due_date else timezone.now() + timezone.timedelta(days=365)
+                    pql.save()
             except Exception as e:
-                logger.warning(f"Could not remove exam questions from Practice Library: {e}")
+                logger.warning(f"Could not hide exam questions in Practice Library: {e}")
 
     def perform_update(self, serializer):
         user = self.request.user
@@ -225,15 +240,30 @@ class AssignmentViewSet(viewsets.ModelViewSet):
                 except Question.DoesNotExist:
                     pass
                     
-        # Ensure exam questions are NOT in the Practice Library
+        # Hide exam questions in the Practice Library until the test ends
         if assignment.mode == 'exam':
             try:
                 from gamification.models import PracticeQuestionLibrary
                 from .models import AssignmentQuestion
+                from django.utils import timezone
+                
                 q_ids = AssignmentQuestion.objects.filter(assignment=assignment).values_list('question_id', flat=True)
-                PracticeQuestionLibrary.objects.filter(question_id__in=q_ids).delete()
+                
+                # Get or create library entries and mark them as hidden
+                for q_id in q_ids:
+                    pql, _ = PracticeQuestionLibrary.objects.get_or_create(
+                        question_id=q_id,
+                        defaults={
+                            'is_public': True,
+                        }
+                    )
+                    # Mark as hidden and set unhide date to assignment due date (or far future if no due date)
+                    pql.is_hidden = True
+                    pql.source_assignment = assignment
+                    pql.hide_until = assignment.due_date if assignment.due_date else timezone.now() + timezone.timedelta(days=365)
+                    pql.save()
             except Exception as e:
-                logger.warning(f"Could not remove exam questions from Practice Library: {e}")
+                logger.warning(f"Could not hide exam questions in Practice Library: {e}")
     
     @action(detail=True, methods=['post'])
     def publish(self, request, pk=None):

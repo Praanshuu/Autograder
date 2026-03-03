@@ -244,10 +244,17 @@ class GradebookEntrySerializer(serializers.ModelSerializer):
     """Serializer for gradebook entries including points information"""
     student = UserSerializer(read_only=True)
     content_item_title = serializers.CharField(source='content_item.title', read_only=True)
-    content_item_type = serializers.CharField(source='content_item.actual_type', read_only=True)
+    content_item_type = serializers.CharField(source='content_item.type', read_only=True)
+    content_item_mode = serializers.SerializerMethodField()
     
     class Meta:
         model = GradebookEntry
-        fields = ['id', 'student', 'content_item', 'content_item_title', 'content_item_type',
+        fields = ['id', 'student', 'content_item', 'content_item_title', 'content_item_type', 'content_item_mode',
                   'final_score', 'points_earned', 'status', 'updated_at']
+    
+    def get_content_item_mode(self, obj):
+        """Get mode if it's an Assignment, otherwise None"""
+        if hasattr(obj.content_item, 'assignment'):
+            return getattr(obj.content_item.assignment, 'mode', None)
+        return None
 

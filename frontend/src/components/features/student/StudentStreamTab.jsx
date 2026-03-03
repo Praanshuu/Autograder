@@ -29,6 +29,8 @@ export default function StudentStreamTab() {
     const [posts, setPosts] = useState([]);
     const [loading, setLoading] = useState(true);
 
+    const isAssignmentLike = (t) => ['assignment', 'quiz', 'exam'].includes(t);
+
     // Fetch class details
     useEffect(() => {
         const fetchClassDetails = async () => {
@@ -92,19 +94,24 @@ export default function StudentStreamTab() {
                     const rawAssignments = Array.isArray(assignmentsRes.data) ? assignmentsRes.data : (assignmentsRes.data.results || []);
                     assignmentsForUpcoming = rawAssignments;
 
-                    const assignmentPosts = rawAssignments.map(a => ({
-                        id: a.id,
-                        type: 'assignment',
-                        author: { first_name: 'Assignment', last_name: '', avatar_url: null }, // Placeholder
-                        title: a.title,
-                        date: new Date(a.created_at),
-                        content: `New Assignment Posted: ${a.title}`,
-                        comments: [], // Lazy loaded
-                        commentsCount: a.comments_count || 0,
-                        showComments: false,
-                        dueDate: a.due_date,
-                        raw: a
-                    }));
+                    const assignmentPosts = rawAssignments.map(a => {
+                        const displayType = a.type === 'quiz' ? 'Quiz' : a.mode === 'exam' ? 'Exam' : 'Assignment';
+                        const mappedType = a.type === 'quiz' ? 'quiz' : (a.mode === 'exam' ? 'exam' : 'assignment');
+                        return {
+                            id: a.id,
+                            type: mappedType,
+                            displayType: displayType,
+                            author: { first_name: displayType, last_name: '', avatar_url: null }, // Placeholder
+                            title: a.title,
+                            date: new Date(a.created_at),
+                            content: `New ${displayType} Posted: ${a.title}`,
+                            comments: [], // Lazy loaded
+                            commentsCount: a.comments_count || 0,
+                            showComments: false,
+                            dueDate: a.due_date,
+                            raw: a
+                        };
+                    });
                     allPosts = [...allPosts, ...assignmentPosts];
                 }
 
@@ -120,7 +127,7 @@ export default function StudentStreamTab() {
                         id: a.id,
                         title: a.title,
                         due: new Date(a.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                        type: a.type || 'Assignment'
+                        type: a.type === 'quiz' ? 'Quiz' : a.mode === 'exam' ? 'Exam' : 'Assignment'
                     }));
                 setUpcomingWork(upcoming);
 
@@ -140,7 +147,7 @@ export default function StudentStreamTab() {
             try {
                 // Determine IDs
                 const announcementId = post.type === 'announcement' ? post.id : null;
-                const assignmentId = post.type === 'assignment' ? post.id : null;
+                const assignmentId = isAssignmentLike(post.type) ? post.id : null;
 
                 // Call API for both types to ensure fresh data
                 const res = await streamService.getComments(announcementId, assignmentId);
@@ -174,7 +181,7 @@ export default function StudentStreamTab() {
         };
 
         if (post.type === 'announcement') payload.announcement = post.id;
-        else if (post.type === 'assignment') payload.assignment = post.id;
+        else if (isAssignmentLike(post.type)) payload.assignment = post.id;
 
         console.log("StudentStreamTab: Adding comment...", payload);
 
@@ -288,7 +295,7 @@ export default function StudentStreamTab() {
                         <div className="p-6">
                             <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                    {post.type === 'assignment' ? (
+                                    {isAssignmentLike(post.type) ? (
                                         <div className="w-10 h-10 rounded-full flex items-center justify-center text-white bg-indigo-600">
                                             <StickyNote className="w-5 h-5" />
                                         </div>
@@ -303,7 +310,7 @@ export default function StudentStreamTab() {
 
                                     <div>
                                         <h3 className="font-semibold text-gray-900">
-                                            {post.type === 'assignment' ? post.author.first_name + " posted a new assignment: " + post.title : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
+                                            {isAssignmentLike(post.type) ? `${post.author.first_name} posted a new ${post.displayType?.toLowerCase() || 'assignment'}: ${post.title}` : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
                                         </h3>
                                         <p className="text-xs text-gray-500">{post.date.toLocaleDateString()} {post.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
@@ -312,23 +319,23 @@ export default function StudentStreamTab() {
                             </div>
 
                             <div className="text-gray-700 text-sm mb-4 whitespace-pre-wrap">
-                                {post.type === 'assignment' ? (
-                                    // Assignment simplified view
-                                    <div className="flex flex-col gap-1">
-                                        <span>{post.title}</span>
-                                        <span className="text-xs text-gray-500">Due: {new Date(post.dueDate).toLocaleDateString()}</span>
-                                    </div>
-                                ) : post.content}
+                                    {isAssignmentLike(post.type) ? (
+                                        // Assignment/Quiz/Exam simplified view
+                                        <div className="flex flex-col gap-1">
+                                            <span>{post.title}</span>
+                                            <span className="text-xs text-gray-500">Due: {new Date(post.dueDate).toLocaleDateString()}</span>
+                                        </div>
+                                    ) : post.content}
                             </div>
 
                             {/* Attachments Placeholder */}
-                            {post.type === 'assignment' && (
+                            {isAssignmentLike(post.type) && (
                                 <div onClick={() => window.location.href = `/student/workspace/${post.id}`} className="border border-gray-200 rounded-lg p-3 flex items-center gap-3 bg-gray-50 mb-4 cursor-pointer hover:bg-gray-100">
                                     <div className="w-10 h-10 bg-white rounded border flex items-center justify-center text-indigo-600 font-bold text-xs uppercase shadow-sm">
                                         <StickyNote className="w-5 h-5" />
                                     </div>
                                     <span className="text-sm font-medium text-indigo-600 hover:underline">
-                                        View Assignment
+                                        View {post.displayType || 'Assignment'}
                                     </span>
                                 </div>
                             )}

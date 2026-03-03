@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import ReactMarkdown from 'react-markdown';
 import { Link, useNavigate } from "react-router-dom";
 import {
     CheckCircle2,
@@ -20,6 +21,7 @@ export default function StudentClassworkTab({ classId }) {
     const [loading, setLoading] = useState(true);
     const [showStartConfirmation, setShowStartConfirmation] = useState(false);
     const [selectedAssignment, setSelectedAssignment] = useState(null);
+    const [showFullDescription, setShowFullDescription] = useState(false);
 
     useEffect(() => {
         const fetchAssignments = async () => {
@@ -27,6 +29,7 @@ export default function StudentClassworkTab({ classId }) {
                 setLoading(true);
                 const response = await assignmentService.getClassAssignments(classId);
                 const data = Array.isArray(response.data) ? response.data : (response.data.results || []);
+                console.log('StudentClassworkTab - Assignments fetched:', data.map(a => ({ id: a.id, title: a.title, type: a.type, mode: a.mode })));
                 setAssignments(data);
             } catch (err) {
                 console.error("Failed to load assignments:", err);
@@ -41,6 +44,7 @@ export default function StudentClassworkTab({ classId }) {
     const handleStartAssignment = (assignment, e) => {
         e.preventDefault(); // Prevent Link navigation
         setSelectedAssignment(assignment);
+        setShowFullDescription(false);
         setShowStartConfirmation(true);
     };
 
@@ -50,6 +54,13 @@ export default function StudentClassworkTab({ classId }) {
         }
         setShowStartConfirmation(false);
         setSelectedAssignment(null);
+        setShowFullDescription(false);
+    };
+
+    const getExcerpt = (text, limit = 300) => {
+        if (!text) return "";
+        if (text.length <= limit) return text;
+        return text.slice(0, limit).trim() + '...';
     };
 
     const getStatusBadge = (item) => {
@@ -58,6 +69,17 @@ export default function StudentClassworkTab({ classId }) {
         const isOverdue = new Date(item.due_date) < new Date();
         if (isOverdue) return <Badge variant="destructive">Missing</Badge>;
         return <Badge variant="outline" className="text-amber-600 border-amber-200 bg-amber-50">Assigned</Badge>;
+    };
+
+    const getTypeBadge = (item) => {
+        const displayType = item.type === 'quiz' ? 'Quiz' : item.mode === 'exam' ? 'Exam' : 'Assignment';
+        const typeColors = {
+            quiz: 'bg-purple-100 text-purple-700 border-purple-200',
+            exam: 'bg-red-100 text-red-700 border-red-200',
+            assignment: 'bg-blue-100 text-blue-700 border-blue-200'
+        };
+        const typeKey = item.type === 'quiz' ? 'quiz' : item.mode === 'exam' ? 'exam' : 'assignment';
+        return <Badge className={`${typeColors[typeKey]} hover:opacity-90`}>{displayType}</Badge>;
     };
 
     if (loading) {
@@ -93,11 +115,12 @@ export default function StudentClassworkTab({ classId }) {
                                         <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
                                             {assignment.title}
                                         </h3>
+                                        {getTypeBadge(assignment)}
                                         {getStatusBadge(assignment)}
                                     </div>
                                     <div className="text-xs text-gray-500 flex gap-3">
                                         <span>Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
-                                        <span>• {assignment.points} pts</span>
+                                        <span>• {assignment.points_total || assignment.points} pts</span>
                                     </div>
                                 </div>
                                 <Button variant="ghost" size="icon" className="text-gray-300 group-hover:text-indigo-600">
@@ -127,10 +150,30 @@ export default function StudentClassworkTab({ classId }) {
                             <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                 <Timer className="w-8 h-8 text-indigo-600" />
                             </div>
-                            <h2 className="text-2xl font-bold text-gray-900 mb-2">Start Assignment?</h2>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                {selectedAssignment.is_submitted ? 'View Submission?' : `Start ${selectedAssignment.type === 'quiz' ? 'Quiz' : selectedAssignment.mode === 'exam' ? 'Exam' : 'Assignment'}?`}
+                            </h2>
                             <p className="text-gray-500 mb-2">
                                 <strong>{selectedAssignment.title}</strong>
                             </p>
+
+                            {selectedAssignment.description ? (
+                                <div className="text-left text-sm text-gray-600 mb-4 max-h-40 overflow-hidden">
+                                    <ReactMarkdown>
+                                        {showFullDescription ? selectedAssignment.description : getExcerpt(selectedAssignment.description, 400)}
+                                    </ReactMarkdown>
+                                    {selectedAssignment.description.length > 400 && (
+                                        <div className="mt-2 text-right">
+                                            <button
+                                                onClick={() => setShowFullDescription(s => !s)}
+                                                className="text-indigo-600 text-sm font-medium"
+                                            >
+                                                {showFullDescription ? 'Show less' : 'Show more'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : null}
                             <p className="text-gray-500 mb-6">
                                 Once you start, the timer will begin and you can only exit by submitting your solution. 
                                 Are you ready to begin?
@@ -145,9 +188,8 @@ export default function StudentClassworkTab({ classId }) {
                                 </Button>
                                 <Button 
                                     onClick={handleConfirmStart}
-                                    className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
-                                >
-                                    Start Assignment
+                                    className={`flex-1 text-white ${selectedAssignment.is_submitted ? 'bg-green-600 hover:bg-green-700' : selectedAssignment.mode === 'exam' ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                    {selectedAssignment.is_submitted ? 'View Submission' : `Start ${selectedAssignment.type === 'quiz' ? 'Quiz' : selectedAssignment.mode === 'exam' ? 'Exam' : 'Assignment'}`}
                                 </Button>
                             </div>
                         </motion.div>

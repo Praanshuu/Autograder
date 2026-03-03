@@ -33,6 +33,7 @@ import { assignmentService } from "../../services/assignmentService";
 import { submissionService } from "../../services/submissionService";
 import QuestionPalette from "../../components/workspace/QuestionPalette";
 import McqWorkspaceRenderer from "../../components/workspace/McqWorkspaceRenderer";
+import { getWorkspaceStarterCode } from "../../utils/workspaceBoilerplate";
 
 const StudentWorkspace = () => {
     const { assignmentId } = useParams();
@@ -42,6 +43,7 @@ const StudentWorkspace = () => {
     const [assignment, setAssignment] = useState(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0); // Hoisted State
     const [completedQuestions, setCompletedQuestions] = useState(new Set()); // Track completed indices
+    const [questionSubmissionStatus, setQuestionSubmissionStatus] = useState({}); // { [index]: 'success' | 'fail' }
     const [codeDrafts, setCodeDrafts] = useState({}); // Local cache: { index: code }
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -75,6 +77,7 @@ const StudentWorkspace = () => {
     const [showHint, setShowHint] = useState(false);
     const timerIntervalRef = useRef(null);
     const lastUpdateRef = useRef(Date.now());
+    const isClipboardRestricted = !isReadOnly;
 
     // Language configuration - Limited to 3 languages supported by dynamic analyzer
     const languageConfig = {
@@ -103,15 +106,179 @@ const StudentWorkspace = () => {
 
     // Monaco editor ref for disabling copy/paste actions
     const monacoEditorRef = useRef(null);
+    const workspaceRootRef = useRef(null);
 
     const handleMonacoMount = (editor, monaco) => {
         monacoEditorRef.current = editor;
-        if (!isReadOnly && assignment?.mode === 'exam') {
-            // Disable copy and paste commands only for exams
+        if (!isReadOnly) {
+            // Disable copy and paste commands for active assignments/tests.
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyC, () => { });
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyV, () => { });
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyX, () => { });
+
+            // Extra hardening: block keyboard and native clipboard events in editor area.
+            editor.onKeyDown((e) => {
+                const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+                const keyCode = e.keyCode;
+                const isCopyCutPaste =
+                    (isCmdOrCtrl && (keyCode === monaco.KeyCode.KeyC || keyCode === monaco.KeyCode.KeyV || keyCode === monaco.KeyCode.KeyX)) ||
+                    (e.shiftKey && keyCode === monaco.KeyCode.Insert) ||
+                    (isCmdOrCtrl && keyCode === monaco.KeyCode.Insert);
+
+                if (isCopyCutPaste) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            });
+
+            const editorDomNode = editor.getDomNode();
+            if (editorDomNode) {
+                const blockClipboard = (evt) => {
+                    evt.preventDefault();
+                    evt.stopPropagation();
+                };
+
+                editorDomNode.addEventListener("copy", blockClipboard, true);
+                editorDomNode.addEventListener("cut", blockClipboard, true);
+                editorDomNode.addEventListener("paste", blockClipboard, true);
+                editorDomNode.addEventListener("contextmenu", blockClipboard, true);
+
+                editor.onDidDispose(() => {
+                    editorDomNode.removeEventListener("copy", blockClipboard, true);
+                    editorDomNode.removeEventListener("cut", blockClipboard, true);
+                    editorDomNode.removeEventListener("paste", blockClipboard, true);
+                    editorDomNode.removeEventListener("contextmenu", blockClipboard, true);
+                });
+            }
         }
+    };
+
+    const SUBMIT_SAVE_RETRIES = 2;
+    const SUBMIT_SAVE_RETRY_DELAY_MS = 1200;
+
+    const getDraftStorageKey = (aqId, language = selectedLanguage) => {
+        return `student-workspace-draft:${assignmentId}:${aqId}:${language}`;
+    };
+
+    const getDraftFromStorage = (aqId, language = selectedLanguage) => {
+        try {
+            const key = getDraftStorageKey(aqId, language);
+            const value = window.localStorage.getItem(key);
+            return value === null ? null : value;
+        } catch (err) {
+            console.error("Failed to read draft from local storage:", err);
+            return null;
+        }
+    };
+
+    const saveDraftToStorage = (aqId, draftValue, language = selectedLanguage) => {
+        try {
+            const key = getDraftStorageKey(aqId, language);
+            window.localStorage.setItem(key, draftValue ?? "");
+        } catch (err) {
+            console.error("Failed to save draft to local storage:", err);
+        }
+    };
+
+    const clearDraftFromStorage = (aqId, language = selectedLanguage) => {
+        try {
+            window.localStorage.removeItem(getDraftStorageKey(aqId, language));
+        } catch (err) {
+            console.error("Failed to clear local draft:", err);
+        }
+    };
+
+    const clearAssignmentDraftsFromStorage = () => {
+        try {
+            const prefix = `student-workspace-draft:${assignmentId}:`;
+            const keysToDelete = [];
+            for (let i = 0; i < window.localStorage.length; i++) {
+                const key = window.localStorage.key(i);
+                if (key && key.startsWith(prefix)) keysToDelete.push(key);
+            }
+            keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+        } catch (err) {
+            console.error("Failed to clear assignment drafts from local storage:", err);
+        }
+    };
+
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const getApiErrorMessage = (response) => {
+        if (!response) return "Unknown submission error";
+        if (typeof response.message === "string" && response.message.trim()) return response.message;
+        if (typeof response.data?.message === "string" && response.data.message.trim()) return response.data.message;
+        return "Submission request failed";
+    };
+
+    const isAlreadyCompletedError = (message) => {
+        return typeof message === "string" && message.toLowerCase().includes("already successfully completed");
+    };
+
+    const isRetriableSubmitFailure = (response) => {
+        const statusCode = response?.status;
+        const message = getApiErrorMessage(response).toLowerCase();
+        return (
+            !statusCode ||
+            statusCode >= 500 ||
+            statusCode === 408 ||
+            statusCode === 429 ||
+            message.includes("network") ||
+            message.includes("timeout")
+        );
+    };
+
+    const submitCodeWithRetry = async (payload) => {
+        let lastFailure = null;
+
+        for (let attempt = 0; attempt <= SUBMIT_SAVE_RETRIES; attempt++) {
+            const response = await submissionService.submitCode(payload);
+            if (response.success) {
+                return { ok: true, response };
+            }
+
+            const errorMessage = getApiErrorMessage(response);
+            if (isAlreadyCompletedError(errorMessage)) {
+                return { ok: true, alreadyCompleted: true, response };
+            }
+
+            lastFailure = response;
+            const canRetry = attempt < SUBMIT_SAVE_RETRIES && isRetriableSubmitFailure(response);
+            if (canRetry) {
+                await sleep(SUBMIT_SAVE_RETRY_DELAY_MS);
+                continue;
+            }
+            break;
+        }
+
+        return { ok: false, response: lastFailure };
+    };
+
+    const buildQuestionSubmissionPayload = ({ aq, question, answerValue, spentTime }) => {
+        const isMcq = question?.question_type === "mcq";
+        const payload = {
+            assignment_id: assignment.id,
+            assignment_question_id: aq.id,
+            question_id: question.id,
+            language: selectedLanguage,
+            time_spent: spentTime ?? 0,
+        };
+
+        if (isMcq) {
+            let optionIndex = -1;
+            if (Array.isArray(question?.config?.options)) {
+                const idx = question.config.options.indexOf(answerValue);
+                if (idx !== -1) optionIndex = idx;
+            }
+            if (optionIndex === -1 && typeof answerValue === "number" && Number.isInteger(answerValue)) {
+                optionIndex = answerValue;
+            }
+            payload.response_data = { answer: optionIndex };
+        } else {
+            payload.code_content = answerValue ?? "";
+        }
+
+        return payload;
     };
 
     // Load Question Data when Index Changes
@@ -129,10 +296,25 @@ const StudentWorkspace = () => {
             const timeLimit = getTimeLimit(question.difficulty); // Per question limit?
             setTotalTimeAllowed(timeLimit);
 
-            // 2. Load Code: Check Drafts -> Then Backend
-            if (codeDrafts[currentQuestionIndex]) {
-                setCode(codeDrafts[currentQuestionIndex]);
+            // 2. Load Code: Local storage draft -> in-memory draft -> backend
+            const localDraft = !isReadOnly ? getDraftFromStorage(aqId, selectedLanguage) : null;
+            const hasUsableLocalDraft = localDraft !== null && localDraft !== "";
+            if (hasUsableLocalDraft) {
+                setCode(localDraft);
                 // Still fetch timer to get time_spent but ignore code
+                try {
+                    const timerResponse = await submissionService.getTimer(assignmentId, aqId, selectedLanguage);
+                    if (timerResponse.success && timerResponse.data) {
+                        setTimeSpent(timerResponse.data.time_spent || 0);
+                        setTimeRemaining(Math.max(0, timeLimit - (timerResponse.data.time_spent || 0)));
+                    }
+                } catch (e) { console.error("Timer fetch failed", e); }
+                return;
+            }
+
+            const hasDraftForQuestion = Object.prototype.hasOwnProperty.call(codeDrafts, currentQuestionIndex);
+            if (hasDraftForQuestion) {
+                setCode(codeDrafts[currentQuestionIndex]);
                 try {
                     const timerResponse = await submissionService.getTimer(assignmentId, aqId, selectedLanguage);
                     if (timerResponse.success && timerResponse.data) {
@@ -155,19 +337,19 @@ const StudentWorkspace = () => {
                     if (timerResponse.data.code_content) {
                         setCode(timerResponse.data.code_content);
                     } else {
-                        setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+                        setCode(getWorkspaceStarterCode(question, selectedLanguage));
                     }
                 } else {
                     // New/No Progress
                     setTimeSpent(0);
                     setTimeRemaining(timeLimit);
-                    setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+                    setCode(getWorkspaceStarterCode(question, selectedLanguage));
                 }
             } catch (err) {
                 console.error("Failed to load timer:", err);
                 setTimeSpent(0);
                 setTimeRemaining(timeLimit);
-                setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode);
+                setCode(getWorkspaceStarterCode(question, selectedLanguage));
             }
         };
 
@@ -175,6 +357,14 @@ const StudentWorkspace = () => {
             loadQuestionData();
         }
     }, [currentQuestionIndex, assignment]);
+
+    // Restart timer when question changes (per-question timer)
+    useEffect(() => {
+        if (assignment && assignment.questions && assignment.questions.length > 0 && !isReadOnly && timeRemaining > 0 && !isTimerRunning) {
+            // Restart timer for the new question if it hasn't reached time limit and isn't already running
+            setIsTimerRunning(true);
+        }
+    }, [currentQuestionIndex, assignment, isReadOnly, timeRemaining]);
 
     // Initial Assignment Fetch & Status Check
     useEffect(() => {
@@ -184,12 +374,43 @@ const StudentWorkspace = () => {
                 setLoading(true);
 
                 // Parallel fetch: Assignment + Status
-                const [assignmentRes, statusRes] = await Promise.all([
+                const [assignmentRes, statusRes, progressRes] = await Promise.all([
                     assignmentService.getAssignment(assignmentId),
-                    submissionService.getAssignmentStatus(assignmentId)
+                    submissionService.getAssignmentStatus(assignmentId),
+                    submissionService.getAssignmentProgressWithPoints(assignmentId)
                 ]);
 
                 setAssignment(assignmentRes.data);
+
+                // Hydrate question submission states from latest attempts
+                if (progressRes?.success && progressRes.data?.questions && assignmentRes.data?.questions) {
+                    const aqIndexMap = new Map(
+                        assignmentRes.data.questions.map((aq, idx) => [String(aq.id), idx])
+                    );
+
+                    const initialCompleted = new Set();
+                    const initialStatus = {};
+
+                    progressRes.data.questions.forEach((q) => {
+                        const idx = aqIndexMap.get(String(q.assignment_question_id));
+                        if (idx === undefined) return;
+                        if (!q.status || q.status === "not_attempted") return;
+
+                        initialCompleted.add(idx);
+
+                        if (q.status === "fail" || q.status === "error") {
+                            initialStatus[idx] = "fail";
+                            return;
+                        }
+
+                        if (q.status === "success") {
+                            initialStatus[idx] = Number(q.score) >= 100 ? "success" : "fail";
+                        }
+                    });
+
+                    setCompletedQuestions(initialCompleted);
+                    setQuestionSubmissionStatus(initialStatus);
+                }
 
                 // lock if submitted
                 if (statusRes.data && statusRes.data.status === 'submitted') {
@@ -301,6 +522,45 @@ const StudentWorkspace = () => {
         // inside the handler without re-registering listeners on every warning increment.
     }, [isReadOnly, loading, assignment]);
 
+    // Global clipboard restrictions for active workspace (assignment + code area).
+    useEffect(() => {
+        if (!isClipboardRestricted) return;
+        const root = workspaceRootRef.current;
+        if (!root) return;
+
+        const blockEvent = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+
+        const blockShortcut = (e) => {
+            const key = (e.key || "").toLowerCase();
+            const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+            const isCopyCutPasteShortcut =
+                (isCmdOrCtrl && (key === "c" || key === "v" || key === "x" || key === "insert")) ||
+                (e.shiftKey && key === "insert");
+
+            if (isCopyCutPasteShortcut) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+
+        root.addEventListener("keydown", blockShortcut, true);
+        root.addEventListener("copy", blockEvent, true);
+        root.addEventListener("cut", blockEvent, true);
+        root.addEventListener("paste", blockEvent, true);
+        root.addEventListener("contextmenu", blockEvent, true);
+
+        return () => {
+            root.removeEventListener("keydown", blockShortcut, true);
+            root.removeEventListener("copy", blockEvent, true);
+            root.removeEventListener("cut", blockEvent, true);
+            root.removeEventListener("paste", blockEvent, true);
+            root.removeEventListener("contextmenu", blockEvent, true);
+        };
+    }, [isClipboardRestricted]);
+
     const handleCheatDetected = (reason) => {
         // Guard against re-entrant calls (native alert() triggers blur/visibilitychange itself)
         if (isCheatHandlingRef.current) return;
@@ -406,32 +666,8 @@ const StudentWorkspace = () => {
     // Handle when time runs out
     const handleTimeUp = async () => {
         setIsTimerRunning(false);
-
-        try {
-            // Auto-submit the assignment
-            await updateTimerOnBackend();
-
-            const question = assignment.questions[currentQuestionIndex];
-            const submissionData = {
-                assignment_id: assignment.id,
-                assignment_question_id: question.id,
-                code_content: code,
-                language: selectedLanguage,
-                time_spent: timeSpent
-            };
-
-            const response = await submissionService.submitCode(submissionData);
-
-            if (response.success) {
-                alert("Time's up! Your assignment has been automatically submitted.");
-                navigate('/student/dashboard');
-            } else {
-                throw new Error(response.message || 'Auto-submission failed');
-            }
-        } catch (err) {
-            console.error("Failed to auto-submit:", err);
-            alert("Time's up! Please submit your assignment manually.");
-        }
+        setShowExitWarning(false);
+        await handleConfirmExit();
     };
 
     // Handle back button with warning
@@ -443,29 +679,107 @@ const StudentWorkspace = () => {
         setShowExitWarning(true);
     };
 
+    const persistCurrentQuestionDraft = (draftCode, language = selectedLanguage) => {
+        if (!assignment || isReadOnly) return;
+        const aqId = assignment.questions?.[currentQuestionIndex]?.id;
+        if (!aqId) return;
+        saveDraftToStorage(aqId, draftCode, language);
+    };
+
+    const handleCodeChange = (nextCode) => {
+        setCode(nextCode);
+        persistCurrentQuestionDraft(nextCode);
+    };
+
+    const getQuestionSubmissionData = async (aq, questionIndex) => {
+        const hasInMemoryDraft = Object.prototype.hasOwnProperty.call(codeDrafts, questionIndex);
+        let answerValue = questionIndex === currentQuestionIndex
+            ? code
+            : hasInMemoryDraft
+                ? codeDrafts[questionIndex]
+                : null;
+
+        if (answerValue === null || answerValue === undefined) {
+            const localDraft = getDraftFromStorage(aq.id, selectedLanguage);
+            if (localDraft !== null && localDraft !== "") {
+                answerValue = localDraft;
+            }
+        }
+
+        let questionTimeSpent = questionIndex === currentQuestionIndex ? timeSpent : 0;
+        try {
+            const timerResponse = await submissionService.getTimer(assignmentId, aq.id, selectedLanguage);
+            if (timerResponse.success && timerResponse.data) {
+                questionTimeSpent = timerResponse.data.time_spent || questionTimeSpent;
+                if ((answerValue === null || answerValue === undefined) && timerResponse.data.code_content !== null && timerResponse.data.code_content !== undefined) {
+                    answerValue = timerResponse.data.code_content;
+                }
+            }
+        } catch (err) {
+            console.error(`Failed to fetch timer data for question ${questionIndex + 1}:`, err);
+        }
+
+        if (answerValue === null || answerValue === undefined) {
+            answerValue = "";
+        }
+
+        return { answerValue, questionTimeSpent };
+    };
+
     const handleConfirmExit = async () => {
+        if (isSubmitting) return;
         try {
             setIsSubmitting(true);
+            saveToDrafts(currentQuestionIndex, code);
 
             // Save timer before submitting
             await updateTimerOnBackend();
 
-            // Try to submit if there is code, but don't block exit if empty or fails
-            // Actually, "Exit & Submit" implies we WANT to submit.
-            // If user just wants to leave without submitting, that's different.
-            // Assuming requirement is "save progress and leave" or "submit and leave".
-            // Since we have auto-save on timer, let's ensure we save timer and maybe current draft.
+            const failedToSaveQuestions = [];
 
-            // For now, let's just navigate away since backend auto-saves timer periodically.
-            // Or explicitly save timer once more.
+            for (let idx = 0; idx < (assignment?.questions?.length || 0); idx++) {
+                const aq = assignment.questions[idx];
+                const question = aq.question;
+                const { answerValue, questionTimeSpent } = await getQuestionSubmissionData(aq, idx);
 
+                const payload = buildQuestionSubmissionPayload({
+                    aq,
+                    question,
+                    answerValue,
+                    spentTime: questionTimeSpent,
+                });
+
+                const submissionResult = await submitCodeWithRetry(payload);
+                if (!submissionResult.ok) {
+                    failedToSaveQuestions.push(idx + 1);
+                }
+            }
+
+            if (failedToSaveQuestions.length > 0) {
+                alert(
+                    `Could not save submission for question(s): ${failedToSaveQuestions.join(", ")} even after automatic retry. ` +
+                    "Please stay on this page and retry submission."
+                );
+                return;
+            }
+
+            const finishResponse = await submissionService.finishAssignment(assignment.id);
+            if (!finishResponse.success) {
+                alert("All questions were submitted, but final assignment submission failed. Please try again.");
+                return;
+            }
+
+            clearAssignmentDraftsFromStorage();
             setShowExitWarning(false);
-            navigate('/student/dashboard');
+            setShowConfetti(true);
+            setTimeout(() => {
+                setShowConfetti(false);
+                navigate('/student/dashboard');
+            }, 3000);
 
         } catch (err) {
             console.error("Failed to exit:", err);
-            // Force exit anyway if error persists?
-            navigate('/student/dashboard');
+            alert("Exit & Submit failed. Your local drafts are still saved. Please retry.");
         } finally {
             setIsSubmitting(false);
         }
@@ -473,34 +787,32 @@ const StudentWorkspace = () => {
 
     // Language change handler
     const handleLanguageChange = async (newLanguage) => {
-        setSelectedLanguage(newLanguage);
+        if (!currentAQ) return;
 
-        // Try to load existing submission for this language
-        try {
-            const timerResponse = await submissionService.getTimer(assignmentId, currentAQ.id, newLanguage);
-            if (timerResponse.success && timerResponse.data && timerResponse.data.code_content) {
-                // Use the existing code for this language
-                setCode(timerResponse.data.code_content);
-            } else {
-                // No existing submission for this language, use starter code or default
-                const questionStarterCode = assignment?.questions?.[currentQuestionIndex]?.question?.starter_code;
-                if (questionStarterCode && questionStarterCode.trim()) {
-                    setCode(questionStarterCode);
-                } else {
-                    setCode(languageConfig[newLanguage].defaultCode);
+        // Save current language draft before switching
+        saveDraftToStorage(currentAQ.id, code, selectedLanguage);
+
+        let nextCode = getDraftFromStorage(currentAQ.id, newLanguage);
+        const hasUsableLocalDraft = nextCode !== null && nextCode !== "";
+
+        // Try backend draft only if local draft for target language does not exist
+        if (!hasUsableLocalDraft) {
+            try {
+                const timerResponse = await submissionService.getTimer(assignmentId, currentAQ.id, newLanguage);
+                if (timerResponse.success && timerResponse.data && timerResponse.data.code_content !== null && timerResponse.data.code_content !== undefined) {
+                    nextCode = timerResponse.data.code_content;
                 }
-            }
-        } catch (error) {
-            console.error("Error loading language-specific code:", error);
-            // Fallback to starter code or default
-            const questionStarterCode = assignment?.questions?.[currentQuestionIndex]?.question?.starter_code;
-            if (questionStarterCode && questionStarterCode.trim()) {
-                setCode(questionStarterCode);
-            } else {
-                setCode(languageConfig[newLanguage].defaultCode);
+            } catch (error) {
+                console.error("Error loading language-specific code:", error);
             }
         }
 
+        if (nextCode === null || nextCode === "") {
+            nextCode = getWorkspaceStarterCode(assignment?.questions?.[currentQuestionIndex]?.question, newLanguage);
+        }
+
+        setSelectedLanguage(newLanguage);
+        setCode(nextCode);
         setOutput(null); // Clear previous output
     };
 
@@ -613,6 +925,7 @@ const StudentWorkspace = () => {
     const currentQuestion = assignment?.questions?.[currentQuestionIndex]?.question || {};
     const currentAQ = assignment?.questions?.[currentQuestionIndex];
     const totalQuestions = assignment?.questions?.length || 0;
+    const allQuestionsSubmitted = totalQuestions > 0 && completedQuestions.size >= totalQuestions;
     const testCases = currentQuestion.test_cases || [];
 
     // Save current code to draft
@@ -621,27 +934,47 @@ const StudentWorkspace = () => {
             ...prev,
             [index]: currentCode
         }));
-    };
 
-    // Navigation Handlers
-    const handleNextQuestion = () => {
-        if (currentQuestionIndex < totalQuestions - 1) {
-            saveToDrafts(currentQuestionIndex, code); // Save current
-            setCurrentQuestionIndex(prev => prev + 1);
-            setOutput(null);
+        const aqId = assignment?.questions?.[index]?.id;
+        if (aqId) {
+            saveDraftToStorage(aqId, currentCode, selectedLanguage);
         }
     };
 
-    const handlePrevQuestion = () => {
-        if (currentQuestionIndex > 0) {
-            saveToDrafts(currentQuestionIndex, code); // Save current
-            setCurrentQuestionIndex(prev => prev - 1);
+    // Navigation Handlers
+    const switchToQuestion = async (nextIndex) => {
+        if (isReadOnly) {
+            setCurrentQuestionIndex(nextIndex);
             setOutput(null);
+            return;
+        }
+
+        if (nextIndex === currentQuestionIndex) return;
+        if (nextIndex < 0 || nextIndex >= totalQuestions) return;
+
+        // Persist current question state before switching so timer resumes correctly.
+        setIsTimerRunning(false);
+        saveToDrafts(currentQuestionIndex, code);
+        await updateTimerOnBackend();
+
+        setCurrentQuestionIndex(nextIndex);
+        setOutput(null);
+    };
+
+    const handleNextQuestion = async () => {
+        if (currentQuestionIndex < totalQuestions - 1) {
+            await switchToQuestion(currentQuestionIndex + 1);
+        }
+    };
+
+    const handlePrevQuestion = async () => {
+        if (currentQuestionIndex > 0) {
+            await switchToQuestion(currentQuestionIndex - 1);
         }
     };
 
     // Polling Logic for Async Submissions
-    const pollSubmission = (attemptId) => {
+    const pollSubmission = (attemptId, questionIndex = currentQuestionIndex, questionTestCases = testCases) => {
         const POLL_INTERVAL = 1000; // 1s — faster feedback
         const MAX_ATTEMPTS = 120; // 2 minutes max wait
 
@@ -656,6 +989,11 @@ const StudentWorkspace = () => {
                 }
 
                 const response = await submissionService.getSubmission(attemptId);
+                if (!response.success || !response.data) {
+                    attempts++;
+                    setTimeout(checkStatus, POLL_INTERVAL);
+                    return;
+                }
                 const attempt = response.data;
 
                 // Terminal states that should stop polling
@@ -668,11 +1006,7 @@ const StudentWorkspace = () => {
                 } else {
                     // Completed
                     setIsSubmitting(false);
-                    processSubmissionResult(attempt);
-
-                    if (attempt.status === 'success') {
-                        setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-                    }
+                    processSubmissionResult(attempt, questionIndex, questionTestCases);
                     // fail/error details are already shown in the output panel
                 }
             } catch (err) {
@@ -709,93 +1043,120 @@ const StudentWorkspace = () => {
         setIsSubmitting(true);
         try {
             await updateTimerOnBackend();
+            saveToDrafts(currentQuestionIndex, code);
 
-            const isMcq = currentQuestion?.question_type === 'mcq';
-            const payload = {
-                assignment_id: assignment.id,
-                assignment_question_id: currentAQ.id,
-                question_id: currentQuestion.id,
-                language: selectedLanguage,
-                time_spent: timeSpent
-            };
-            if (isMcq) {
-                let optionIndex = code;
-                if (currentQuestion.config?.options) {
-                    const idx = currentQuestion.config.options.indexOf(code);
-                    if (idx !== -1) optionIndex = idx;
-                }
-                payload.response_data = { answer: optionIndex };
-            } else {
-                payload.code_content = code;
+            const payload = buildQuestionSubmissionPayload({
+                aq: currentAQ,
+                question: currentQuestion,
+                answerValue: code,
+                spentTime: timeSpent
+            });
+
+            const submissionResult = await submitCodeWithRetry(payload);
+            if (!submissionResult.ok) {
+                const errorMessage = getApiErrorMessage(submissionResult.response);
+                alert(
+                    `Submission failed to save after automatic retry. ${errorMessage}\n` +
+                    "Your code is kept locally and will be recalled automatically."
+                );
+                setIsSubmitting(false);
+                return;
             }
 
-            const response = await submissionService.submitCode(payload);
+            if (submissionResult.alreadyCompleted) {
+                setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
+                setIsSubmitting(false);
+                return;
+            }
 
-            // Handle Response
-            const attempt = response.data;
+            const attempt = submissionResult.response?.data;
+            if (!attempt || !attempt.status) {
+                alert("Submission failed due to an unexpected server response. Your code is still saved locally.");
+                setIsSubmitting(false);
+                return;
+            }
 
             if (attempt.status === 'queued' || attempt.status === 'processing') {
                 // Async: Start Polling
                 // Note: We do NOT set isSubmitting(false) here. Polling handles it.
-                pollSubmission(attempt.id);
+                pollSubmission(attempt.id, currentQuestionIndex, testCases);
             } else {
                 // Sync / Immediate Result
-                processSubmissionResult(attempt);
+                processSubmissionResult(attempt, currentQuestionIndex, testCases);
                 setIsSubmitting(false);
-
-                if (attempt.status === 'success') {
-                    setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-                } else if (attempt.status === 'fail') {
-                    // Fail details are already in the output panel
-                }
             }
 
         } catch (err) {
             console.error("Submission failed:", err);
             setIsSubmitting(false);
-
-            // Handle "Already Completed" (400)
-            if (err.response?.status === 400 && err.response?.data?.message?.includes("already successfully completed")) {
-                alert("You have already completed this question! Marking as complete.");
-                setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
-            } else {
-                alert("Submission failed: " + (err.response?.data?.message || err.message));
-            }
+            alert("Submission failed unexpectedly. Your code is still saved locally.");
         }
     };
 
-    const processSubmissionResult = (attempt) => {
-        if (!attempt || !attempt.test_results) return;
+    const processSubmissionResult = (attempt, questionIndex = currentQuestionIndex, questionTestCases = testCases) => {
+        if (!attempt || !attempt.test_results) {
+            setCompletedQuestions(prev => new Set(prev).add(questionIndex));
+            setQuestionSubmissionStatus(prev => ({ ...prev, [questionIndex]: "fail" }));
+            if (questionIndex === currentQuestionIndex) {
+                setOutput({
+                    status: "failed",
+                    message: "Submission saved, but test results were not returned.",
+                    results: []
+                });
+            }
+            return;
+        }
 
         const formattedResults = attempt.test_results.map((r, idx) => ({
             id: idx,
             status: r.status === 'pass' ? 'success' : 'error',
             output: r.actual_output || '',
-            expected: testCases[idx]?.expected_output || '',
+            expected: questionTestCases[idx]?.expected_output || '',
             error: r.error_message || '',
-            input: testCases[idx]?.input || '',
+            input: questionTestCases[idx]?.input || '',
             testPassed: r.status === 'pass'
         }));
 
-        const allPassed = formattedResults.every(r => r.status === 'success');
+        const hasResults = formattedResults.length > 0;
+        const allPassed = hasResults && formattedResults.every(r => r.status === 'success');
+        const submissionStatus = allPassed ? "success" : "fail";
 
-        setOutput({
-            status: allPassed ? 'success' : 'error',
-            message: allPassed ? 'All Test Cases Passed! Great Job!' : 'Some test cases failed. Review details below.',
-            results: formattedResults
+        if (questionIndex === currentQuestionIndex) {
+            setOutput({
+                status: allPassed ? 'success' : 'failed',
+                message: allPassed ? 'All Test Cases Passed! Great Job!' : 'Some test cases failed. Review details below.',
+                results: formattedResults
+            });
+        }
+
+        setCompletedQuestions(prev => new Set(prev).add(questionIndex));
+        setQuestionSubmissionStatus(prev => ({ ...prev, [questionIndex]: submissionStatus }));
+
+        if (questionIndex === currentQuestionIndex) {
+            pauseTimer();
+        }
+
+        const aqId = assignment?.questions?.[questionIndex]?.id;
+        if (aqId) {
+            clearDraftFromStorage(aqId, selectedLanguage);
+        }
+
+        setCodeDrafts(prev => {
+            if (!Object.prototype.hasOwnProperty.call(prev, questionIndex)) return prev;
+            const next = { ...prev };
+            delete next[questionIndex];
+            return next;
         });
-
-        pauseTimer();
-
-        // Mark as completed (attempted) regardless of pass/fail 
-        // to allow user to move on
-        setCompletedQuestions(prev => new Set(prev).add(currentQuestionIndex));
     };
 
     const handleFinishAssignment = async () => {
         try {
             setIsSubmitting(true);
-            await submissionService.finishAssignment(assignment.id);
+            const finishResponse = await submissionService.finishAssignment(assignment.id);
+            if (!finishResponse.success) {
+                throw new Error(getApiErrorMessage(finishResponse));
+            }
+            clearAssignmentDraftsFromStorage();
 
             // Show Success Modal
             setShowConfetti(true);
@@ -814,8 +1175,14 @@ const StudentWorkspace = () => {
         }
     };
 
+    const handleClipboardRestriction = (e) => {
+        if (isClipboardRestricted) {
+            e.preventDefault();
+        }
+    };
+
     return (
-        <div className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
+        <div ref={workspaceRootRef} className="flex flex-col h-screen bg-gray-50 text-gray-900 font-sans overflow-hidden">
 
             {/* Anti-Cheat Fullscreen Blocking Overlay */}
             {!isReadOnly && !loading && !error && assignment && assignment.mode === 'exam' && !isFullscreen && (
@@ -923,11 +1290,8 @@ const StudentWorkspace = () => {
                 <QuestionPalette
                     currentQuestionIndex={currentQuestionIndex}
                     totalQuestions={totalQuestions}
-                    onSelectQuestion={(idx) => {
-                        saveToDrafts(currentQuestionIndex, code);
-                        setCurrentQuestionIndex(idx);
-                        setOutput(null);
-                    }}
+                    questionStatusMap={questionSubmissionStatus}
+                    onSelectQuestion={switchToQuestion}
                     onNext={handleNextQuestion}
                     onPrev={handlePrevQuestion}
                 />
@@ -998,21 +1362,21 @@ const StudentWorkspace = () => {
                                     Submit
                                 </Button>
 
-                                {currentQuestionIndex < totalQuestions - 1 ? (
-                                    <Button
-                                        size="sm"
-                                        onClick={handleNextQuestion}
-                                        className="bg-green-600 hover:bg-green-700 text-white h-9 shadow-sm gap-2"
-                                    >
-                                        Next Question <ChevronDown className="w-4 h-4 -rotate-90" />
-                                    </Button>
-                                ) : (
+                                {allQuestionsSubmitted || currentQuestionIndex === totalQuestions - 1 ? (
                                     <Button
                                         size="sm"
                                         onClick={handleFinishAssignment}
                                         className="bg-blue-600 hover:bg-blue-700 text-white h-9 shadow-sm gap-2"
                                     >
                                         Finish Assignment <CheckCircle2 className="w-4 h-4" />
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        size="sm"
+                                        onClick={handleNextQuestion}
+                                        className="bg-green-600 hover:bg-green-700 text-white h-9 shadow-sm gap-2"
+                                    >
+                                        Next Question <ChevronDown className="w-4 h-4 -rotate-90" />
                                     </Button>
                                 )}
                             </div>
@@ -1034,7 +1398,13 @@ const StudentWorkspace = () => {
             {/* 2. MAIN WORKSPACE */}
             <div className="flex-1 w-full overflow-hidden flex">
                 {/* LEFT PANEL: Description */}
-                <div className="w-[35%] min-w-[300px] max-w-[600px] bg-white border-r border-gray-200 flex flex-col h-full">
+                <div
+                    className="w-[35%] min-w-[300px] max-w-[600px] bg-white border-r border-gray-200 flex flex-col h-full"
+                    onCopy={handleClipboardRestriction}
+                    onCut={handleClipboardRestriction}
+                    onPaste={handleClipboardRestriction}
+                    onContextMenu={handleClipboardRestriction}
+                >
                     <div className="flex-1 overflow-y-auto p-6">
                         <div className="mb-6">
                             <h2 className="text-xl font-bold text-gray-900 mb-2 select-none">
@@ -1054,7 +1424,7 @@ const StudentWorkspace = () => {
                             <h3 className="text-sm font-semibold text-gray-900 mb-3">Example Test Cases</h3>
                             <div className="space-y-3">
                                 {testCases.slice(0, 2).map((tc, idx) => (
-                                    <div key={idx} className="bg-gray-50 rounded-lg p-3 text-xs font-mono border border-gray-200">
+                                    <div key={idx} className="bg-gray-50 rounded-lg p-3 text-xs font-mono border border-gray-200 select-none">
                                         <div className="grid grid-cols-2 gap-2 mb-1">
                                             <span className="text-gray-500">Input:</span>
                                             <span className="text-gray-900">{tc.input}</span>
@@ -1098,7 +1468,7 @@ const StudentWorkspace = () => {
                             <McqWorkspaceRenderer
                                 question={currentQuestion}
                                 selectedOption={code}
-                                onChange={setCode}
+                                onChange={handleCodeChange}
                                 disabled={isReadOnly || isSubmitting}
                             />
                         </div>
@@ -1123,19 +1493,25 @@ const StudentWorkspace = () => {
                                 </div>
                                 <span
                                     className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                    onClick={() => setCode(languageConfig[selectedLanguage].defaultCode)}
+                                    onClick={() => handleCodeChange(getWorkspaceStarterCode(currentQuestion, selectedLanguage))}
                                 >
                                     <RotateCcw className="w-3 h-3" /> Reset
                                 </span>
                             </div>
 
-                            <div className="flex-1 relative overflow-hidden bg-[#1e1e1e]">
+                            <div
+                                className="flex-1 relative overflow-hidden bg-[#1e1e1e]"
+                                onCopy={handleClipboardRestriction}
+                                onCut={handleClipboardRestriction}
+                                onPaste={handleClipboardRestriction}
+                                onContextMenu={handleClipboardRestriction}
+                            >
                                 <MonacoEditor
                                     height="100%"
                                     language={languageConfig[selectedLanguage].monacoLang}
                                     value={code}
                                     theme="vs-dark"
-                                    onChange={(value) => setCode(value || '')}
+                                    onChange={(value) => handleCodeChange(value || '')}
                                     onMount={handleMonacoMount}
                                     options={{
                                         fontSize: 14,

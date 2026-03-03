@@ -5,12 +5,34 @@ import { Button } from "../ui/button";
 const QuestionPalette = ({
     currentQuestionIndex,
     totalQuestions,
+    questionStatusMap = {},
     onSelectQuestion,
     onNext,
     onPrev
 }) => {
     // Generate array of question indices [0, 1, 2...]
     const questions = Array.from({ length: totalQuestions }, (_, i) => i);
+
+    const getQuestionClassName = (idx) => {
+        const isActive = currentQuestionIndex === idx;
+        const status = questionStatusMap[idx];
+
+        if (status === "success") {
+            return isActive
+                ? "bg-green-600 text-white shadow-md scale-110"
+                : "bg-green-100 text-green-700 hover:bg-green-200";
+        }
+
+        if (status === "fail") {
+            return isActive
+                ? "bg-red-600 text-white shadow-md scale-110"
+                : "bg-red-100 text-red-700 hover:bg-red-200";
+        }
+
+        return isActive
+            ? "bg-indigo-600 text-white shadow-md scale-110"
+            : "hover:bg-gray-200 text-gray-600";
+    };
 
     return (
         <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
@@ -31,10 +53,7 @@ const QuestionPalette = ({
                     <button
                         key={idx}
                         onClick={() => onSelectQuestion(idx)}
-                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-medium transition-all ${currentQuestionIndex === idx
-                                ? 'bg-indigo-600 text-white shadow-md scale-110'
-                                : 'hover:bg-gray-200 text-gray-600'
-                            }`}
+                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-medium transition-all ${getQuestionClassName(idx)}`}
                         title={`Question ${idx + 1}`}
                     >
                         {idx + 1}

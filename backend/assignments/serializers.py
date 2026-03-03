@@ -94,7 +94,7 @@ class AssignmentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Assignment
         # Include fields from ContentItem (inherited) and Assignment
-        fields = ['id', 'title', 'description', 'due_date', 'is_published', 
+        fields = ['id', 'title', 'description', 'due_date', 'is_published', 'type',
                   'mode', 'points_total', 'points', 'difficulty', 'config', 'questions', 
                   'module', 'class_name', 'class_id', 'total_students', 'is_submitted', 'is_graded', 'created_at']
         read_only_fields = ['id', 'class_name', 'class_id', 'points', 'total_students', 'is_submitted', 'is_graded', 'created_at']
@@ -137,4 +137,4 @@ class StreamAssignmentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Assignment
-        fields = ['id', 'title', 'description', 'due_date', 'points_total', 'created_at', 'class_id', 'class_name', 'is_published', 'comments_count']
+        fields = ['id', 'title', 'description', 'due_date', 'type', 'mode', 'points_total', 'created_at', 'class_id', 'class_name', 'is_published', 'comments_count']

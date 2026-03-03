@@ -31,6 +31,7 @@ import MonacoEditor from '@monaco-editor/react';
 // Services
 import { practiceService } from "../../../services/practiceService";
 import McqWorkspaceRenderer from "../../workspace/McqWorkspaceRenderer";
+import { getWorkspaceStarterCode } from "../../../utils/workspaceBoilerplate";
 
 const DIFFICULTY_COLORS = {
     easy: "bg-green-100 text-green-700 border-green-200",
@@ -140,11 +141,7 @@ const PracticeWorkspace = () => {
                 setProgress(questionProgress || null);
 
                 // Set initial code
-                if (questionRes.data.starter_code) {
-                    setCode(questionRes.data.starter_code);
-                } else {
-                    setCode(languageConfig[selectedLanguage].defaultCode);
-                }
+                setCode(getWorkspaceStarterCode(questionRes.data, selectedLanguage));
 
             } catch (err) {
                 console.error("Failed to load practice question:", err);
@@ -308,11 +305,7 @@ const PracticeWorkspace = () => {
         setSelectedLanguage(newLanguage);
 
         // Reset to starter code or default for new language
-        if (question?.starter_code) {
-            setCode(question.starter_code);
-        } else {
-            setCode(languageConfig[newLanguage].defaultCode);
-        }
+        setCode(getWorkspaceStarterCode(question, newLanguage));
 
         setOutput(null);
     };
@@ -770,7 +763,7 @@ const PracticeWorkspace = () => {
                                 </div>
                                 <span
                                     className="hover:text-white cursor-pointer transition-colors flex items-center gap-1"
-                                    onClick={() => setCode(question.starter_code || languageConfig[selectedLanguage].defaultCode)}
+                                    onClick={() => setCode(getWorkspaceStarterCode(question, selectedLanguage))}
                                 >
                                     <RotateCcw className="w-3 h-3" /> Reset
                                 </span>

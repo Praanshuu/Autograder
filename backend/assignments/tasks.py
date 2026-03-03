@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 def release_expired_exam_questions():
     """
     Periodic task: checks for exam assignments whose due_date has passed,
-    and automatically links their questions into the PracticeQuestionLibrary.
+    and automatically unhides their questions in the PracticeQuestionLibrary.
 
     This task is idempotent — it uses `questions_released` to ensure it only
     processes each expired exam once.
@@ -36,19 +36,34 @@ def release_expired_exam_questions():
 
         for question in questions:
             try:
-                _, created = PracticeQuestionLibrary.objects.get_or_create(
-                    question=question,
-                    defaults={
-                        'is_public': True,
-                        'tags': question.tags,
-                    }
-                )
-                if created:
+                # Get the existing library entry and unhide it
+                pql = PracticeQuestionLibrary.objects.filter(question=question).first()
+                if pql:
+                    # Unhide the question
+                    pql.is_hidden = False
+                    pql.hide_until = None
+                    pql.save()
                     released_for_this_exam += 1
                     logger.info(
-                        f"[release_expired_exam_questions] Released question '{question.title}' "
+                        f"[release_expired_exam_questions] Unhid question '{question.title}' "
                         f"(ID: {question.id}) from expired exam '{exam.title}' (ID: {exam.id})."
                     )
+                else:
+                    # If no library entry exists, create one (for backward compatibility)
+                    _, created = PracticeQuestionLibrary.objects.get_or_create(
+                        question=question,
+                        defaults={
+                            'is_public': True,
+                            'tags': question.tags,
+                            'is_hidden': False,
+                        }
+                    )
+                    if created:
+                        released_for_this_exam += 1
+                        logger.info(
+                            f"[release_expired_exam_questions] Created and released question '{question.title}' "
+                            f"(ID: {question.id}) from expired exam '{exam.title}' (ID: {exam.id})."
+                        )
             except Exception as e:
                 logger.error(
                     f"[release_expired_exam_questions] Failed to release question '{question.id}': {e}"
@@ -62,7 +77,7 @@ def release_expired_exam_questions():
         exams_processed += 1
         logger.info(
             f"[release_expired_exam_questions] Processed exam '{exam.title}': "
-            f"released {released_for_this_exam} new question(s) to the Practice Library."
+            f"released {released_for_this_exam} question(s) to the Practice Library."
         )
 
     if exams_processed > 0:

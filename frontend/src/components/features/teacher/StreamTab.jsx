@@ -31,6 +31,8 @@ export default function StreamTab() {
     const [currentUser, setCurrentUser] = useState(null); // Would normally get from AuthContext
     const [loading, setLoading] = useState(true);
 
+    const isAssignmentLike = (t) => ['assignment', 'quiz', 'exam'].includes(t);
+
     // Fetch class details
     useEffect(() => {
         const fetchClassDetails = async () => {
@@ -88,9 +90,11 @@ export default function StreamTab() {
 
                     const assignmentPosts = rawAssignments.map(a => {
                         const displayType = a.type === 'quiz' ? 'Quiz' : a.mode === 'exam' ? 'Exam' : 'Assignment';
+                        const mappedType = a.type === 'quiz' ? 'quiz' : (a.mode === 'exam' ? 'exam' : 'assignment');
                         return {
                             id: a.id,
-                            type: 'assignment',
+                            // preserve the true content type so consumers can detect quizzes/exams
+                            type: mappedType,
                             displayType: displayType,
                             author: { first_name: 'New', last_name: displayType }, // Placeholder
                             title: a.title,
@@ -120,6 +124,7 @@ export default function StreamTab() {
                             id: a.id,
                             title: a.title,
                             due: new Date(a.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                            // keep capitalized display label for UI
                             type: displayType
                         };
                     });
@@ -199,7 +204,7 @@ export default function StreamTab() {
             try {
                 // Determine IDs
                 const announcementId = post.type === 'announcement' ? post.id : null;
-                const assignmentId = post.type === 'assignment' ? post.id : null;
+                const assignmentId = isAssignmentLike(post.type) ? post.id : null;
 
                 // Call API for both types to ensure fresh data
                 const res = await streamService.getComments(announcementId, assignmentId);
@@ -232,7 +237,7 @@ export default function StreamTab() {
         };
 
         if (post.type === 'announcement') payload.announcement = post.id;
-        else if (post.type === 'assignment') payload.assignment = post.id;
+        else if (isAssignmentLike(post.type)) payload.assignment = post.id;
 
         try {
             const res = await streamService.addComment(payload);
@@ -364,7 +369,7 @@ export default function StreamTab() {
                         <div className="p-6">
                             <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center gap-3">
-                                    {post.type === 'assignment' ? (
+                                    {isAssignmentLike(post.type) ? (
                                         <div className="w-10 h-10 rounded-full flex items-center justify-center text-white bg-indigo-600">
                                             <StickyNote className="w-5 h-5" />
                                         </div>
@@ -379,7 +384,7 @@ export default function StreamTab() {
 
                                     <div>
                                         <h3 className="font-semibold text-gray-900">
-                                            {post.type === 'assignment' ? post.author.first_name + " posted a new " + post.displayType.toLowerCase() + ": " + post.title : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
+                                            {isAssignmentLike(post.type) ? `${post.author.first_name} posted a new ${post.displayType?.toLowerCase() || 'assignment'}: ${post.title}` : (post.author?.first_name ? `${post.author.first_name} ${post.author.last_name}` : post.author?.username)}
                                         </h3>
                                         <p className="text-xs text-gray-500">{post.date.toLocaleDateString()} {post.date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                                     </div>
@@ -418,7 +423,7 @@ export default function StreamTab() {
                                 </div>
                             ) : (
                                 <div className="text-gray-700 text-sm mb-4 whitespace-pre-wrap">
-                                    {post.type === 'assignment' ? (
+                                    {isAssignmentLike(post.type) ? (
                                         // Assignment simplified view
                                         <div className="flex flex-col gap-1">
                                             <span>{post.title}</span>
@@ -429,7 +434,7 @@ export default function StreamTab() {
                             )}
 
                             {/* Attachments Placeholder */}
-                            {post.type === 'assignment' && (
+                            {isAssignmentLike(post.type) && (
                                 <div onClick={() => window.location.href = `/teacher/class/${classId}/assignments/${post.id}`} className="border border-gray-200 rounded-lg p-3 flex items-center gap-3 bg-gray-50 mb-4 cursor-pointer hover:bg-gray-100">
                                     <div className="w-10 h-10 bg-white rounded border flex items-center justify-center text-indigo-600 font-bold text-xs uppercase shadow-sm">
                                         <StickyNote className="w-5 h-5" />

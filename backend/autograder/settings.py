@@ -63,6 +63,7 @@ MIDDLEWARE = [
 
 # Allow iframes from same origin for UMAP embeddings
 X_FRAME_OPTIONS = 'SAMEORIGIN'
+SECURE_CROSS_ORIGIN_OPENER_POLICY = None
 
 ROOT_URLCONF = 'autograder.urls'
 

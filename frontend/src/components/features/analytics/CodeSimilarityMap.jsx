@@ -4,6 +4,7 @@ import { Info } from "lucide-react";
 export default function CodeSimilarityMap({ submissions, url }) {
     // Determine the full URL for the media path (url is already an absolute path /media/...)
     const fullUrl = url || null;
+    console.log("UMAP Iframe URL:", fullUrl);
 
     return (
         <Card className="h-full">

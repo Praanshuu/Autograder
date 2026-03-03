@@ -705,10 +705,16 @@ class PracticeQuestionLibraryViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        """Return public library questions"""
+        """Return public library questions that are not hidden or whose hide period has expired"""
+        from django.utils import timezone
+        now = timezone.now()
+        
         return PracticeQuestionLibrary.objects.filter(
             is_public=True,
             question__is_active=True
+        ).filter(
+            # Include questions that are not hidden, or whose hide period has expired
+            Q(is_hidden=False) | Q(hide_until__lte=now)
         ).select_related('question', 'question__created_by')
     
     def get_permissions(self):

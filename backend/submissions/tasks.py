@@ -428,19 +428,23 @@ def analyze_question_ai_task(
                     from django.utils.text import slugify
                     from assignments.models import AssignmentQuestion, Assignment
 
-                    assignment = Assignment.objects.get(id=assignment_id)
-                    assignment_slug = f"{slugify(assignment.title)}-{str(assignment.id)[:8]}"
-
+                    assignment = Assignment.objects.select_related('module__class_obj').get(id=assignment_id)
+                    class_obj = assignment.module.class_obj
+                    
+                    class_slug = slugify(class_obj.name)
+                    assignment_slug = slugify(assignment.title)
+                    
+                    # Target location: MEDIA_ROOT/ai_reports/<class_slug>/<assignment_slug>/<question_slug>_umap.html
+                    reports_dir = Path(settings.MEDIA_ROOT) / "ai_reports" / class_slug / assignment_slug
+                    reports_dir.mkdir(parents=True, exist_ok=True)
+                    
                     html_files = list(output_dir.glob("interactive_embeddings_*.html"))
                     if html_files:
                         html_src = html_files[0]
-                        # Target location: MEDIA_ROOT/ai_reports/<assignment_slug>/<question_slug>_umap.html
-                        reports_dir = Path(settings.MEDIA_ROOT) / "ai_reports" / assignment_slug
-                        reports_dir.mkdir(parents=True, exist_ok=True)
                         html_dest = reports_dir / f"{question_slug}_umap.html"
                         shutil.copy2(html_src, html_dest)
                         
-                        relative_url = f"/media/ai_reports/{assignment_slug}/{html_dest.name}"
+                        relative_url = f"/media/ai_reports/{class_slug}/{assignment_slug}/{html_dest.name}"
                         _log(f"[{question_slug}] Saved interactive map to {relative_url}")
                         
                         AssignmentQuestion.objects.filter(

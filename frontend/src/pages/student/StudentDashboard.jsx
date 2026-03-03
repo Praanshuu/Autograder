@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import {
     Clock,
     CheckCircle2,
@@ -44,6 +45,7 @@ const StudentDashboard = () => {
     const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
     const [showStartConfirmation, setShowStartConfirmation] = useState(false);
     const [selectedAssignment, setSelectedAssignment] = useState(null);
+    const [showFullDescription, setShowFullDescription] = useState(false);
     // Real analytics state
     const [analyticsData, setAnalyticsData] = useState(null);
 
@@ -118,6 +120,7 @@ const StudentDashboard = () => {
 
     const handleStartAssignment = (assignment) => {
         setSelectedAssignment(assignment);
+        setShowFullDescription(false);
         setShowStartConfirmation(true);
     };
 
@@ -127,6 +130,13 @@ const StudentDashboard = () => {
         }
         setShowStartConfirmation(false);
         setSelectedAssignment(null);
+        setShowFullDescription(false);
+    };
+
+    const getExcerpt = (text, limit = 300) => {
+        if (!text) return "";
+        if (text.length <= limit) return text;
+        return text.slice(0, limit).trim() + '...';
     };
 
     // Derived State: Sort by urgency (excluding submitted)
@@ -465,13 +475,35 @@ const StudentDashboard = () => {
                                 <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                     <Timer className="w-8 h-8 text-indigo-600" />
                                 </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Start Assignment?</h2>
+                                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                    {selectedAssignment.is_submitted ? 'View Submission?' : `Start ${selectedAssignment.type === 'quiz' ? 'Quiz' : selectedAssignment.mode === 'exam' ? 'Exam' : 'Assignment'}?`}
+                                </h2>
                                 <p className="text-gray-500 mb-2">
                                     <strong>{selectedAssignment.title}</strong>
                                 </p>
+
+                                {selectedAssignment.description ? (
+                                    <div className="text-left text-sm text-gray-600 mb-4 max-h-40 overflow-hidden">
+                                        <ReactMarkdown>
+                                            {showFullDescription ? selectedAssignment.description : getExcerpt(selectedAssignment.description, 500)}
+                                        </ReactMarkdown>
+                                        {selectedAssignment.description.length > 500 && (
+                                            <div className="mt-2 text-right">
+                                                <button
+                                                    onClick={() => setShowFullDescription(s => !s)}
+                                                    className="text-indigo-600 text-sm font-medium"
+                                                >
+                                                    {showFullDescription ? 'Show less' : 'Show more'}
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : null}
+
                                 <p className="text-gray-500 mb-6">
-                                    Once you start, the timer will begin and you can only exit by submitting your solution.
-                                    Are you ready to begin?
+                                    {selectedAssignment.mode === 'exam'
+                                        ? "This is an EXAM. Once started, you must remain in fullscreen. Leaving the exam or switching tabs will result in automatic submission. Are you ready?"
+                                        : `Once you start, the timer will begin and you can only exit by submitting your solution. Are you ready to begin?`}
                                 </p>
                                 <div className="flex gap-3">
                                     <Button
@@ -483,9 +515,8 @@ const StudentDashboard = () => {
                                     </Button>
                                     <Button
                                         onClick={handleConfirmStart}
-                                        className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white"
-                                    >
-                                        Start Assignment
+                                        className={`flex-1 text-white ${selectedAssignment.is_submitted ? 'bg-green-600 hover:bg-green-700' : selectedAssignment.mode === 'exam' ? 'bg-red-600 hover:bg-red-700' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                        {selectedAssignment.is_submitted ? 'View Submission' : `Start ${selectedAssignment.type === 'quiz' ? 'Quiz' : selectedAssignment.mode === 'exam' ? 'Exam' : 'Assignment'}`}
                                     </Button>
                                 </div>
                             </motion.div>

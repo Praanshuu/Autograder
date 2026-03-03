@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import ReactMarkdown from 'react-markdown';
 import { Link, useNavigate } from "react-router-dom";
 import {
     Search,
@@ -39,6 +40,7 @@ export default function StudentAssignments() {
     const [classFilter, setClassFilter] = useState("all");
     const [showStartConfirmation, setShowStartConfirmation] = useState(false);
     const [selectedAssignment, setSelectedAssignment] = useState(null);
+    const [showFullDescription, setShowFullDescription] = useState(false);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -68,6 +70,7 @@ export default function StudentAssignments() {
     const handleStartAssignment = (assignment, e) => {
         e.preventDefault(); // Prevent Link navigation
         setSelectedAssignment(assignment);
+        setShowFullDescription(false);
         setShowStartConfirmation(true);
     };
 
@@ -77,6 +80,13 @@ export default function StudentAssignments() {
         }
         setShowStartConfirmation(false);
         setSelectedAssignment(null);
+        setShowFullDescription(false);
+    };
+
+    const getExcerpt = (text, limit = 300) => {
+        if (!text) return "";
+        if (text.length <= limit) return text;
+        return text.slice(0, limit).trim() + '...';
     };
 
     // Helper for relative time
@@ -337,6 +347,24 @@ export default function StudentAssignments() {
                             <p className="text-gray-500 mb-2 font-semibold">
                                 {selectedAssignment.title}
                             </p>
+
+                            {selectedAssignment.description ? (
+                                <div className="text-left text-sm text-gray-600 mb-4 max-h-40 overflow-hidden">
+                                    <ReactMarkdown>
+                                        {showFullDescription ? selectedAssignment.description : getExcerpt(selectedAssignment.description, 500)}
+                                    </ReactMarkdown>
+                                    {selectedAssignment.description.length > 500 && (
+                                        <div className="mt-2 text-right">
+                                            <button
+                                                onClick={() => setShowFullDescription(s => !s)}
+                                                className="text-indigo-600 text-sm font-medium"
+                                            >
+                                                {showFullDescription ? 'Show less' : 'Show more'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            ) : null}
 
                             {selectedAssignment.is_submitted ? (
                                 <p className="text-gray-500 mb-6">
